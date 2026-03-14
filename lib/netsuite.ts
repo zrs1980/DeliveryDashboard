@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import OAuth from "oauth-1.0a";
 
 const ACCOUNT_ID      = process.env.NETSUITE_ACCOUNT_ID!;
 const CONSUMER_KEY    = process.env.NETSUITE_CONSUMER_KEY!;
@@ -6,74 +7,29 @@ const CONSUMER_SECRET = process.env.NETSUITE_CONSUMER_SECRET!;
 const TOKEN_ID        = process.env.NETSUITE_TOKEN_ID!;
 const TOKEN_SECRET    = process.env.NETSUITE_TOKEN_SECRET!;
 
-const BASE_URL = `https://${ACCOUNT_ID}.suitetalk.api.netsuite.com`;
+const BASE_URL    = `https://${ACCOUNT_ID}.suitetalk.api.netsuite.com`;
 const SUITEQL_URL = `${BASE_URL}/services/rest/query/v1/suiteql`;
 
-// ─── OAuth 1.0a helpers ───────────────────────────────────────────────────────
+// ─── OAuth 1.0a client ────────────────────────────────────────────────────────
 
-function nonce(len = 16): string {
-  return crypto.randomBytes(len).toString("hex");
+function makeOAuthClient() {
+  return new OAuth({
+    consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
+    signature_method: "HMAC-SHA256",
+    hash_function(baseString: string, key: string) {
+      return crypto.createHmac("sha256", key).update(baseString).digest("base64");
+    },
+  });
 }
 
-function timestamp(): string {
-  return String(Math.floor(Date.now() / 1000));
-}
-
-function percentEncode(s: string): string {
-  return encodeURIComponent(s)
-    .replace(/!/g,  "%21")
-    .replace(/'/g,  "%27")
-    .replace(/\(/g, "%28")
-    .replace(/\)/g, "%29")
-    .replace(/\*/g, "%2A");
-}
-
-function buildOAuthHeader(method: string, fullUrl: string): string {
-  const ts = timestamp();
-  const nc = nonce();
-
-  // Split URL into base and query params — both must be in the signature
-  const urlObj     = new URL(fullUrl);
-  const baseUrl    = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-  const queryParams: Record<string, string> = {};
-  urlObj.searchParams.forEach((v, k) => { queryParams[k] = v; });
-
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key:     CONSUMER_KEY,
-    oauth_nonce:            nc,
-    oauth_signature_method: "HMAC-SHA256",
-    oauth_timestamp:        ts,
-    oauth_token:            TOKEN_ID,
-    oauth_version:          "1.0",
-  };
-
-  // Merge oauth params + query params for the signature base string
-  const allParams = { ...queryParams, ...oauthParams };
-
-  const sortedParams = Object.entries(allParams)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${percentEncode(k)}=${percentEncode(v)}`)
-    .join("&");
-
-  const baseString = [
-    method.toUpperCase(),
-    percentEncode(baseUrl),
-    percentEncode(sortedParams),
-  ].join("&");
-
-  const signingKey = `${percentEncode(CONSUMER_SECRET)}&${percentEncode(TOKEN_SECRET)}`;
-  const signature  = crypto
-    .createHmac("sha256", signingKey)
-    .update(baseString)
-    .digest("base64");
-
-  oauthParams["oauth_signature"] = signature;
-
-  const headerParts = Object.entries(oauthParams)
-    .map(([k, v]) => `${k}="${percentEncode(v)}"`)
-    .join(", ");
-
-  return `OAuth realm="${ACCOUNT_ID}", ${headerParts}`;
+function buildOAuthHeader(method: string, url: string): string {
+  const oauthClient = makeOAuthClient();
+  const token       = { key: TOKEN_ID, secret: TOKEN_SECRET };
+  const header      = oauthClient.toHeader(
+    oauthClient.authorize({ url, method }, token)
+  );
+  // Inject realm into the header (NetSuite requires it)
+  return header.Authorization.replace("OAuth ", `OAuth realm="${ACCOUNT_ID}", `);
 }
 
 // ─── SuiteQL executor ─────────────────────────────────────────────────────────
