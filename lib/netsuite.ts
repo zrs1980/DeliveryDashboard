@@ -28,11 +28,17 @@ function percentEncode(s: string): string {
     .replace(/\*/g, "%2A");
 }
 
-function buildOAuthHeader(method: string, url: string): string {
-  const ts  = timestamp();
-  const nc  = nonce();
+function buildOAuthHeader(method: string, fullUrl: string): string {
+  const ts = timestamp();
+  const nc = nonce();
 
-  const params: Record<string, string> = {
+  // Split URL into base and query params — both must be in the signature
+  const urlObj     = new URL(fullUrl);
+  const baseUrl    = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+  const queryParams: Record<string, string> = {};
+  urlObj.searchParams.forEach((v, k) => { queryParams[k] = v; });
+
+  const oauthParams: Record<string, string> = {
     oauth_consumer_key:     CONSUMER_KEY,
     oauth_nonce:            nc,
     oauth_signature_method: "HMAC-SHA256",
@@ -41,27 +47,29 @@ function buildOAuthHeader(method: string, url: string): string {
     oauth_version:          "1.0",
   };
 
-  // Build base string
-  const sortedParams = Object.entries(params)
+  // Merge oauth params + query params for the signature base string
+  const allParams = { ...queryParams, ...oauthParams };
+
+  const sortedParams = Object.entries(allParams)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${percentEncode(k)}=${percentEncode(v)}`)
     .join("&");
 
   const baseString = [
     method.toUpperCase(),
-    percentEncode(url),
+    percentEncode(baseUrl),
     percentEncode(sortedParams),
   ].join("&");
 
   const signingKey = `${percentEncode(CONSUMER_SECRET)}&${percentEncode(TOKEN_SECRET)}`;
-  const signature = crypto
+  const signature  = crypto
     .createHmac("sha256", signingKey)
     .update(baseString)
     .digest("base64");
 
-  params["oauth_signature"] = signature;
+  oauthParams["oauth_signature"] = signature;
 
-  const headerParts = Object.entries(params)
+  const headerParts = Object.entries(oauthParams)
     .map(([k, v]) => `${k}="${percentEncode(v)}"`)
     .join(", ");
 
@@ -81,13 +89,13 @@ export async function runSuiteQL<T = Record<string, string>>(
     q = q.replace("?", safe);
   }
 
-  const method = "POST";
-  const url    = SUITEQL_URL;
-  const auth   = buildOAuthHeader(method, url);
+  const method    = "POST";
+  const fullUrl   = `${SUITEQL_URL}?limit=1000`;
+  const auth      = buildOAuthHeader(method, fullUrl);
 
   const body = JSON.stringify({ q });
 
-  const res = await fetch(`${url}?limit=1000`, {
+  const res = await fetch(fullUrl, {
     method,
     headers: {
       "Authorization":  auth,
