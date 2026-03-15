@@ -64,9 +64,6 @@ export async function GET() {
       return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
     }
 
-    // Start from ~6 months ago to stay well under the 1000-row SuiteQL limit.
-    // With ~130 working days × 6 employees = ~780 rows max — safely under limit.
-    // The 12-week trend chart and MTD/last-month periods are fully covered.
     const rows = await runSuiteQL<DayRow>(`
       SELECT
         tb.employee,
@@ -77,7 +74,7 @@ export async function GET() {
         SUM(CASE WHEN tb.isProductive = 'T' THEN tb.hours ELSE 0 END)     AS productive_hours
       FROM timebill tb
       WHERE tb.employee IN (${employeeIds.join(", ")})
-        AND tb.tranDate >= TO_DATE('10/01/2025', 'MM/DD/YYYY')
+        AND tb.tranDate >= ADD_MONTHS(SYSDATE, -3)
         AND tb.tranDate <= SYSDATE
       GROUP BY tb.employee, tb.tranDate
       ORDER BY tb.employee, tb.tranDate
