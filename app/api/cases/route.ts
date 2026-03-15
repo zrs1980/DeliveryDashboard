@@ -14,7 +14,7 @@ export async function GET() {
       title: string;
       status: string;
       priority: string;
-      customer_name: string;
+      companyname: string;
       assigned_id: string;
       createddate: string;
       lastmodifieddate: string;
@@ -25,12 +25,11 @@ export async function GET() {
         sc.title,
         BUILTIN.DF(sc.status)   AS status,
         BUILTIN.DF(sc.priority) AS priority,
-        cu.entityid             AS customer_name,
+        sc.companyname          AS companyname,
         sc.assigned             AS assigned_id,
         sc.createddate,
         sc.lastmodifieddate
       FROM supportcase sc
-      LEFT JOIN customer cu ON cu.id = sc.company
       WHERE sc.isinactive = 'F'
       ORDER BY sc.lastmodifieddate DESC
     `);
@@ -74,7 +73,7 @@ export async function GET() {
         status:       r.status  || "Unknown",
         priority:     r.priority || "—",
         stage:        "",
-        company:      r.customer_name || "—",
+        company:      r.companyname || "—",
         assigned,
         createdDate:  r.createddate,
         lastModified: r.lastmodifieddate,
