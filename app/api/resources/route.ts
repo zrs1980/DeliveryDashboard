@@ -11,24 +11,24 @@ export async function GET() {
       id: string;
       employee_id: string;
       project_name: string;
-      startdate: string;
-      enddate: string;
-      allocationunit: string;
-      percentofmax: string;
-      numberofunits: string;
+      startDate: string;
+      endDate: string;
+      allocationUnit: string;
+      percentOfTime: string;
+      numberHours: string;
     }>(`
       SELECT
         ra.id,
-        ra.resource                AS employee_id,
+        ra.allocationResource      AS employee_id,
         BUILTIN.DF(ra.project)     AS project_name,
-        ra.startdate,
-        ra.enddate,
-        ra.allocationunit,
-        ra.percentofmax,
-        ra.numberofunits
+        ra.startDate,
+        ra.endDate,
+        ra.allocationUnit,
+        ra.percentOfTime,
+        ra.numberHours
       FROM resourceallocation ra
-      WHERE ra.enddate >= SYSDATE
-      ORDER BY ra.resource, ra.startdate
+      WHERE ra.endDate >= SYSDATE
+      ORDER BY ra.allocationResource, ra.startDate
     `);
 
     const allocations: NSAllocation[] = rows.map(r => {
@@ -38,11 +38,11 @@ export async function GET() {
         employeeId:     empId,
         employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
         projectName:    r.project_name || "—",
-        startDate:      r.startdate,
-        endDate:        r.enddate,
-        allocationUnit: r.allocationunit ?? "1",
-        percentOfMax:   parseFloat(r.percentofmax) || 0,
-        hoursPerDay:    parseFloat(r.numberofunits) || 0,
+        startDate:      r.startDate,
+        endDate:        r.endDate,
+        allocationUnit: r.allocationUnit ?? "1",
+        percentOfMax:   parseFloat(r.percentOfTime) || 0,
+        hoursPerDay:    parseFloat(r.numberHours) || 0,
       };
     });
 
