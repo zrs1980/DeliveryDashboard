@@ -7,45 +7,70 @@ import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
 import { TaskCommandCenter } from "@/components/dashboard/TaskCommandCenter";
 import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
+import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
 import type { Project, ProjectPhase } from "@/lib/types";
 
-type Tab = "portfolio" | "tasks" | "resources" | "consultant";
+interface NSCase {
+  id: string;
+  caseNumber: string;
+  title: string;
+  status: string;
+  priority: string;
+  stage: string;
+  company: string;
+  assigned: string;
+  createdDate: string;
+  lastModified: string;
+}
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "portfolio",  label: "📊 Portfolio" },
-  { id: "tasks",      label: "🗂️ Tasks" },
-  { id: "resources",  label: "👥 Resources" },
-  { id: "consultant", label: "👤 My Work" },
+type Tab = "projects" | "tasks" | "resources" | "consultant" | "cases";
+
+const TABS: Array<{ id: Tab; label: string; icon: string }> = [
+  { id: "projects",   label: "Projects",    icon: "📊" },
+  { id: "tasks",      label: "Tasks",       icon: "🗂️" },
+  { id: "resources",  label: "Resources",   icon: "👥" },
+  { id: "consultant", label: "My Work",     icon: "👤" },
+  { id: "cases",      label: "Cases",       icon: "🎫" },
 ];
 
 interface DataState {
   projects: Project[];
   phases: ProjectPhase[];
+  cases: NSCase[];
   updatedAt: string | null;
 }
 
 export default function DashboardPage() {
-  const [tab, setTab] = useState<Tab>("portfolio");
-  const [data, setData] = useState<DataState>({ projects: [], phases: [], updatedAt: null });
+  const [tab, setTab] = useState<Tab>("projects");
+  const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], updatedAt: null });
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [casesError, setCasesError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setCasesError(null);
     try {
-      const [projRes, phaseRes] = await Promise.all([
+      const [projRes, phaseRes, casesRes] = await Promise.all([
         fetch("/api/projects"),
         fetch("/api/reports/phase-rag"),
+        fetch("/api/cases"),
       ]);
-      const [projData, phaseData] = await Promise.all([projRes.json(), phaseRes.json()]);
+      const [projData, phaseData, casesData] = await Promise.all([
+        projRes.json(),
+        phaseRes.json(),
+        casesRes.json(),
+      ]);
       if (!projRes.ok)  throw new Error(projData.error  ?? "Failed to load projects");
       if (!phaseRes.ok) throw new Error(phaseData.error ?? "Failed to load phases");
+      if (casesData.error) setCasesError(casesData.error);
       setData({
-        projects:  projData.projects ?? [],
-        phases:    phaseData.phases  ?? [],
+        projects:  projData.projects  ?? [],
+        phases:    phaseData.phases   ?? [],
+        cases:     casesData.cases    ?? [],
         updatedAt: projData.updatedAt ?? new Date().toISOString(),
       });
       setHasLoaded(true);
@@ -56,128 +81,168 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const { projects, phases, updatedAt } = data;
+  const { projects, phases, cases, updatedAt } = data;
 
-  // Counts for tab badges
-  const totalOverdue  = projects.reduce((s, p) => s + p.tasks.filter(t => {
-    if (!t.due_date) return false;
+  const totalOverdue = projects.reduce((s, p) => s + p.tasks.filter(t => {
     const st = t.status.status.toLowerCase();
     const done = st === "done" || st === "complete" || st === "supplied";
-    return !done && parseInt(t.due_date) < Date.now();
+    return !done && !!t.due_date && parseInt(t.due_date) < Date.now();
   }).length, 0);
-
   const totalBlocked = projects.reduce((s, p) => s + p.blocked.length, 0);
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", fontFamily: C.font }}>
-      {/* Header */}
+    <div style={{ background: "#F0F4F8", minHeight: "100vh", fontFamily: C.font }}>
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <header style={{
-        background: "#0D1117",
-        borderBottom: "1px solid #1E2A3A",
+        background: "linear-gradient(135deg, #0A0F1E 0%, #0D1B35 50%, #0A1628 100%)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
         position: "sticky",
         top: 0,
         zIndex: 100,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
       }}>
-        <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", gap: 12, height: 56 }}>
-          <div style={{
-            background: C.blue, borderRadius: 6, padding: "4px 10px",
-            fontWeight: 800, fontSize: 13, color: "#fff", letterSpacing: "0.02em", flexShrink: 0,
-          }}>
-            CEBA
+        <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", display: "flex", alignItems: "center", gap: 16, height: 60 }}>
+
+          {/* CEBA Logo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 9,
+              background: "linear-gradient(135deg, #1A56DB, #3B82F6)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(26,86,219,0.5)",
+              flexShrink: 0,
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L3 7v10l9 5 9-5V7L12 2z" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round"/>
+                <path d="M12 2v20M3 7l9 5 9-5" stroke="#fff" strokeWidth="1.4" strokeOpacity="0.6"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ color: "#F1F5F9", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+                CEBA Solutions
+              </div>
+              <div style={{ color: "#64748B", fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>
+                PROJECT MANAGEMENT
+              </div>
+            </div>
           </div>
-          <span style={{ color: "#F1F5F9", fontWeight: 600, fontSize: 15, flex: 1 }}>
-            Project Management Dashboard
-          </span>
+
+          {/* Divider */}
+          <div style={{ width: 1, height: 30, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
 
           {/* Alert badges */}
-          {hasLoaded && totalOverdue > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 700, background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, borderRadius: 5, padding: "2px 8px" }}>
-              ⚠ {totalOverdue} overdue
-            </span>
-          )}
-          {hasLoaded && totalBlocked > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 700, background: C.orangeBg, color: C.orange, border: `1px solid ${C.orangeBd}`, borderRadius: 5, padding: "2px 8px" }}>
-              🚫 {totalBlocked} blocked
-            </span>
-          )}
+          <div style={{ display: "flex", gap: 8, flex: 1, alignItems: "center" }}>
+            {hasLoaded && totalOverdue > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, background: "rgba(192,57,43,0.15)", color: "#F87171", border: "1px solid rgba(192,57,43,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                ⚠ {totalOverdue} overdue
+              </span>
+            )}
+            {hasLoaded && totalBlocked > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, background: "rgba(180,83,9,0.15)", color: "#FB923C", border: "1px solid rgba(180,83,9,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                🚫 {totalBlocked} blocked
+              </span>
+            )}
+            {hasLoaded && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginLeft: 4, whiteSpace: "nowrap" }}>
+                {projects.length} active projects
+              </span>
+            )}
+          </div>
 
-          <span style={{ fontSize: 10, color: "#64748B", background: "#1E2A3A", borderRadius: 4, padding: "2px 7px", fontWeight: 600 }}>
-            v1.1
-          </span>
+          {updatedAt && (
+            <span style={{ fontSize: 10, color: "#475569", whiteSpace: "nowrap" }}>
+              Updated {new Date(updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
 
           <button
             onClick={refresh}
             disabled={loading}
             style={{
-              background: loading ? "#1E2A3A" : C.blue,
-              color: "#fff", border: "none", borderRadius: 6,
-              padding: "6px 14px", fontSize: 12, fontWeight: 700,
+              background: loading ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg, #1A56DB, #2563EB)",
+              color: "#fff", border: loading ? "1px solid rgba(255,255,255,0.1)" : "none",
+              borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 700,
               cursor: loading ? "not-allowed" : "pointer", fontFamily: C.font,
-              display: "flex", alignItems: "center", gap: 6,
+              display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+              boxShadow: loading ? "none" : "0 2px 8px rgba(26,86,219,0.4)",
+              transition: "opacity 0.15s",
             }}
           >
             {loading ? (
               <>
-                <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                <span style={{ display: "inline-block", width: 10, height: 10, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                 Loading…
               </>
             ) : "↻ Refresh Data"}
           </button>
+        </div>
 
-          {updatedAt && (
-            <span style={{ fontSize: 10, color: "#475569", whiteSpace: "nowrap" }}>
-              {new Date(updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          )}
-
-          {/* Tab nav */}
-          <nav style={{ display: "flex", gap: 4 }}>
-            {TABS.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  padding: "5px 12px", fontSize: 12, fontWeight: 600, fontFamily: C.font,
-                  background: tab === t.id ? C.blue : "transparent",
-                  color: tab === t.id ? "#fff" : "#64748B",
-                  border: "none", borderRadius: 5, cursor: "pointer", whiteSpace: "nowrap",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+        {/* Tab nav bar */}
+        <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", display: "flex", gap: 2, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                padding: "9px 18px", fontSize: 12.5, fontWeight: 600, fontFamily: C.font,
+                background: "none", border: "none",
+                borderBottom: tab === t.id ? "2px solid #3B82F6" : "2px solid transparent",
+                color: tab === t.id ? "#93C5FD" : "#475569",
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+                transition: "color 0.15s, border-color 0.15s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ fontSize: 13 }}>{t.icon}</span>
+              {t.label}
+              {t.id === "cases" && cases.length > 0 && (
+                <span style={{ fontSize: 10, background: "rgba(59,130,246,0.2)", color: "#60A5FA", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>
+                  {cases.length}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </header>
 
-      {/* Main content */}
-      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
+      {/* ── Main content ──────────────────────────────────────────────────── */}
+      <main style={{ maxWidth: 1440, margin: "0 auto", padding: "24px 28px" }}>
+
         {error && (
-          <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: C.red, fontSize: 13, fontWeight: 500 }}>
+          <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 10, padding: "12px 18px", marginBottom: 20, color: C.red, fontSize: 13, fontWeight: 500 }}>
             ⚠ {error}
           </div>
         )}
 
         {!hasLoaded && !loading && !error && (
-          <div style={{ background: C.surface, borderRadius: 10, padding: "48px 24px", textAlign: "center", border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
-            <div style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>CEBA Solutions — Project Dashboard</div>
-            <div style={{ color: C.textSub, fontSize: 14, marginBottom: 20 }}>Click <strong>Refresh Data</strong> to load live data from NetSuite and ClickUp.</div>
-            <button onClick={refresh} style={{ background: C.blue, color: "#fff", border: "none", borderRadius: 7, padding: "10px 24px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: C.font }}>
-              ↻ Load Data
+          <div style={{ background: "#fff", borderRadius: 16, padding: "64px 24px", textAlign: "center", border: `1px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: 16, margin: "0 auto 20px",
+              background: "linear-gradient(135deg, #EBF5FF, #DBEAFE)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
+            }}>📊</div>
+            <div style={{ fontWeight: 800, fontSize: 20, color: C.text, marginBottom: 8 }}>
+              CEBA Solutions — Project Dashboard
+            </div>
+            <div style={{ color: C.textSub, fontSize: 14, marginBottom: 28, maxWidth: 420, margin: "0 auto 28px" }}>
+              Real-time project health, task tracking, and resource allocation across all active NetSuite implementations.
+            </div>
+            <button onClick={refresh} style={{ background: "linear-gradient(135deg, #1A56DB, #2563EB)", color: "#fff", border: "none", borderRadius: 10, padding: "12px 32px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: C.font, boxShadow: "0 4px 14px rgba(26,86,219,0.35)" }}>
+              ↻ Load Live Data
             </button>
           </div>
         )}
 
-        {/* Portfolio Overview */}
-        {hasLoaded && tab === "portfolio" && (
+        {/* Projects */}
+        {hasLoaded && tab === "projects" && (
           <>
             <KpiCards projects={projects} />
             <AiInsights projects={projects} />
-            <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, marginBottom: 20 }}>
-              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 15, color: C.text }}>
-                Active Projects
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
+              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Active Projects</div>
+                <div style={{ fontSize: 12, color: C.textSub }}>{projects.length} projects</div>
               </div>
               <ProjectTable
                 projects={projects}
@@ -186,16 +251,16 @@ export default function DashboardPage() {
               />
             </div>
             {phases.length > 0 && (
-              <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "16px 20px" }}>
+              <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
                 <PhaseHeatmap phases={phases} projects={projects.map(p => ({ id: p.id, client: p.client, entityid: p.entityid }))} />
               </div>
             )}
           </>
         )}
 
-        {/* Task Command Center */}
+        {/* Tasks */}
         {hasLoaded && tab === "tasks" && (
-          <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "16px 20px" }}>
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <TaskCommandCenter
               projects={projects}
               onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
@@ -203,21 +268,39 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Resource Allocation */}
+        {/* Resources */}
         {hasLoaded && tab === "resources" && (
-          <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "16px 20px" }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 16 }}>Resource Allocation</div>
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>Resource Allocation</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 18 }}>Task load and estimated hours remaining per consultant, derived from ClickUp task assignments.</div>
             <ResourceAllocation projects={projects} />
           </div>
         )}
 
-        {/* Consultant / My Work */}
+        {/* My Work */}
         {hasLoaded && tab === "consultant" && (
-          <ConsultantView projects={projects} />
+          <ConsultantView projects={projects} cases={cases} />
         )}
+
+        {/* Cases */}
+        {hasLoaded && tab === "cases" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>Support Cases</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 18 }}>Open cases from NetSuite — support desk manager view.</div>
+            <CasesView cases={cases} error={casesError} />
+          </div>
+        )}
+
       </main>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+      `}</style>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { C, nsProjectUrl, STATUS_STYLES } from "@/lib/constants";
+import { C, STATUS_STYLES, nsProjectUrl } from "@/lib/constants";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket } from "@/lib/clickup";
 import { fmtH, fmtD, fmtPct } from "@/lib/health";
 import { HealthBadge } from "@/components/health/HealthBadge";
@@ -8,9 +8,33 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import type { Project, CUTask } from "@/lib/types";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NSCase {
+  id: string;
+  caseNumber: string;
+  title: string;
+  status: string;
+  priority: string;
+  company: string;
+  assigned: string;
+  createdDate: string;
+  lastModified: string;
+}
+
 interface Props {
   projects: Project[];
+  cases?: NSCase[];
 }
+
+type TaskTab =
+  | "all"
+  | "high_priority"
+  | "due_this_week"
+  | "due_next_week"
+  | "upcoming"
+  | "milestones"
+  | "at_risk";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -33,6 +57,31 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function CasePriorityBadge({ priority }: { priority: string }) {
+  const p = priority.toLowerCase();
+  const map: Record<string, { bg: string; color: string; bd: string }> = {
+    high:     { bg: C.redBg,    color: C.red,    bd: C.redBd },
+    medium:   { bg: C.yellowBg, color: C.yellow, bd: C.yellowBd },
+    low:      { bg: C.greenBg,  color: C.green,  bd: C.greenBd },
+    critical: { bg: C.redBg,    color: C.red,    bd: C.redBd },
+  };
+  const sty = map[p] ?? { bg: C.alt, color: C.textMid, bd: C.border };
+  return (
+    <span style={{
+      fontSize: 10,
+      fontWeight: 600,
+      borderRadius: 3,
+      padding: "1px 5px",
+      background: sty.bg,
+      color: sty.color,
+      border: `1px solid ${sty.bd}`,
+      whiteSpace: "nowrap",
+    }}>
+      {priority}
+    </span>
+  );
+}
+
 function PriorityFlag({ task }: { task: CUTask }) {
   const overdue = task.due_date && !isDone(task) && parseInt(task.due_date) < Date.now();
   const blocked = isBlocked(task);
@@ -40,21 +89,6 @@ function PriorityFlag({ task }: { task: CUTask }) {
   if (blocked)  return <span title="Blocked" style={{ fontSize: 13 }}>⚠️</span>;
   if (isMilestone(task)) return <span title="Milestone" style={{ fontSize: 13 }}>★</span>;
   return <span style={{ fontSize: 13, color: C.mid }}>·</span>;
-}
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <div style={{
-      fontSize: 11,
-      fontWeight: 700,
-      color: C.textSub,
-      textTransform: "uppercase" as const,
-      letterSpacing: "0.06em",
-      marginBottom: 10,
-    }}>
-      {title}
-    </div>
-  );
 }
 
 // ─── Tip data ─────────────────────────────────────────────────────────────────
@@ -66,11 +100,195 @@ const ERP_TIPS = [
   "Confirm client deliverables have written sign-off before marking complete.",
 ];
 
+// ─── Task table ───────────────────────────────────────────────────────────────
+
+function TaskTable({
+  rows,
+  muted = false,
+}: {
+  rows: Array<{ task: CUTask; project: Project }>;
+  muted?: boolean;
+}) {
+  const thBase: React.CSSProperties = {
+    padding: "8px 10px",
+    textAlign: "left" as const,
+    fontSize: 10,
+    fontWeight: 700,
+    color: C.textSub,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
+    borderBottom: `1px solid ${C.border}`,
+    background: C.alt,
+    whiteSpace: "nowrap" as const,
+  };
+  const tdBase: React.CSSProperties = {
+    padding: "8px 10px",
+    borderBottom: `1px solid ${C.border}`,
+    fontSize: 12,
+    color: muted ? C.textSub : C.text,
+    verticalAlign: "middle" as const,
+  };
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: "24px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+        No tasks in this view.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
+        <thead>
+          <tr>
+            <th style={{ ...thBase, width: 28, textAlign: "center" as const }}>!</th>
+            <th style={thBase}>Task Name</th>
+            <th style={thBase}>Project</th>
+            <th style={thBase}>Due Date</th>
+            <th style={thBase}>Status</th>
+            <th style={{ ...thBase, textAlign: "center" as const }}>Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ task, project }, i) => {
+            const overdue = !!task.due_date && !isDone(task) && parseInt(task.due_date) < Date.now();
+            const rowBg = overdue && !muted
+              ? C.redBg
+              : i % 2 === 0 ? C.surface : C.alt;
+
+            const dueTxt = task.due_date
+              ? new Date(parseInt(task.due_date)).toLocaleDateString("en-AU", {
+                  day: "numeric",
+                  month: "short",
+                })
+              : "—";
+
+            return (
+              <tr key={task.id} style={{ background: rowBg, opacity: muted ? 0.65 : 1 }}>
+                {/* Priority flag */}
+                <td style={{ ...tdBase, textAlign: "center" as const, width: 28 }}>
+                  <PriorityFlag task={task} />
+                </td>
+
+                {/* Task name */}
+                <td style={{ ...tdBase, maxWidth: 300 }}>
+                  <a
+                    href={task.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 12,
+                      color: muted ? C.textSub : C.blue,
+                      textDecoration: "none",
+                      display: "block",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={task.name}
+                  >
+                    {isMilestone(task) && (
+                      <span style={{ marginRight: 4, color: C.purple }}>★</span>
+                    )}
+                    {task.name}
+                  </a>
+                  <div style={{ display: "flex", gap: 4, marginTop: 2, flexWrap: "wrap" }}>
+                    {isBlocked(task) && (
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "0px 4px",
+                        borderRadius: 3,
+                        background: C.redBg,
+                        color: C.red,
+                        border: `1px solid ${C.redBd}`,
+                      }}>
+                        Blocked
+                      </span>
+                    )}
+                    {isClientPending(task) && (
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "0px 4px",
+                        borderRadius: 3,
+                        background: C.orangeBg,
+                        color: C.orange,
+                        border: `1px solid ${C.orangeBd}`,
+                      }}>
+                        Client Pending
+                      </span>
+                    )}
+                  </div>
+                </td>
+
+                {/* Project */}
+                <td style={{ ...tdBase, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
+                  {project.client}
+                </td>
+
+                {/* Due date */}
+                <td style={{
+                  ...tdBase,
+                  fontWeight: overdue && !muted ? 700 : 400,
+                  color: overdue && !muted ? C.red : C.textMid,
+                  whiteSpace: "nowrap",
+                  fontSize: 12,
+                }}>
+                  {dueTxt}
+                  {overdue && !muted && (
+                    <span style={{ marginLeft: 4, fontSize: 10, color: C.red }}>(overdue)</span>
+                  )}
+                </td>
+
+                {/* Status */}
+                <td style={tdBase}>
+                  <StatusBadge status={task.status.status} />
+                </td>
+
+                {/* Actions */}
+                <td style={{ ...tdBase, textAlign: "center" as const }}>
+                  <a
+                    href={task.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "2px 7px",
+                      borderRadius: 4,
+                      background: C.blueBg,
+                      color: C.blue,
+                      border: `1px solid ${C.blueBd}`,
+                      textDecoration: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    CU ↗
+                  </a>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ConsultantView({ projects }: Props) {
-  const [consultant, setConsultant] = useState<string>("");
-  const [tipsOpen,   setTipsOpen]   = useState(false);
+export function ConsultantView({ projects, cases }: Props) {
+  const [consultant,    setConsultant]    = useState<string>("");
+  const [tipsOpen,      setTipsOpen]      = useState(false);
+  const [taskTab,       setTaskTab]       = useState<TaskTab>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("");
+  const [insightOpen,   setInsightOpen]   = useState(false);
+  const [insightText,   setInsightText]   = useState<string>("");
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError,  setInsightError]  = useState<string>("");
 
   // Collect all unique assignee usernames across all projects
   const allConsultants = Array.from(
@@ -81,15 +299,7 @@ export function ConsultantView({ projects }: Props) {
     )
   ).sort();
 
-  // ── Derived data for selected consultant ──────────────────────────────────
-
-  const myTasks: Array<{ task: CUTask; project: Project }> = consultant
-    ? projects.flatMap(p =>
-        p.tasks
-          .filter(t => !isDone(t) && t.assignees.some(a => a.username === consultant))
-          .map(t => ({ task: t, project: p }))
-      )
-    : [];
+  // ── Derived data for selected consultant ────────────────────────────────────
 
   const myProjects: Project[] = consultant
     ? projects.filter(p =>
@@ -97,46 +307,108 @@ export function ConsultantView({ projects }: Props) {
       )
     : [];
 
-  // Tasks due this week or overdue (for Section B)
-  const weekTasks = myTasks
-    .filter(({ task }) => {
-      const b = taskBucket(task);
-      return b === "overdue" || b === "this_week";
-    })
-    .sort((a, b) => {
-      const bucketA = taskBucket(a.task);
-      const bucketB = taskBucket(b.task);
-      // Overdue always first
-      if (bucketA === "overdue" && bucketB !== "overdue") return -1;
-      if (bucketA !== "overdue" && bucketB === "overdue") return 1;
-      // Then by due date ascending
-      const da = a.task.due_date ? parseInt(a.task.due_date) : Infinity;
-      const db = b.task.due_date ? parseInt(b.task.due_date) : Infinity;
-      return da - db;
-    })
-    .slice(0, 20);
+  // All open tasks for this consultant (no project filter applied yet)
+  const allMyTasks: Array<{ task: CUTask; project: Project }> = consultant
+    ? projects.flatMap(p =>
+        p.tasks
+          .filter(t => t.assignees.some(a => a.username === consultant))
+          .map(t => ({ task: t, project: p }))
+      )
+    : [];
 
-  // Alert counts
-  const overdueCount  = myTasks.filter(({ task }) => task.due_date && parseInt(task.due_date) < Date.now()).length;
-  const blockedCount  = myTasks.filter(({ task }) => isBlocked(task)).length;
-  const showAlert     = overdueCount > 0 || blockedCount > 0;
+  // Apply project filter to the task list
+  const filteredTasks: Array<{ task: CUTask; project: Project }> = projectFilter
+    ? allMyTasks.filter(({ project }) => project.id.toString() === projectFilter)
+    : allMyTasks;
 
-  // Milestones (Section D)
-  const myMilestones = myTasks.filter(({ task }) => isMilestone(task));
+  // Only open tasks (not done) for most tabs
+  const openFilteredTasks = filteredTasks.filter(({ task }) => !isDone(task));
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Tab bucket helpers ──────────────────────────────────────────────────────
 
-  function fmtDue(task: CUTask): string {
-    if (!task.due_date) return "—";
-    return new Date(parseInt(task.due_date)).toLocaleDateString("en-AU", {
-      day: "numeric",
-      month: "short",
-    });
+  const NOW = Date.now();
+  const DAY_MS = 86400000;
+
+  function tabRows(tab: TaskTab): Array<{ task: CUTask; project: Project }> {
+    switch (tab) {
+      case "all":
+        return openFilteredTasks;
+
+      case "high_priority":
+        return openFilteredTasks.filter(({ task }) => {
+          const overdue = !!task.due_date && parseInt(task.due_date) < NOW;
+          return overdue || isBlocked(task) || isClientPending(task);
+        });
+
+      case "due_this_week":
+        return openFilteredTasks.filter(({ task }) => taskBucket(task) === "this_week");
+
+      case "due_next_week":
+        return openFilteredTasks.filter(({ task }) => taskBucket(task) === "next_week");
+
+      case "upcoming":
+        return openFilteredTasks.filter(({ task }) => taskBucket(task) === "upcoming");
+
+      case "milestones": {
+        // Include done milestones too (muted), sorted by due date
+        const milestoneRows = filteredTasks.filter(({ task }) => isMilestone(task));
+        return milestoneRows.slice().sort((a, b) => {
+          const da = a.task.due_date ? parseInt(a.task.due_date) : Infinity;
+          const db = b.task.due_date ? parseInt(b.task.due_date) : Infinity;
+          return da - db;
+        });
+      }
+
+      case "at_risk":
+        return openFilteredTasks.filter(({ task }) => {
+          if (!task.due_date) return false;
+          const due = parseInt(task.due_date);
+          const within14 = due - NOW <= 14 * DAY_MS && due > NOW - DAY_MS;
+          if (!within14) return false;
+          const onlyMe = task.assignees.length === 1 && task.assignees[0].username === consultant;
+          return isBlocked(task) || isClientPending(task) || onlyMe;
+        });
+
+      default:
+        return openFilteredTasks;
+    }
   }
 
-  function taskIsOverdue(task: CUTask): boolean {
-    return !!task.due_date && !isDone(task) && parseInt(task.due_date) < Date.now();
-  }
+  // Tab definitions
+  const TABS: Array<{ key: TaskTab; label: string }> = [
+    { key: "all",           label: "All" },
+    { key: "high_priority", label: "High Priority" },
+    { key: "due_this_week", label: "Due This Week" },
+    { key: "due_next_week", label: "Due Next Week" },
+    { key: "upcoming",      label: "Upcoming" },
+    { key: "milestones",    label: "Milestones" },
+    { key: "at_risk",       label: "At Risk" },
+  ];
+
+  // ── Alert counts ────────────────────────────────────────────────────────────
+
+  const overdueCount = openFilteredTasks.filter(({ task }) =>
+    !!task.due_date && parseInt(task.due_date) < NOW
+  ).length;
+  const blockedCount = openFilteredTasks.filter(({ task }) => isBlocked(task)).length;
+  const showAlert    = overdueCount > 0 || blockedCount > 0;
+
+  // ── Cases for this consultant ───────────────────────────────────────────────
+
+  const myCases: NSCase[] = (() => {
+    if (!cases || cases.length === 0 || !consultant) return [];
+    const parts = consultant.split(/[.\s_@]+/).filter(Boolean);
+    return cases.filter(c =>
+      parts.some(part =>
+        c.assigned.toLowerCase().includes(part.toLowerCase())
+      )
+    );
+  })();
+
+  // ── Project card helpers ─────────────────────────────────────────────────────
+
+  const hColor = (h: string) =>
+    h === "green" ? C.green : h === "yellow" ? C.yellow : C.red;
 
   function projectOpenTasks(p: Project): CUTask[] {
     return p.tasks.filter(
@@ -144,18 +416,30 @@ export function ConsultantView({ projects }: Props) {
     );
   }
 
-  const hColor = (h: string) =>
-    h === "green" ? C.green : h === "yellow" ? C.yellow : C.red;
+  // ── AI Insight ──────────────────────────────────────────────────────────────
 
-  // ── Table cell style helpers ───────────────────────────────────────────────
+  async function generateInsight() {
+    if (!consultant || myProjects.length === 0) return;
+    setInsightLoading(true);
+    setInsightError("");
+    setInsightText("");
+    try {
+      const res = await fetch("/api/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: myProjects, consultant }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setInsightText(data.insight ?? data.text ?? JSON.stringify(data));
+    } catch (err: unknown) {
+      setInsightError(err instanceof Error ? err.message : "Failed to generate insight.");
+    } finally {
+      setInsightLoading(false);
+    }
+  }
 
-  const tdBase: React.CSSProperties = {
-    padding: "8px 10px",
-    borderBottom: `1px solid ${C.border}`,
-    fontSize: 12,
-    color: C.text,
-    verticalAlign: "middle" as const,
-  };
+  // ── Table styles (shared) ───────────────────────────────────────────────────
 
   const thBase: React.CSSProperties = {
     padding: "8px 10px",
@@ -169,8 +453,15 @@ export function ConsultantView({ projects }: Props) {
     background: C.alt,
     whiteSpace: "nowrap" as const,
   };
+  const tdBase: React.CSSProperties = {
+    padding: "8px 10px",
+    borderBottom: `1px solid ${C.border}`,
+    fontSize: 12,
+    color: C.text,
+    verticalAlign: "middle" as const,
+  };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ fontFamily: C.font, color: C.text }}>
@@ -197,7 +488,14 @@ export function ConsultantView({ projects }: Props) {
         </label>
         <select
           value={consultant}
-          onChange={e => setConsultant(e.target.value)}
+          onChange={e => {
+            setConsultant(e.target.value);
+            setProjectFilter("");
+            setTaskTab("all");
+            setInsightText("");
+            setInsightError("");
+            setInsightOpen(false);
+          }}
           style={{
             fontSize: 13,
             padding: "5px 10px",
@@ -216,12 +514,9 @@ export function ConsultantView({ projects }: Props) {
           ))}
         </select>
         {consultant && (
-          <span style={{
-            marginLeft: 4,
-            fontSize: 12,
-            color: C.textSub,
-          }}>
-            {myTasks.length} open task{myTasks.length !== 1 ? "s" : ""} across{" "}
+          <span style={{ marginLeft: 4, fontSize: 12, color: C.textSub }}>
+            {allMyTasks.filter(({ task }) => !isDone(task)).length} open task
+            {allMyTasks.filter(({ task }) => !isDone(task)).length !== 1 ? "s" : ""} across{" "}
             {myProjects.length} project{myProjects.length !== 1 ? "s" : ""}
           </span>
         )}
@@ -242,7 +537,7 @@ export function ConsultantView({ projects }: Props) {
             Select a consultant to view their work
           </div>
           <div style={{ fontSize: 13 }}>
-            Use the dropdown above to choose a consultant and see their tasks, projects, and upcoming milestones.
+            Use the dropdown above to choose a consultant and see their tasks, projects, cases, and upcoming milestones.
           </div>
         </div>
       )}
@@ -250,6 +545,137 @@ export function ConsultantView({ projects }: Props) {
       {/* ── Main content (only when consultant selected) ─────────────────────── */}
       {consultant && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+          {/* ── AI Insight banner ───────────────────────────────────────────── */}
+          <div style={{
+            background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+            borderRadius: 8,
+            border: "1px solid #334155",
+            boxShadow: C.shMd,
+            overflow: "hidden",
+          }}>
+            {/* Header row */}
+            <div style={{
+              padding: "12px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              borderBottom: insightOpen ? "1px solid #334155" : "none",
+            }}>
+              <span style={{ fontSize: 15 }}>✦</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", flex: 1 }}>
+                Workload Analysis for {consultant}
+              </span>
+              <button
+                onClick={() => setInsightOpen(v => !v)}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "3px 10px",
+                  borderRadius: 5,
+                  border: "1px solid #475569",
+                  background: "transparent",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontFamily: C.font,
+                }}
+              >
+                {insightOpen ? "▲ Collapse" : "▼ Expand"}
+              </button>
+            </div>
+
+            {/* Expanded body */}
+            {insightOpen && (
+              <div style={{ padding: "14px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <button
+                    onClick={generateInsight}
+                    disabled={insightLoading}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: "5px 14px",
+                      borderRadius: 6,
+                      border: "1px solid #3b82f6",
+                      background: insightLoading ? "#1e3a5f" : "#1d4ed8",
+                      color: "#e0effe",
+                      cursor: insightLoading ? "not-allowed" : "pointer",
+                      fontFamily: C.font,
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    {insightLoading ? "Generating…" : "↻ Generate Insight"}
+                  </button>
+                  {insightText && !insightLoading && (
+                    <span style={{ fontSize: 11, color: "#64748b" }}>
+                      Based on {myProjects.length} project{myProjects.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+
+                {insightError && (
+                  <div style={{
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    background: "#2d1a1a",
+                    border: "1px solid #7f1d1d",
+                    color: "#fca5a5",
+                    fontSize: 12,
+                  }}>
+                    {insightError}
+                  </div>
+                )}
+
+                {insightText && !insightError && (
+                  <div style={{
+                    padding: "12px 14px",
+                    borderRadius: 6,
+                    background: "#0f172a",
+                    border: "1px solid #1e3a5f",
+                  }}>
+                    {insightText
+                      .split(/\n/)
+                      .filter(line => line.trim())
+                      .map((line, i) => {
+                        const isBullet = line.trim().startsWith("-") || line.trim().startsWith("•") || line.trim().startsWith("*");
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              fontSize: 13,
+                              color: "#cbd5e1",
+                              lineHeight: 1.6,
+                              marginBottom: 4,
+                              paddingLeft: isBullet ? 16 : 0,
+                              position: "relative",
+                            }}
+                          >
+                            {isBullet && (
+                              <span style={{
+                                position: "absolute",
+                                left: 4,
+                                color: "#3b82f6",
+                              }}>
+                                •
+                              </span>
+                            )}
+                            {isBullet
+                              ? line.trim().replace(/^[-•*]\s*/, "")
+                              : line}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {!insightText && !insightLoading && !insightError && (
+                  <div style={{ fontSize: 12, color: "#475569" }}>
+                    Click "Generate Insight" to run an AI workload analysis for {consultant}.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* ── Section A — Priority Alert Bar ─────────────────────────────── */}
           {showAlert && (
@@ -280,7 +706,7 @@ export function ConsultantView({ projects }: Props) {
             </div>
           )}
 
-          {/* ── Section B — My Tasks This Week ─────────────────────────────── */}
+          {/* ── Task section with sub-tabs + project filter ─────────────────── */}
           <div style={{
             background: C.surface,
             borderRadius: 8,
@@ -288,6 +714,7 @@ export function ConsultantView({ projects }: Props) {
             boxShadow: C.sh,
             overflow: "hidden",
           }}>
+            {/* Section header */}
             <div style={{
               padding: "12px 16px",
               borderBottom: `1px solid ${C.border}`,
@@ -295,9 +722,9 @@ export function ConsultantView({ projects }: Props) {
               alignItems: "center",
               gap: 8,
             }}>
-              <span style={{ fontSize: 15 }}>📅</span>
+              <span style={{ fontSize: 15 }}>📋</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                My Tasks This Week
+                My Tasks
               </span>
               <span style={{
                 marginLeft: 6,
@@ -305,113 +732,98 @@ export function ConsultantView({ projects }: Props) {
                 fontWeight: 600,
                 padding: "1px 7px",
                 borderRadius: 10,
-                background: weekTasks.length > 0 ? C.blueBg : C.alt,
-                color: weekTasks.length > 0 ? C.blue : C.textSub,
-                border: `1px solid ${weekTasks.length > 0 ? C.blueBd : C.border}`,
+                background: C.blueBg,
+                color: C.blue,
+                border: `1px solid ${C.blueBd}`,
               }}>
-                {weekTasks.length}
+                {allMyTasks.filter(({ task }) => !isDone(task)).length}
               </span>
             </div>
 
-            {weekTasks.length === 0 ? (
-              <div style={{ padding: "24px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
-                No tasks due this week. Nice work!
+            {/* Project filter + tab bar */}
+            <div style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${C.border}`,
+              background: C.alt,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}>
+              {/* Project filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.textMid, whiteSpace: "nowrap" }}>
+                  Filter by Project:
+                </label>
+                <select
+                  value={projectFilter}
+                  onChange={e => setProjectFilter(e.target.value)}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: `1px solid ${C.border}`,
+                    background: C.surface,
+                    color: C.text,
+                    fontFamily: C.font,
+                    cursor: "pointer",
+                    minWidth: 180,
+                  }}
+                >
+                  <option value="">All Projects</option>
+                  {myProjects.map(p => (
+                    <option key={p.id} value={p.id.toString()}>
+                      {p.client} ({p.entityid})
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...thBase, width: 28, textAlign: "center" as const }}>!</th>
-                      <th style={thBase}>Task Name</th>
-                      <th style={thBase}>Project</th>
-                      <th style={thBase}>Due Date</th>
-                      <th style={thBase}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {weekTasks.map(({ task, project }, i) => {
-                      const overdue = taskIsOverdue(task);
-                      const rowBg   = overdue
-                        ? C.redBg
-                        : i % 2 === 0 ? C.surface : C.alt;
 
-                      return (
-                        <tr key={task.id} style={{ background: rowBg }}>
-                          {/* Priority flag */}
-                          <td style={{ ...tdBase, textAlign: "center" as const, width: 28 }}>
-                            <PriorityFlag task={task} />
-                          </td>
-
-                          {/* Task name */}
-                          <td style={{ ...tdBase, maxWidth: 320 }}>
-                            <a
-                              href={task.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                fontWeight: 600,
-                                fontSize: 12,
-                                color: C.blue,
-                                textDecoration: "none",
-                                display: "block",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                              title={task.name}
-                            >
-                              {task.name}
-                            </a>
-                            {isBlocked(task) && (
-                              <span style={{
-                                display: "inline-block",
-                                marginTop: 2,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                padding: "0px 4px",
-                                borderRadius: 3,
-                                background: C.redBg,
-                                color: C.red,
-                                border: `1px solid ${C.redBd}`,
-                              }}>
-                                Blocked
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Project */}
-                          <td style={{ ...tdBase, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
-                            {project.client}
-                          </td>
-
-                          {/* Due date */}
-                          <td style={{
-                            ...tdBase,
-                            fontWeight: overdue ? 700 : 400,
-                            color: overdue ? C.red : C.textMid,
-                            whiteSpace: "nowrap",
-                            fontSize: 12,
-                          }}>
-                            {fmtDue(task)}
-                            {overdue && (
-                              <span style={{ marginLeft: 4, fontSize: 10, color: C.red }}>
-                                (overdue)
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Status */}
-                          <td style={tdBase}>
-                            <StatusBadge status={task.status.status} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              {/* Pill tab bar */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {TABS.map(({ key, label }) => {
+                  const count  = tabRows(key).length;
+                  const active = taskTab === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setTaskTab(key)}
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        padding: "4px 12px",
+                        borderRadius: 20,
+                        border: `1px solid ${active ? C.blue : C.border}`,
+                        background: active ? C.blue : C.surface,
+                        color: active ? "#fff" : C.textMid,
+                        cursor: "pointer",
+                        fontFamily: C.font,
+                        transition: "all 0.1s",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {label}
+                      <span style={{
+                        marginLeft: 5,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "0 5px",
+                        borderRadius: 10,
+                        background: active ? "rgba(255,255,255,0.25)" : C.alt,
+                        color: active ? "#fff" : C.textSub,
+                      }}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+
+            {/* Task table */}
+            <TaskTable
+              rows={tabRows(taskTab)}
+              muted={taskTab === "milestones"}
+            />
           </div>
 
           {/* ── Section C — My Projects ─────────────────────────────────────── */}
@@ -461,7 +873,7 @@ export function ConsultantView({ projects }: Props) {
                 {myProjects.map(p => {
                   const openTasks     = projectOpenTasks(p);
                   const overdueOnProj = openTasks.filter(t =>
-                    t.due_date && parseInt(t.due_date) < Date.now()
+                    t.due_date && parseInt(t.due_date) < NOW
                   ).length;
                   const color = hColor(p.health);
 
@@ -593,7 +1005,7 @@ export function ConsultantView({ projects }: Props) {
             )}
           </div>
 
-          {/* ── Section D — Upcoming Milestones ────────────────────────────── */}
+          {/* ── My Cases ───────────────────────────────────────────────────── */}
           <div style={{
             background: C.surface,
             borderRadius: 8,
@@ -608,9 +1020,9 @@ export function ConsultantView({ projects }: Props) {
               alignItems: "center",
               gap: 8,
             }}>
-              <span style={{ fontSize: 15 }}>★</span>
+              <span style={{ fontSize: 15 }}>🗃</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                Upcoming Milestones
+                My Cases
               </span>
               <span style={{
                 marginLeft: 6,
@@ -618,96 +1030,78 @@ export function ConsultantView({ projects }: Props) {
                 fontWeight: 600,
                 padding: "1px 7px",
                 borderRadius: 10,
-                background: myMilestones.length > 0 ? C.purpleBg : C.alt,
-                color: myMilestones.length > 0 ? C.purple : C.textSub,
-                border: `1px solid ${myMilestones.length > 0 ? C.purpleBd : C.border}`,
+                background: myCases.length > 0 ? C.tealBg : C.alt,
+                color: myCases.length > 0 ? C.teal : C.textSub,
+                border: `1px solid ${myCases.length > 0 ? C.tealBd : C.border}`,
               }}>
-                {myMilestones.length}
+                {myCases.length}
               </span>
             </div>
 
-            {myMilestones.length === 0 ? (
-              <div style={{ padding: "24px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
-                No milestones assigned to this consultant.
+            {(!cases || cases.length === 0) ? (
+              <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+                <div style={{ marginBottom: 4 }}>No open cases assigned to you.</div>
+                <div style={{ fontSize: 11, color: C.mid }}>Cases are sourced from NetSuite support records.</div>
+              </div>
+            ) : myCases.length === 0 ? (
+              <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+                <div style={{ marginBottom: 4 }}>No open cases assigned to you.</div>
+                <div style={{ fontSize: 11, color: C.mid }}>Cases are sourced from NetSuite support records.</div>
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
                   <thead>
                     <tr>
-                      <th style={thBase}>Milestone</th>
-                      <th style={thBase}>Project</th>
-                      <th style={thBase}>Due Date</th>
+                      <th style={thBase}>Case #</th>
+                      <th style={thBase}>Title</th>
+                      <th style={thBase}>Company</th>
+                      <th style={thBase}>Priority</th>
                       <th style={thBase}>Status</th>
+                      <th style={thBase}>Last Modified</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {myMilestones
-                      .slice()
-                      .sort((a, b) => {
-                        const da = a.task.due_date ? parseInt(a.task.due_date) : Infinity;
-                        const db = b.task.due_date ? parseInt(b.task.due_date) : Infinity;
-                        return da - db;
-                      })
-                      .map(({ task, project }, i) => {
-                        const overdue = taskIsOverdue(task);
-                        const rowBg   = i % 2 === 0 ? C.surface : C.alt;
-
-                        return (
-                          <tr key={task.id} style={{ background: rowBg }}>
-                            {/* Milestone name */}
-                            <td style={{ ...tdBase, maxWidth: 300 }}>
-                              <a
-                                href={task.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
-                                  fontWeight: 600,
-                                  fontSize: 12,
-                                  color: C.purple,
-                                  textDecoration: "none",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 5,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                                title={task.name}
-                              >
-                                <span style={{ fontSize: 11 }}>★</span>
-                                {task.name}
-                              </a>
-                            </td>
-
-                            {/* Project */}
-                            <td style={{ ...tdBase, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
-                              {project.client}
-                            </td>
-
-                            {/* Due date */}
-                            <td style={{
-                              ...tdBase,
-                              fontWeight: overdue ? 700 : 400,
-                              color: overdue ? C.red : C.textMid,
-                              whiteSpace: "nowrap",
+                    {myCases.map((c, i) => {
+                      const rowBg = i % 2 === 0 ? C.surface : C.alt;
+                      return (
+                        <tr key={c.id} style={{ background: rowBg }}>
+                          <td style={{ ...tdBase, fontFamily: C.mono, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
+                            {c.caseNumber}
+                          </td>
+                          <td style={{ ...tdBase, maxWidth: 300 }}>
+                            <div style={{
+                              fontWeight: 600,
                               fontSize: 12,
-                            }}>
-                              {fmtDue(task)}
-                              {overdue && (
-                                <span style={{ marginLeft: 4, fontSize: 10, color: C.red }}>
-                                  (overdue)
-                                </span>
-                              )}
-                            </td>
-
-                            {/* Status */}
-                            <td style={tdBase}>
-                              <StatusBadge status={task.status.status} />
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              color: C.text,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }} title={c.title}>
+                              {c.title}
+                            </div>
+                          </td>
+                          <td style={{ ...tdBase, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
+                            {c.company}
+                          </td>
+                          <td style={tdBase}>
+                            <CasePriorityBadge priority={c.priority} />
+                          </td>
+                          <td style={tdBase}>
+                            <StatusBadge status={c.status} />
+                          </td>
+                          <td style={{ ...tdBase, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
+                            {c.lastModified
+                              ? new Date(c.lastModified).toLocaleDateString("en-AU", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "2-digit",
+                                })
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -756,14 +1150,7 @@ export function ConsultantView({ projects }: Props) {
                 gap: 8,
               }}>
                 {ERP_TIPS.map((tip, i) => (
-                  <li
-                    key={i}
-                    style={{
-                      fontSize: 13,
-                      color: C.textMid,
-                      lineHeight: 1.5,
-                    }}
-                  >
+                  <li key={i} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.5 }}>
                     {tip}
                   </li>
                 ))}

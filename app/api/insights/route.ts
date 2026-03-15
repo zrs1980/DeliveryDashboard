@@ -10,12 +10,49 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const projects: Project[] = body.projects;
+    const consultant: string | undefined = body.consultant;
 
     if (!projects || projects.length === 0) {
       return NextResponse.json({ error: "No projects provided" }, { status: 400 });
     }
 
     let prompt: string;
+
+    // Consultant workload analysis mode
+    if (consultant) {
+      const myTasks = projects.flatMap(p =>
+        p.tasks.filter(t => !isDone(t) && t.assignees.some(a => a.username === consultant))
+      );
+      const overdue  = myTasks.filter(t => t.due_date && parseInt(t.due_date) < Date.now()).length;
+      const blocked  = myTasks.filter(t => t.status.status.toLowerCase() === "blocked" || t.status.status.toLowerCase() === "on hold").length;
+      const thisWeek = myTasks.filter(t => {
+        if (!t.due_date) return false;
+        const mon = new Date(); mon.setHours(0,0,0,0); mon.setDate(mon.getDate() - ((mon.getDay()+6)%7));
+        return parseInt(t.due_date) >= mon.getTime() && parseInt(t.due_date) < mon.getTime() + 7*86400000;
+      }).length;
+      const projectLines = projects.map(p => {
+        const myCount = p.tasks.filter(t => !isDone(t) && t.assignees.some(a => a.username === consultant)).length;
+        return `${p.client}: ${myCount} open tasks, ${fmtH(p.rem)} remaining, go-live ${fmtD(p.daysLeft)}`;
+      }).join("\n");
+
+      prompt = `You are a senior ERP implementation consultant advisor. Analyze this consultant's current workload and provide:
+(1) a 2-sentence workload risk summary (are they overloaded? any critical deadlines?), then
+(2) 'Priority Actions for This Week:' as 4 bullet points with specific, actionable guidance.
+
+Consultant: ${consultant}
+Total open tasks: ${myTasks.length} | Overdue: ${overdue} | Due this week: ${thisWeek} | Blocked: ${blocked}
+
+Projects and task load:
+${projectLines}`;
+
+      const message = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 400,
+        messages: [{ role: "user", content: prompt }],
+      });
+      const text = message.content.filter(b => b.type === "text").map(b => (b as { type: "text"; text: string }).text).join("\n");
+      return NextResponse.json({ text });
+    }
 
     if (projects.length === 1) {
       const p = projects[0];
