@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
+import { EMPLOYEES } from "@/lib/constants";
 
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    // Main cases query — BUILTIN.DF() converts internal IDs to display names
+    // JOIN customer table for company name (BUILTIN.DF on company/assigned returns raw IDs in SuiteQL).
+    // assigned_id is the raw employee FK — mapped server-side via EMPLOYEES constant.
     const rows = await runSuiteQL<{
       id: string;
       casenumber: string;
@@ -13,7 +15,7 @@ export async function GET() {
       status: string;
       priority: string;
       company: string;
-      assigned: string;
+      assigned_id: string;
       createddate: string;
       lastmodifieddate: string;
     }>(`
@@ -23,11 +25,12 @@ export async function GET() {
         sc.title,
         BUILTIN.DF(sc.status)   AS status,
         BUILTIN.DF(sc.priority) AS priority,
-        BUILTIN.DF(sc.company)  AS company,
-        BUILTIN.DF(sc.assigned) AS assigned,
+        cu.companyname          AS company,
+        sc.assigned             AS assigned_id,
         sc.createddate,
         sc.lastmodifieddate
       FROM supportcase sc
+      LEFT JOIN customer cu ON cu.id = sc.company
       WHERE sc.isinactive = 'F'
       ORDER BY sc.lastmodifieddate DESC
     `);
@@ -59,19 +62,25 @@ export async function GET() {
       // supportcasemessage unavailable — continue without last notes
     }
 
-    const cases = rows.map(r => ({
-      id:           r.id,
-      caseNumber:   r.casenumber || r.id,
-      title:        r.title || "(No title)",
-      status:       r.status  || "Unknown",
-      priority:     r.priority || "—",
-      stage:        "",
-      company:      r.company  || "—",
-      assigned:     r.assigned || "Unassigned",
-      createdDate:  r.createddate,
-      lastModified: r.lastmodifieddate,
-      lastNote:     lastNoteMap[r.id] || "",
-    }));
+    const cases = rows.map(r => {
+      // Resolve assigned employee name: EMPLOYEES map → raw ID fallback
+      const empId    = parseInt(r.assigned_id);
+      const assigned = EMPLOYEES[empId] ?? (r.assigned_id ? `Employee #${r.assigned_id}` : "Unassigned");
+
+      return {
+        id:           r.id,
+        caseNumber:   r.casenumber || r.id,
+        title:        r.title || "(No title)",
+        status:       r.status  || "Unknown",
+        priority:     r.priority || "—",
+        stage:        "",
+        company:      r.company  || "—",
+        assigned,
+        createdDate:  r.createddate,
+        lastModified: r.lastmodifieddate,
+        lastNote:     lastNoteMap[r.id] || "",
+      };
+    });
 
     return NextResponse.json({ cases, updatedAt: new Date().toISOString() });
   } catch (err) {
