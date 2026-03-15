@@ -182,7 +182,7 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
             style={{ fontSize: 12, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontFamily: C.font }}
           >
             <option value="">All Projects</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.client}</option>)}
+            {projects.map(p => <option key={p.id} value={p.id}>{p.client} ({p.tasks.length} tasks)</option>)}
           </select>
         </div>
         <div>
@@ -200,6 +200,22 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
           {totalDone} / {allTasks.length} done
         </span>
       </div>
+
+      {/* ClickUp diagnostics — show per-project fetch status */}
+      {projects.some(p => p.clickupError || p.tasks.length === 0) && (
+        <div style={{ marginBottom: 14 }}>
+          {projects.map(p => (
+            <div key={p.id} style={{ fontSize: 11, color: p.clickupError ? C.red : p.tasks.length === 0 ? C.orange : C.green, marginBottom: 2 }}>
+              {p.clickupError
+                ? `⚠ ${p.client}: ${p.clickupError}`
+                : p.tasks.length === 0
+                ? `⚠ ${p.client}: 0 tasks fetched — List ID: ${p.clickupListId ?? "none"} | URL: ${p.clickupUrl ?? "not set"}`
+                : `✓ ${p.client}: ${p.tasks.length} tasks loaded`
+              }
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${C.border}`, marginBottom: 16 }}>
