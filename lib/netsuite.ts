@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import OAuth from "oauth-1.0a";
 
 const ACCOUNT_ID      = process.env.NETSUITE_ACCOUNT_ID!;
 const CONSUMER_KEY    = process.env.NETSUITE_CONSUMER_KEY!;
@@ -10,26 +9,53 @@ const TOKEN_SECRET    = process.env.NETSUITE_TOKEN_SECRET!;
 const BASE_URL    = `https://${ACCOUNT_ID}.suitetalk.api.netsuite.com`;
 const SUITEQL_URL = `${BASE_URL}/services/rest/query/v1/suiteql`;
 
-// ─── OAuth 1.0a client ────────────────────────────────────────────────────────
+// ─── OAuth 1.0a (manual — NetSuite TBA, HMAC-SHA256) ─────────────────────────
 
-function makeOAuthClient() {
-  return new OAuth({
-    consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
-    signature_method: "HMAC-SHA256",
-    hash_function(baseString: string, key: string) {
-      return crypto.createHmac("sha256", key).update(baseString).digest("base64");
-    },
-  });
+function pct(s: string): string {
+  return encodeURIComponent(s)
+    .replace(/!/g, "%21").replace(/'/g, "%27")
+    .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/\*/g, "%2A");
 }
 
-function buildOAuthHeader(method: string, url: string): string {
-  const oauthClient = makeOAuthClient();
-  const token       = { key: TOKEN_ID, secret: TOKEN_SECRET };
-  const header      = oauthClient.toHeader(
-    oauthClient.authorize({ url, method }, token)
-  );
-  // Inject realm into the header (NetSuite requires it)
-  return header.Authorization.replace("OAuth ", `OAuth realm="${ACCOUNT_ID}", `);
+function buildOAuthHeader(method: string, fullUrl: string): string {
+  const ts  = String(Math.floor(Date.now() / 1000));
+  const nc  = crypto.randomBytes(16).toString("hex");
+
+  // Separate base URL from query params — both go into the signature
+  const urlObj  = new URL(fullUrl);
+  const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+
+  // Collect params: URL query params + OAuth params (NO realm, NO oauth_signature)
+  const params: Array<[string, string]> = [];
+  urlObj.searchParams.forEach((v, k) => params.push([k, v]));
+  params.push(["oauth_consumer_key",     CONSUMER_KEY]);
+  params.push(["oauth_nonce",            nc]);
+  params.push(["oauth_signature_method", "HMAC-SHA256"]);
+  params.push(["oauth_timestamp",        ts]);
+  params.push(["oauth_token",            TOKEN_ID]);
+  params.push(["oauth_version",          "1.0"]);
+
+  // Sort by encoded key, then encoded value
+  const normalized = params
+    .map(([k, v]): [string, string] => [pct(k), pct(v)])
+    .sort(([ak, av], [bk, bv]) => ak < bk ? -1 : ak > bk ? 1 : av < bv ? -1 : 1)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+
+  const baseString   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
+  const signingKey   = `${pct(CONSUMER_SECRET)}&${pct(TOKEN_SECRET)}`;
+  const signature    = crypto.createHmac("sha256", signingKey).update(baseString).digest("base64");
+
+  return [
+    `OAuth realm="${ACCOUNT_ID}"`,
+    `oauth_consumer_key="${pct(CONSUMER_KEY)}"`,
+    `oauth_nonce="${nc}"`,
+    `oauth_signature="${pct(signature)}"`,
+    `oauth_signature_method="HMAC-SHA256"`,
+    `oauth_timestamp="${ts}"`,
+    `oauth_token="${pct(TOKEN_ID)}"`,
+    `oauth_version="1.0"`,
+  ].join(", ");
 }
 
 // ─── SuiteQL executor ─────────────────────────────────────────────────────────
@@ -45,24 +71,33 @@ export async function runSuiteQL<T = Record<string, string>>(
     q = q.replace("?", safe);
   }
 
-  const method    = "POST";
-  const fullUrl   = `${SUITEQL_URL}?limit=1000`;
-  const auth      = buildOAuthHeader(method, fullUrl);
+  const method  = "POST";
+  const fullUrl = `${SUITEQL_URL}?limit=1000`;
+  const auth    = buildOAuthHeader(method, fullUrl);
+  const body    = JSON.stringify({ q });
 
-  const body = JSON.stringify({ q });
-
-  const res = await fetch(fullUrl, {
-    method,
-    headers: {
-      "Authorization":  auth,
-      "Content-Type":   "application/json",
-      "Prefer":         "transient",
-    },
-    body,
-  });
+  let res: Response;
+  try {
+    res = await fetch(fullUrl, {
+      method,
+      headers: {
+        "Authorization": auth,
+        "Content-Type":  "application/json",
+        "Prefer":        "transient",
+      },
+      body,
+    });
+  } catch (err: unknown) {
+    const cause = err instanceof Error ? err.cause : err;
+    throw new Error(`SuiteQL fetch failed (network): ${String(err)} | cause: ${JSON.stringify(cause)}`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
+    // Log the auth header (redact signature) to help debug
+    const redacted = auth.replace(/oauth_signature="[^"]*"/, 'oauth_signature="[redacted]"');
+    console.error("[SuiteQL] 401 debug — URL:", fullUrl);
+    console.error("[SuiteQL] 401 debug — Auth header:", redacted);
     throw new Error(`SuiteQL error ${res.status}: ${text}`);
   }
 
