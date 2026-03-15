@@ -1,19 +1,23 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Project } from "@/lib/types";
 import { C } from "@/lib/constants";
 
 interface Props {
   projects: Project[];
-  selectedId: number | null;
 }
 
-export function AiInsights({ projects, selectedId }: Props) {
+export function AiInsights({ projects }: Props) {
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [text, setText]       = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
   const target = selectedId ? projects.filter(p => p.id === selectedId) : projects;
+
+  useEffect(() => {
+    setText(null);
+  }, [selectedId]);
 
   async function refresh() {
     setLoading(true);
@@ -65,6 +69,9 @@ export function AiInsights({ projects, selectedId }: Props) {
     );
   }
 
+  const selectedProject = selectedId ? projects.find(p => p.id === selectedId) : null;
+  const titleLabel = selectedProject ? selectedProject.client : "Portfolio";
+
   return (
     <div
       style={{
@@ -79,26 +86,47 @@ export function AiInsights({ projects, selectedId }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 16 }}>✨</span>
           <span style={{ fontWeight: 700, color: "#F1F5F9", fontSize: 14, fontFamily: C.font }}>
-            AI Insights {selectedId ? `— ${target[0]?.client}` : "— Portfolio"}
+            AI Insights — {titleLabel}
           </span>
         </div>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          style={{
-            background: loading ? "#1E3A5F" : "#1A56DB",
-            color: "#fff",
-            border: "none",
-            borderRadius: 5,
-            padding: "4px 12px",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: loading ? "not-allowed" : "pointer",
-            fontFamily: C.font,
-          }}
-        >
-          {loading ? "Loading…" : "↻ Refresh"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select
+            value={selectedId ?? ""}
+            onChange={e => setSelectedId(e.target.value ? Number(e.target.value) : null)}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 5,
+              border: `1px solid ${C.border}`,
+              background: C.surface,
+              color: C.text,
+              fontFamily: C.font,
+              cursor: "pointer",
+            }}
+          >
+            <option value="">Portfolio (All Projects)</option>
+            {projects.map(p => (
+              <option key={p.id} value={p.id}>{p.client}</option>
+            ))}
+          </select>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            style={{
+              background: loading ? "#1E3A5F" : "#1A56DB",
+              color: "#fff",
+              border: "none",
+              borderRadius: 5,
+              padding: "4px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: loading ? "not-allowed" : "pointer",
+              fontFamily: C.font,
+            }}
+          >
+            {loading ? "Loading…" : "↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && (

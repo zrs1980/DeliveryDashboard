@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Project } from "@/lib/types";
 import { fmtH, fmtPct, fmtD } from "@/lib/health";
+import { isDone } from "@/lib/clickup";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -35,7 +36,9 @@ Hours: ${fmtH(p.actual)} logged / ${fmtH(p.actual + p.rem)} budget | ${fmtH(p.re
 End date: ${p.goliveDate ?? "Not set"} (${fmtD(p.daysLeft)})
 Blocked tasks: ${blocked}
 Awaiting client: ${clientPending}
-Open milestones: ${openMilestones}`;
+Open milestones: ${openMilestones}
+PM Notes: ${p.notes.map(n => n.text).join("; ") || "None"}
+Task summary: ${p.tasks.filter(t => !isDone(t)).length} open, ${p.tasks.filter(t => isDone(t)).length} done`;
     } else {
       const lines = projects.map(p =>
         `${p.label}: ${p.health} health, SPI ${p.spi.toFixed(2)}, ${fmtPct(p.pct)} done, ${fmtD(p.daysLeft)}, ${p.blocked.length} blocked, ${p.clientPending.length} client-pending`

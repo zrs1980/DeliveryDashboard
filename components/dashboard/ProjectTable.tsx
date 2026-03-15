@@ -6,10 +6,11 @@ import { LinkBtn } from "@/components/ui/LinkBtn";
 import { HealthBadge } from "@/components/health/HealthBadge";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { fmtH, fmtPct, fmtD } from "@/lib/health";
-import type { Project, ProjectNote } from "@/lib/types";
+import type { Project, ProjectNote, ProjectPhase } from "@/lib/types";
 
 interface Props {
   projects: Project[];
+  phases: ProjectPhase[];
   onProjectsChange: (updated: Project[]) => void;
 }
 
@@ -27,7 +28,27 @@ const th: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-export function ProjectTable({ projects, onProjectsChange }: Props) {
+function getActivePhase(phases: ProjectPhase[], projectId: number): ProjectPhase | null {
+  const projectPhases = phases.filter(ph => ph.projectId === projectId);
+  if (projectPhases.length === 0) return null;
+
+  // Find phases with work started but not complete (actualHours > 0 and remainingHours > 0)
+  const inProgress = projectPhases.filter(ph => ph.actualHours > 0 && ph.remainingHours > 0);
+  if (inProgress.length > 0) {
+    // Pick the last one by phaseId
+    return inProgress.reduce((a, b) => b.phaseId > a.phaseId ? b : a);
+  }
+
+  // None started — pick first with remainingHours > 0
+  const notStarted = projectPhases.filter(ph => ph.remainingHours > 0);
+  if (notStarted.length > 0) {
+    return notStarted.reduce((a, b) => a.phaseId < b.phaseId ? a : b);
+  }
+
+  return null;
+}
+
+export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
 
   function toggleNotes(id: number) {
@@ -62,8 +83,9 @@ export function ProjectTable({ projects, onProjectsChange }: Props) {
             <th style={th}>Type</th>
             <th style={{ ...th, minWidth: 130 }}>Progress</th>
             <th style={th}>Hours</th>
-            <th style={th}>SPI</th>
-            <th style={th}>Budget Gap</th>
+            <th style={th}>Hours Left</th>
+            <th style={th}>Phase</th>
+            <th style={th}>Budget Fit</th>
             <th style={th}>Go-Live</th>
             <th style={th}>Notes</th>
             <th style={th}>Links</th>
@@ -71,12 +93,40 @@ export function ProjectTable({ projects, onProjectsChange }: Props) {
         </thead>
         <tbody>
           {projects.map((p, i) => {
-            const spiColor  = p.spi >= 1 ? C.green : p.spi >= 0.85 ? C.yellow : C.red;
-            const gapColor  = p.budgetGap > 0.15 ? C.red : p.budgetGap > 0.05 ? C.yellow : C.green;
-            const gapStr    = (p.budgetGap > 0 ? "+" : "") + fmtPct(p.budgetGap);
-            const rowBg     = i % 2 === 0 ? C.surface : C.alt;
-            const notesOpen = expandedNotes.has(p.id);
-            const noteCount = p.notes.length;
+            const remColor    = p.rem < 20 ? C.red : p.rem < 50 ? C.yellow : C.green;
+            const remStr      = `${p.rem.toFixed(1)}h`;
+            const rowBg       = i % 2 === 0 ? C.surface : C.alt;
+            const notesOpen   = expandedNotes.has(p.id);
+            const noteCount   = p.notes.length;
+
+            // Phase column
+            const activePhase = getActivePhase(phases, p.id);
+            const projectPhases = phases.filter(ph => ph.projectId === p.id);
+            const phaseName = activePhase
+              ? activePhase.phaseName.length > 12
+                ? activePhase.phaseName.slice(0, 12) + "…"
+                : activePhase.phaseName
+              : null;
+
+            // Budget Fit column
+            const sumPhaseRemaining = projectPhases.reduce(
+              (sum, ph) => sum + (ph.budgetedHours - ph.actualHours),
+              0
+            );
+            let budgetFitLabel = "—";
+            let budgetFitColor = C.textSub;
+            if (projectPhases.length > 0) {
+              if (sumPhaseRemaining > p.rem + 5) {
+                budgetFitLabel = "⚠ Short";
+                budgetFitColor = C.red;
+              } else if (Math.abs(sumPhaseRemaining - p.rem) <= 5) {
+                budgetFitLabel = "~OK";
+                budgetFitColor = C.yellow;
+              } else {
+                budgetFitLabel = "✓ OK";
+                budgetFitColor = C.green;
+              }
+            }
 
             return (
               <>
@@ -134,17 +184,28 @@ export function ProjectTable({ projects, onProjectsChange }: Props) {
                     </div>
                   </td>
 
-                  {/* SPI */}
+                  {/* Hours Left */}
                   <td style={{ padding: "10px 12px", borderBottom: notesOpen ? "none" : `1px solid ${C.border}` }}>
-                    <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: spiColor }}>
-                      {p.spi.toFixed(2)}
+                    <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}>
+                      {remStr}
                     </span>
                   </td>
 
-                  {/* Budget Gap */}
+                  {/* Phase */}
                   <td style={{ padding: "10px 12px", borderBottom: notesOpen ? "none" : `1px solid ${C.border}` }}>
-                    <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: gapColor }}>
-                      {gapStr}
+                    {phaseName ? (
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }} title={activePhase?.phaseName}>
+                        {phaseName}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 12, color: C.textSub }}>—</span>
+                    )}
+                  </td>
+
+                  {/* Budget Fit */}
+                  <td style={{ padding: "10px 12px", borderBottom: notesOpen ? "none" : `1px solid ${C.border}` }}>
+                    <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: budgetFitColor }}>
+                      {budgetFitLabel}
                     </span>
                   </td>
 
@@ -195,7 +256,7 @@ export function ProjectTable({ projects, onProjectsChange }: Props) {
                 {/* Inline notes expansion row */}
                 {notesOpen && (
                   <tr key={`notes-${p.id}`} style={{ background: rowBg }}>
-                    <td colSpan={10} style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}>
+                    <td colSpan={11} style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}>
                       <NotesPanel
                         projectId={p.id}
                         notes={p.notes}
