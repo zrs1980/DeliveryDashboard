@@ -10,6 +10,7 @@ import { TimeAnalysis } from "@/components/dashboard/TimeAnalysis";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
+import { CalendarView } from "@/components/dashboard/CalendarView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -26,7 +27,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -35,6 +36,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "time",       label: "Time Analysis",       icon: "⏱️" },
   { id: "consultant", label: "My Work",             icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
+  { id: "calendar",   label: "Calendar",    icon: "📅" },
 ];
 
 interface DataState {
@@ -288,6 +290,27 @@ export default function DashboardPage() {
             <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>Support Cases</div>
             <div style={{ fontSize: 12, color: C.textSub, marginBottom: 18 }}>Open cases from NetSuite — support desk manager view.</div>
             <CasesView cases={cases} error={casesError} />
+          </div>
+        )}
+
+        {/* Calendar */}
+        {tab === "calendar" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", overflow: "hidden" }}>
+            <div style={{ padding: "14px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Calendar</div>
+                <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>Drag tasks and cases onto the calendar to schedule them as Google Calendar events.</div>
+              </div>
+              {!hasLoaded && (
+                <button
+                  onClick={refresh}
+                  style={{ background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}
+                >
+                  Load Tasks First
+                </button>
+              )}
+            </div>
+            <CalendarView projects={projects} cases={cases} />
           </div>
         )}
 
