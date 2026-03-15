@@ -29,7 +29,6 @@ export async function GET() {
         sc.lastmodifieddate
       FROM supportcase sc
       WHERE sc.isinactive = 'F'
-        AND sc.closedate IS NULL
       ORDER BY sc.lastmodifieddate DESC
     `);
 
