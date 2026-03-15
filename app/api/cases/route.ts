@@ -14,7 +14,7 @@ export async function GET() {
       title: string;
       status: string;
       priority: string;
-      company: string;
+      customer_name: string;
       assigned_id: string;
       createddate: string;
       lastmodifieddate: string;
@@ -25,7 +25,7 @@ export async function GET() {
         sc.title,
         BUILTIN.DF(sc.status)   AS status,
         BUILTIN.DF(sc.priority) AS priority,
-        cu.companyname          AS company,
+        cu.entityid             AS customer_name,
         sc.assigned             AS assigned_id,
         sc.createddate,
         sc.lastmodifieddate
@@ -74,7 +74,7 @@ export async function GET() {
         status:       r.status  || "Unknown",
         priority:     r.priority || "—",
         stage:        "",
-        company:      r.company  || "—",
+        company:      r.customer_name || "—",
         assigned,
         createdDate:  r.createddate,
         lastModified: r.lastmodifieddate,
