@@ -30,6 +30,17 @@ interface DayRow {
   productive_hours: string;
 }
 
+interface ProjectRow {
+  employee: string;
+  project_id: string | null;
+  company_name: string | null;
+  project_number: string | null;
+  total_hours: string;
+  billable_hours: string;
+  utilized_hours: string;
+  productive_hours: string;
+}
+
 function sumPeriod(rows: DayRow[], from: Date, to: Date) {
   let total = 0, billable = 0, utilized = 0, productive = 0;
   for (const r of rows) {
@@ -52,7 +63,9 @@ export async function GET() {
   try {
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
 
-    const rows = await runSuiteQL<DayRow>(`
+    // Run both queries in parallel
+    const [rows, projectRows] = await Promise.all([
+    runSuiteQL<DayRow>(`
       SELECT
         tb.employee,
         tb.tranDate,
@@ -66,13 +79,39 @@ export async function GET() {
         AND tb.tranDate <= SYSDATE
       GROUP BY tb.employee, tb.tranDate
       ORDER BY tb.employee, tb.tranDate
-    `);
+    `),
+    runSuiteQL<ProjectRow>(`
+      SELECT
+        tb.employee,
+        tb.customer                                                          AS project_id,
+        j.companyname                                                        AS company_name,
+        j.entityid                                                           AS project_number,
+        SUM(tb.hours)                                                        AS total_hours,
+        SUM(CASE WHEN tb.isBillable   = 'T' THEN tb.hours ELSE 0 END)       AS billable_hours,
+        SUM(CASE WHEN tb.isUtilized   = 'T' THEN tb.hours ELSE 0 END)       AS utilized_hours,
+        SUM(CASE WHEN tb.isProductive = 'T' THEN tb.hours ELSE 0 END)       AS productive_hours
+      FROM timebill tb
+      LEFT JOIN job j ON j.id = tb.customer
+      WHERE tb.employee IN (${employeeIds.join(", ")})
+        AND tb.tranDate >= ADD_MONTHS(SYSDATE, -3)
+        AND tb.tranDate <= SYSDATE
+      GROUP BY tb.employee, tb.customer, j.companyname, j.entityid
+      ORDER BY tb.employee, SUM(tb.hours) DESC
+    `),
+    ]);
 
-    // Group rows by employee
+    // Group daily rows by employee
     const byEmployee: Record<string, DayRow[]> = {};
     for (const row of rows) {
       if (!byEmployee[row.employee]) byEmployee[row.employee] = [];
       byEmployee[row.employee].push(row);
+    }
+
+    // Group project rows by employee
+    const projectsByEmployee: Record<string, ProjectRow[]> = {};
+    for (const row of projectRows) {
+      if (!projectsByEmployee[row.employee]) projectsByEmployee[row.employee] = [];
+      projectsByEmployee[row.employee].push(row);
     }
 
     // Period boundaries (all at midnight local)
@@ -114,6 +153,21 @@ export async function GET() {
         };
       });
 
+      const projectBreakdown = (projectsByEmployee[String(empId)] ?? []).map(p => ({
+        projectId:     p.project_id ? parseInt(p.project_id) : null,
+        projectName:   p.project_number
+                         ? `${p.company_name ?? "Unknown"} — #${p.project_number}`
+                         : (p.company_name ?? "Internal / Admin"),
+        companyName:   p.company_name ?? "Internal / Admin",
+        total:         parseFloat(p.total_hours)      || 0,
+        billable:      parseFloat(p.billable_hours)   || 0,
+        utilized:      parseFloat(p.utilized_hours)   || 0,
+        productive:    parseFloat(p.productive_hours) || 0,
+        billablePct:   (parseFloat(p.total_hours) || 0) > 0
+                         ? (parseFloat(p.billable_hours) || 0) / (parseFloat(p.total_hours) || 1)
+                         : 0,
+      }));
+
       return {
         employeeId:   empId,
         employeeName: EMPLOYEES[empId],
@@ -124,6 +178,7 @@ export async function GET() {
           lastMonth: sumPeriod(empRows, firstOfLastMonth,  lastDayLastMonth),
         },
         weeklyTrend,
+        projectBreakdown,
       };
     });
 
