@@ -71,6 +71,70 @@ export function extractClickUpListId(url: string | null): string | null {
   return parsed?.id ?? null;
 }
 
+// ─── Workspace list discovery ────────────────────────────────────────────────
+
+interface CUList { id: string; name: string; folder: string | null; space: string }
+
+// Module-level cache (stays warm between requests on the same serverless instance)
+let _listCache: { lists: CUList[]; ts: number } | null = null;
+const LIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function cuGet(path: string) {
+  const res = await fetch(`${BASE_URL}${path}`, { headers: headers() });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function fetchWorkspaceLists(teamId: string): Promise<CUList[]> {
+  const spacesData = await cuGet(`/team/${teamId}/space?archived=false`);
+  const spaces = spacesData.spaces ?? [];
+  const all: CUList[] = [];
+
+  await Promise.all(spaces.map(async (space: { id: string; name: string }) => {
+    // Space-level lists
+    try {
+      const d = await cuGet(`/space/${space.id}/list?archived=false`);
+      for (const l of (d.lists ?? [])) all.push({ id: l.id, name: l.name, folder: null, space: space.name });
+    } catch { /* ignore */ }
+
+    // Folder lists
+    try {
+      const fd = await cuGet(`/space/${space.id}/folder?archived=false`);
+      await Promise.all((fd.folders ?? []).map(async (folder: { id: string; name: string }) => {
+        try {
+          const ld = await cuGet(`/folder/${folder.id}/list?archived=false`);
+          for (const l of (ld.lists ?? [])) all.push({ id: l.id, name: l.name, folder: folder.name, space: space.name });
+        } catch { /* ignore */ }
+      }));
+    } catch { /* ignore */ }
+  }));
+
+  return all;
+}
+
+export async function getWorkspaceLists(teamId: string): Promise<CUList[]> {
+  if (_listCache && Date.now() - _listCache.ts < LIST_CACHE_TTL) return _listCache.lists;
+  const lists = await fetchWorkspaceLists(teamId);
+  _listCache = { lists, ts: Date.now() };
+  return lists;
+}
+
+/** Find the best-matching ClickUp list ID for a given company name. */
+export function matchListByCompanyName(companyName: string, lists: CUList[]): string | null {
+  const needle = companyName.toLowerCase();
+  const score = (l: CUList) => {
+    const folder = l.folder?.toLowerCase() ?? "";
+    const name   = l.name.toLowerCase();
+    if (folder === needle || name === needle)           return 4;
+    if (folder.includes(needle) || name.includes(needle)) return 3;
+    if (needle.includes(folder) && folder.length > 4)  return 2;
+    if (needle.includes(name)   && name.length > 4)    return 1;
+    return 0;
+  };
+  const best = lists.map(l => ({ l, s: score(l) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s)[0];
+  return best?.l.id ?? null;
+}
+
 // ─── Fetch tasks for a list ───────────────────────────────────────────────────
 
 export async function fetchListTasks(listId: string): Promise<CUTask[]> {

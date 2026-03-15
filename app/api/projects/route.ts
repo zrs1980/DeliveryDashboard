@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
-import { fetchListTasks, resolveClickUpListId, extractClickUpListId, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
+import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
 import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES } from "@/lib/constants";
 import type { Project, ProjectNote } from "@/lib/types";
@@ -32,6 +32,10 @@ export async function GET() {
       timebillByProject[pid] = (timebillByProject[pid] ?? 0) + parseFloat(row.total_hours);
     }
 
+    // Pre-fetch workspace lists for name-based fallback matching (cached 1h)
+    const TEAM_ID = process.env.CLICKUP_TEAM_ID!;
+    const workspaceLists = await getWorkspaceLists(TEAM_ID).catch(() => []);
+
     // Fetch ClickUp tasks for each project (with ClickUp URL)
     const projects: Project[] = await Promise.all(
       rawProjects.map(async (p) => {
@@ -41,7 +45,7 @@ export async function GET() {
         const actual        = budget_hours - remaining;
         const clickupListId = extractClickUpListId(p.clickup_url);
 
-        // Fetch ClickUp tasks — check override map first, then resolve from URL
+        // Fetch ClickUp tasks — priority: override map → URL resolution → name match
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
         let clickupError: string | null = null;
         try {
@@ -53,7 +57,21 @@ export async function GET() {
             if (resolvedListId) {
               tasks = await fetchListTasks(resolvedListId);
             } else {
-              clickupError = `Could not resolve list ID from URL: ${p.clickup_url}`;
+              // Fall back to matching by company name in workspace list catalog
+              const nameListId = matchListByCompanyName(p.companyname, workspaceLists);
+              if (nameListId) {
+                tasks = await fetchListTasks(nameListId);
+              } else {
+                clickupError = `Could not resolve list ID from URL: ${p.clickup_url}`;
+              }
+            }
+          } else if (workspaceLists.length > 0) {
+            // No URL — try name match anyway
+            const nameListId = matchListByCompanyName(p.companyname, workspaceLists);
+            if (nameListId) {
+              tasks = await fetchListTasks(nameListId);
+            } else {
+              clickupError = "No ClickUp URL set on this project (custentity20 is empty)";
             }
           } else {
             clickupError = "No ClickUp URL set on this project (custentity20 is empty)";
