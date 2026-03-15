@@ -5,6 +5,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import { HealthBadge } from "@/components/health/HealthBadge";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
+import { TaskModal } from "@/components/dashboard/TaskModal";
 import { fmtH, fmtPct, fmtD } from "@/lib/health";
 import { isDone, isBlocked } from "@/lib/clickup";
 import { STATUS_STYLES } from "@/lib/constants";
@@ -179,7 +180,7 @@ function RiskBadge({ label, color, bg, bd }: { label: string; color: string; bg:
   );
 }
 
-function MetricsPanel({ p, phases }: { p: Project; phases: ProjectPhase[] }) {
+function MetricsPanel({ p, phases, onTaskClick }: { p: Project; phases: ProjectPhase[]; onTaskClick: (tasks: CUTask[], title: string) => void }) {
   const totalH = p.actual + p.rem;
   const spi = p.burnRate > 0.01 ? (p.pct / p.burnRate).toFixed(2) : "—";
   const cpi = spi; // hour-based — same as SPI
@@ -289,22 +290,57 @@ function MetricsPanel({ p, phases }: { p: Project; phases: ProjectPhase[] }) {
             <span style={{ ...metricVal, color: C.blue }}>{openTasks}</span>
             <span style={metricLabel}>Open</span>
           </div>
+
+          {/* Clickable: Overdue */}
+          {(() => {
+            const overdue = p.tasks.filter(t => !isDone(t) && !!t.due_date && parseInt(t.due_date) < now);
+            return (
+              <div style={metric}>
+                <button
+                  onClick={() => overdue.length > 0 && onTaskClick(overdue, `Overdue Tasks — ${p.client}`)}
+                  style={{
+                    ...metricVal, color: overdue.length > 0 ? C.red : C.textSub,
+                    background: "none", border: "none", padding: 0, cursor: overdue.length > 0 ? "pointer" : "default",
+                    fontFamily: C.mono, textDecoration: overdue.length > 0 ? "underline" : "none",
+                    textDecorationStyle: "dotted", textUnderlineOffset: 3,
+                  }}
+                >
+                  {overdue.length}
+                </button>
+                <span style={metricLabel}>Overdue</span>
+              </div>
+            );
+          })()}
+
+          {/* Clickable: Blocked */}
           <div style={metric}>
-            <span style={{ ...metricVal, color: overdueTasks > 0 ? C.red : C.textSub }}>
-              {overdueTasks}
-            </span>
-            <span style={metricLabel}>Overdue</span>
-          </div>
-          <div style={metric}>
-            <span style={{ ...metricVal, color: p.blocked.length > 0 ? C.red : C.textSub }}>
+            <button
+              onClick={() => p.blocked.length > 0 && onTaskClick(p.blocked, `Blocked Tasks — ${p.client}`)}
+              style={{
+                ...metricVal, color: p.blocked.length > 0 ? C.red : C.textSub,
+                background: "none", border: "none", padding: 0, cursor: p.blocked.length > 0 ? "pointer" : "default",
+                fontFamily: C.mono, textDecoration: p.blocked.length > 0 ? "underline" : "none",
+                textDecorationStyle: "dotted", textUnderlineOffset: 3,
+              }}
+            >
               {p.blocked.length}
-            </span>
+            </button>
             <span style={metricLabel}>Blocked</span>
           </div>
+
+          {/* Clickable: Client Pending */}
           <div style={metric}>
-            <span style={{ ...metricVal, color: p.clientPending.length > 0 ? C.yellow : C.textSub }}>
+            <button
+              onClick={() => p.clientPending.length > 0 && onTaskClick(p.clientPending, `Client Pending — ${p.client}`)}
+              style={{
+                ...metricVal, color: p.clientPending.length > 0 ? C.yellow : C.textSub,
+                background: "none", border: "none", padding: 0, cursor: p.clientPending.length > 0 ? "pointer" : "default",
+                fontFamily: C.mono, textDecoration: p.clientPending.length > 0 ? "underline" : "none",
+                textDecorationStyle: "dotted", textUnderlineOffset: 3,
+              }}
+            >
               {p.clientPending.length}
-            </span>
+            </button>
             <span style={metricLabel}>Client Pending</span>
           </div>
         </div>
@@ -442,6 +478,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [expandedMetrics, setExpandedMetrics] = useState<Set<number>>(new Set());
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [taskModal, setTaskModal]   = useState<{ tasks: CUTask[]; title: string } | null>(null);
 
   function handleSort(col: SortKey) {
     if (col === sortKey) {
@@ -488,6 +525,14 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const thProps = { sortKey, sortDir, onSort: handleSort };
 
   return (
+    <div style={{ position: "relative" }}>
+      {taskModal && (
+        <TaskModal
+          title={taskModal.title}
+          tasks={taskModal.tasks}
+          onClose={() => setTaskModal(null)}
+        />
+      )}
     <div style={{ overflowX: "auto" }}>
       <table style={{
         width: "100%",
@@ -737,7 +782,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                         padding: 0,
                       }}
                     >
-                      <MetricsPanel p={p} phases={phases} />
+                      <MetricsPanel p={p} phases={phases} onTaskClick={(tasks, title) => setTaskModal({ tasks, title })} />
                     </td>
                   </tr>
                 )}
@@ -762,6 +807,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
           })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }
