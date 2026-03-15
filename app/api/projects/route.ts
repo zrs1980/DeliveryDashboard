@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
-import { EMPLOYEES, PMS, nsProjectUrl } from "@/lib/constants";
+import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES } from "@/lib/constants";
 import type { Project, ProjectNote } from "@/lib/types";
 
 export const revalidate = 0; // always fresh
@@ -41,11 +41,14 @@ export async function GET() {
         const actual        = budget_hours - remaining;
         const clickupListId = extractClickUpListId(p.clickup_url);
 
-        // Fetch ClickUp tasks — resolve view-style URLs to real list IDs first
+        // Fetch ClickUp tasks — check override map first, then resolve from URL
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
         let clickupError: string | null = null;
         try {
-          if (p.clickup_url) {
+          const overrideListId = CLICKUP_LIST_OVERRIDES[id];
+          if (overrideListId) {
+            tasks = await fetchListTasks(overrideListId);
+          } else if (p.clickup_url) {
             const resolvedListId = await resolveClickUpListId(p.clickup_url);
             if (resolvedListId) {
               tasks = await fetchListTasks(resolvedListId);

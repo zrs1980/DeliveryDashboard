@@ -60,6 +60,19 @@ export const STATUS_STYLES: Record<string, { bg: string; color: string; bd: stri
   "supplied":              { bg:"#E6F7F7", color:"#0D6E6E", bd:"#81D4D4", label:"Supplied" },
 };
 
+// ─── ClickUp list ID overrides ────────────────────────────────────────────────
+// ClickUp workspace URLs stored in NetSuite use an old view-based format
+// (/v/l/182ddq-XXXXX) that doesn't expose the real API list ID.
+// Map NetSuite project ID → correct ClickUp API list ID.
+// Discovered via /api/debug/clickup. Add new projects here as needed.
+export const CLICKUP_LIST_OVERRIDES: Record<number, string> = {
+  18386: "901324962382", // NetSuite Optimization Strategy  → Pacific OneSource
+  17310: "901312802496", // Service Request - MRP Dry BU    → Yield Engineering
+  18380: "901324146845", // Netsuite Implementation          → Nautical Fulfillment & Logistics
+  18171: "901306383364", // JGL NS Implementation            → JGL Livestock
+  18403: "901317326846", // NS Implementation                → Salt & Stone
+};
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {
