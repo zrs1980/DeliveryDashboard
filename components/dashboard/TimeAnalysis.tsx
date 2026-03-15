@@ -336,7 +336,7 @@ export function TimeAnalysis() {
               <XAxis dataKey="week" tick={{ fontSize: 11, fill: C.textSub }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: C.textSub }} axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={v => `${v}%`} />
               <Tooltip
-                formatter={(val: number, name: string) => [`${val}%`, name]}
+                formatter={(val) => [`${val}%`]}
                 contentStyle={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12 }}
               />
               <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />

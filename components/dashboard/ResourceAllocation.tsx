@@ -14,6 +14,7 @@ interface CellEdit {
   employeeName:  string;
   projectId:     number;
   projectName:   string;
+  companyName:   string;
   remainingHours: number | null;
   budgetHours:   number | null;
   weekMs:        number;
@@ -309,6 +310,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
           allocationUnit: "P",
           percentOfMax:   (newHrs / 40) * 100,
           hoursPerDay:    0,
+          companyName:    cell.companyName ?? "",
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
         };
@@ -699,6 +701,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                               employeeName:   emp.name,
                               projectId:      proj.projectId,
                               projectName:    proj.name,
+                              companyName:    proj.companyName ?? "",
                               remainingHours: proj.remainingHours,
                               budgetHours:    proj.budgetHours,
                               weekMs:         wMs,
