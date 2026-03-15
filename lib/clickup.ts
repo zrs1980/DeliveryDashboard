@@ -15,10 +15,12 @@ function headers() {
 export function extractClickUpListId(url: string | null): string | null {
   if (!url) return null;
   // /v/l/{listId}
-  const listMatch = url.match(/\/l\/([a-z0-9]+)/i);
+  // Strip query string before parsing
+  const clean = url.split("?")[0];
+  const listMatch = clean.match(/\/l\/([a-z0-9-]+)/i);
   if (listMatch) return listMatch[1];
-  // /v/s/{spaceId} or other patterns — fall back to last segment
-  const segments = url.replace(/\/$/, "").split("/");
+  // Fallback to last path segment
+  const segments = clean.replace(/\/$/, "").split("/");
   const last = segments[segments.length - 1];
   return last || null;
 }
