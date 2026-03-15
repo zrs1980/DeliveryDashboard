@@ -11,7 +11,6 @@ export async function GET() {
       title: string;
       status: string;
       priority: string;
-      stage: string;
       company: string;
       assigned: string;
       createddate: string;
@@ -23,13 +22,12 @@ export async function GET() {
         sc.title,
         sc.status,
         sc.priority,
-        sc.stage,
         sc.company,
         sc.assigned,
         sc.createddate,
         sc.lastmodifieddate
       FROM supportcase sc
-      WHERE sc.stage != 3
+      WHERE sc.isinactive = 'F'
       ORDER BY sc.lastmodifieddate DESC
     `);
 
@@ -39,7 +37,7 @@ export async function GET() {
       title: r.title || "(No title)",
       status: r.status || "Unknown",
       priority: r.priority || "Medium",
-      stage: r.stage,
+      stage: "",
       company: r.company || "—",
       assigned: r.assigned || "Unassigned",
       createdDate: r.createddate,
@@ -49,7 +47,10 @@ export async function GET() {
     return NextResponse.json({ cases, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.error("[/api/cases]", err);
-    // Return empty array rather than error — cases may not be configured
-    return NextResponse.json({ cases: [], error: err instanceof Error ? err.message : "Unknown error", updatedAt: new Date().toISOString() });
+    return NextResponse.json({
+      cases: [],
+      error: err instanceof Error ? err.message : "Unknown error",
+      updatedAt: new Date().toISOString(),
+    });
   }
 }
