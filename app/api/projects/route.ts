@@ -3,9 +3,19 @@ import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
 import { fetchListTasks, extractClickUpListId, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
 import { EMPLOYEES, PMS, nsProjectUrl } from "@/lib/constants";
-import type { Project } from "@/lib/types";
+import type { Project, ProjectNote } from "@/lib/types";
 
 export const revalidate = 0; // always fresh
+
+function parseNotes(raw: string | null): ProjectNote[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export async function GET() {
   try {
@@ -100,6 +110,7 @@ export async function GET() {
           clientPending: tasks.filter(t => isClientPending(t) && !isDone(t)),
           milestones:    tasks.filter(isMilestone),
           timebillWarning,
+          notes: parseNotes(p.user_notes),
         } satisfies Project;
       })
     );

@@ -13,6 +13,15 @@ export interface NSProject {
   remaining_hours: number;    // custentity_project_remaining_hours
 }
 
+// ─── Project Note ─────────────────────────────────────────────────────────────
+
+export interface ProjectNote {
+  id: string;       // timestamp-based unique id
+  text: string;
+  author: string;
+  ts: string;       // ISO datetime string
+}
+
 // ─── ClickUp Task ─────────────────────────────────────────────────────────────
 
 export interface CUTask {
@@ -57,6 +66,7 @@ export interface Project {
   clientPending: CUTask[];
   milestones: CUTask[];
   timebillWarning: boolean;   // remaining_hours drift flag
+  notes: ProjectNote[];
 }
 
 // ─── Phase (projecttask) ─────────────────────────────────────────────────────

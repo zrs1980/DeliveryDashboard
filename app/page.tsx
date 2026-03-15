@@ -216,7 +216,10 @@ export default function DashboardPage() {
               <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 15, color: C.text }}>
                 Active Projects
               </div>
-              <ProjectTable projects={projects} />
+              <ProjectTable
+                projects={projects}
+                onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
+              />
             </div>
             {phases.length > 0 && (
               <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "16px 20px" }}>
@@ -234,7 +237,10 @@ export default function DashboardPage() {
           <>
             <AiInsights projects={projects} selectedId={null} />
             <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "16px 20px" }}>
-              <TaskCommandCenter projects={projects} />
+              <TaskCommandCenter
+                projects={projects}
+                onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
+              />
             </div>
           </>
         )}

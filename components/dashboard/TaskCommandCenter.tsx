@@ -2,14 +2,16 @@
 import { useState } from "react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
+import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, type Bucket } from "@/lib/clickup";
 import { nsProjectUrl } from "@/lib/constants";
-import type { Project, CUTask } from "@/lib/types";
+import type { Project, CUTask, ProjectNote } from "@/lib/types";
 
 type Tab = "timeline" | "milestones" | "resource" | "blocked" | "client";
 
 interface Props {
   projects: Project[];
+  onProjectsChange: (updated: Project[]) => void;
 }
 
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -108,7 +110,7 @@ function Section({ title, tasks, projects }: { title: string; tasks: Array<{ tas
   );
 }
 
-export function TaskCommandCenter({ projects }: Props) {
+export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
   const [tab, setTab]               = useState<Tab>("timeline");
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const [selectedResource, setSelectedResource] = useState<string>("");
@@ -228,6 +230,26 @@ export function TaskCommandCenter({ projects }: Props) {
       {tab === "resource"   && renderByResource()}
       {tab === "blocked"    && renderBlocked()}
       {tab === "client"     && renderClient()}
+
+      {/* Project notes — shown when a single project is selected */}
+      {selectedProject && (() => {
+        const proj = projects.find(p => p.id === selectedProject);
+        if (!proj) return null;
+        return (
+          <div style={{ marginTop: 24, background: C.surface, borderRadius: 8, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+            <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 13, color: C.text }}>
+              Project Notes — {proj.client}
+            </div>
+            <NotesPanel
+              projectId={proj.id}
+              notes={proj.notes}
+              onNotesChange={updated =>
+                onProjectsChange(projects.map(p => p.id === proj.id ? { ...p, notes: updated } : p))
+              }
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -131,6 +131,30 @@ export async function fetchRecord<T = Record<string, unknown>>(
   return res.json() as Promise<T>;
 }
 
+export async function patchRecord(
+  recordType: string,
+  id: number,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const url    = `${BASE_URL}/services/rest/record/v1/${recordType}/${id}`;
+  const method = "PATCH";
+  const auth   = buildOAuthHeader(method, url);
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      "Authorization": auth,
+      "Content-Type":  "application/json",
+    },
+    body: JSON.stringify(fields),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NS PATCH error ${res.status}: ${text}`);
+  }
+}
+
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 export async function fetchActiveProjects() {
@@ -145,6 +169,7 @@ export async function fetchActiveProjects() {
     clickup_url: string | null;
     budget_hours: string;
     remaining_hours: string;
+    user_notes: string | null;
   }>(`
     SELECT
       id,
@@ -156,7 +181,8 @@ export async function fetchActiveProjects() {
       jobtype,
       custentity20                         AS clickup_url,
       custentity_ceba_project_budget_hours AS budget_hours,
-      custentity_project_remaining_hours   AS remaining_hours
+      custentity_project_remaining_hours   AS remaining_hours,
+      custentity_user_notes                AS user_notes
     FROM job
     WHERE entitystatus = 2
       AND jobtype IN (1, 2)
