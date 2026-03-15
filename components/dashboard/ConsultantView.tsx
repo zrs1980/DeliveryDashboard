@@ -393,17 +393,14 @@ export function ConsultantView({ projects, cases }: Props) {
   const blockedCount = openFilteredTasks.filter(({ task }) => isBlocked(task)).length;
   const showAlert    = overdueCount > 0 || blockedCount > 0;
 
-  // ── Cases for this consultant ───────────────────────────────────────────────
+  // ── Cases — show all open (non-closed) cases ──────────────────────────────
+  // NS assigned display names don't reliably match ClickUp usernames, so we
+  // show all open cases here; the dedicated Cases tab has per-assignee filtering.
 
-  const myCases: NSCase[] = (() => {
-    if (!cases || cases.length === 0 || !consultant) return [];
-    const parts = consultant.split(/[.\s_@]+/).filter(Boolean);
-    return cases.filter(c =>
-      parts.some(part =>
-        c.assigned.toLowerCase().includes(part.toLowerCase())
-      )
-    );
-  })();
+  const CLOSED = ["closed", "resolved"];
+  const myCases: NSCase[] = (cases ?? []).filter(
+    c => !CLOSED.some(s => c.status.toLowerCase().includes(s))
+  );
 
   // ── Project card helpers ─────────────────────────────────────────────────────
 
@@ -1022,7 +1019,7 @@ export function ConsultantView({ projects, cases }: Props) {
             }}>
               <span style={{ fontSize: 15 }}>🗃</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                My Cases
+                Open Cases
               </span>
               <span style={{
                 marginLeft: 6,
@@ -1038,14 +1035,9 @@ export function ConsultantView({ projects, cases }: Props) {
               </span>
             </div>
 
-            {(!cases || cases.length === 0) ? (
+            {myCases.length === 0 ? (
               <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
-                <div style={{ marginBottom: 4 }}>No open cases assigned to you.</div>
-                <div style={{ fontSize: 11, color: C.mid }}>Cases are sourced from NetSuite support records.</div>
-              </div>
-            ) : myCases.length === 0 ? (
-              <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
-                <div style={{ marginBottom: 4 }}>No open cases assigned to you.</div>
+                <div style={{ marginBottom: 4 }}>No open cases found.</div>
                 <div style={{ fontSize: 11, color: C.mid }}>Cases are sourced from NetSuite support records.</div>
               </div>
             ) : (
