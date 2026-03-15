@@ -103,3 +103,15 @@ export interface WeeklyAllocation {
   weeks: Record<string, number>; // ISO week start (Mon) → hours
   byProject: Record<number, Record<string, number>>;
 }
+
+export interface NSAllocation {
+  id: string;
+  employeeId: number;
+  employeeName: string;
+  projectName: string;
+  startDate: string;   // e.g. "3/16/2026"
+  endDate: string;
+  allocationUnit: string; // "2" = percentage, "1" = hours per day
+  percentOfMax: number;   // used when allocationUnit = "2"
+  hoursPerDay: number;    // used when allocationUnit = "1"
+}

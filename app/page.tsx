@@ -9,7 +9,7 @@ import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
-import type { Project, ProjectPhase } from "@/lib/types";
+import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
   id: string;
@@ -39,12 +39,13 @@ interface DataState {
   projects: Project[];
   phases: ProjectPhase[];
   cases: NSCase[];
+  allocations: NSAllocation[];
   updatedAt: string | null;
 }
 
 export default function DashboardPage() {
   const [tab, setTab] = useState<Tab>("projects");
-  const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], updatedAt: null });
+  const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], updatedAt: null });
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -55,24 +56,27 @@ export default function DashboardPage() {
     setError(null);
     setCasesError(null);
     try {
-      const [projRes, phaseRes, casesRes] = await Promise.all([
+      const [projRes, phaseRes, casesRes, resRes] = await Promise.all([
         fetch("/api/projects"),
         fetch("/api/reports/phase-rag"),
         fetch("/api/cases"),
+        fetch("/api/resources"),
       ]);
-      const [projData, phaseData, casesData] = await Promise.all([
+      const [projData, phaseData, casesData, resData] = await Promise.all([
         projRes.json(),
         phaseRes.json(),
         casesRes.json(),
+        resRes.json(),
       ]);
       if (!projRes.ok)  throw new Error(projData.error  ?? "Failed to load projects");
       if (!phaseRes.ok) throw new Error(phaseData.error ?? "Failed to load phases");
       if (casesData.error) setCasesError(casesData.error);
       setData({
-        projects:  projData.projects  ?? [],
-        phases:    phaseData.phases   ?? [],
-        cases:     casesData.cases    ?? [],
-        updatedAt: projData.updatedAt ?? new Date().toISOString(),
+        projects:    projData.projects     ?? [],
+        phases:      phaseData.phases      ?? [],
+        cases:       casesData.cases       ?? [],
+        allocations: resData.allocations   ?? [],
+        updatedAt:   projData.updatedAt    ?? new Date().toISOString(),
       });
       setHasLoaded(true);
     } catch (e) {
@@ -82,7 +86,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const { projects, phases, cases, updatedAt } = data;
+  const { projects, phases, cases, allocations, updatedAt } = data;
 
   const totalOverdue = projects.reduce((s, p) => s + p.tasks.filter(t => {
     const st = t.status.status.toLowerCase();
@@ -260,9 +264,7 @@ export default function DashboardPage() {
         {/* Resources */}
         {hasLoaded && tab === "resources" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>Resource Allocation</div>
-            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 18 }}>Task load and estimated hours remaining per consultant, derived from ClickUp task assignments.</div>
-            <ResourceAllocation projects={projects} />
+            <ResourceAllocation allocations={allocations} />
           </div>
         )}
 
