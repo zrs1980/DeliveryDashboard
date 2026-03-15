@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
-import { fetchListTasks, extractClickUpListId, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
+import { fetchListTasks, resolveClickUpListId, extractClickUpListId, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
 import { EMPLOYEES, PMS, nsProjectUrl } from "@/lib/constants";
 import type { Project, ProjectNote } from "@/lib/types";
@@ -41,16 +41,19 @@ export async function GET() {
         const actual        = budget_hours - remaining;
         const clickupListId = extractClickUpListId(p.clickup_url);
 
-        // Fetch ClickUp tasks
+        // Fetch ClickUp tasks — resolve view-style URLs to real list IDs first
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
         let clickupError: string | null = null;
         try {
-          if (clickupListId) {
-            tasks = await fetchListTasks(clickupListId);
+          if (p.clickup_url) {
+            const resolvedListId = await resolveClickUpListId(p.clickup_url);
+            if (resolvedListId) {
+              tasks = await fetchListTasks(resolvedListId);
+            } else {
+              clickupError = `Could not resolve list ID from URL: ${p.clickup_url}`;
+            }
           } else {
-            clickupError = p.clickup_url
-              ? `Could not parse list ID from URL: ${p.clickup_url}`
-              : "No ClickUp URL set on this project (custentity20 is empty)";
+            clickupError = "No ClickUp URL set on this project (custentity20 is empty)";
           }
         } catch (e) {
           clickupError = e instanceof Error ? e.message : String(e);

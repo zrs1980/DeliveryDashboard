@@ -12,25 +12,63 @@ function headers() {
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
-export function extractClickUpListId(url: string | null): string | null {
+/**
+ * Extract a raw ID from a ClickUp URL.
+ * - /v/li/{listId}/{viewId}  → returns { type: "list", id }   (first number IS the list)
+ * - /v/l/{hash}-{viewId}     → returns { type: "view", id }   (need view API to resolve)
+ * - /v/l/{listId}            → returns { type: "list", id }
+ */
+function parseClickUpUrl(url: string | null): { type: "list" | "view"; id: string } | null {
   if (!url) return null;
   const clean = url.split("?")[0];
 
-  // /v/l/182ddq-334693 — space-hash prefix + numeric list ID → extract numeric part only
+  // /v/li/{listId}/{viewId} — first number is the list ID
+  const liMatch = clean.match(/\/v\/li\/(\d+)\/\d+/i);
+  if (liMatch) return { type: "list", id: liMatch[1] };
+
+  // /v/l/{hash}-{viewId} — the numeric part after hyphen is a VIEW id, not a list id
   const lHyphenMatch = clean.match(/\/v\/l\/[a-z0-9]+-(\d+)/i);
-  if (lHyphenMatch) return lHyphenMatch[1];
+  if (lHyphenMatch) return { type: "view", id: lHyphenMatch[1] };
 
-  // /v/l/12345678 — plain numeric list ID
+  // /v/l/{numericListId} — plain list id
   const lNumericMatch = clean.match(/\/v\/l\/(\d+)/i);
-  if (lNumericMatch) return lNumericMatch[1];
-
-  // /v/li/{parentId}/{listId} — use the last numeric segment
-  const liMatch = clean.match(/\/v\/li\/\d+\/(\d+)/i);
-  if (liMatch) return liMatch[1];
+  if (lNumericMatch) return { type: "list", id: lNumericMatch[1] };
 
   // Fallback: last path segment
   const segments = clean.replace(/\/$/, "").split("/");
-  return segments[segments.length - 1] || null;
+  const last = segments[segments.length - 1];
+  return last ? { type: "list", id: last } : null;
+}
+
+/**
+ * Resolve a ClickUp URL to its API list ID.
+ * For view-style URLs (/v/l/hash-viewId), calls the view API to get the parent list.
+ */
+export async function resolveClickUpListId(url: string | null): Promise<string | null> {
+  const parsed = parseClickUpUrl(url);
+  if (!parsed) return null;
+
+  if (parsed.type === "list") return parsed.id;
+
+  // View URL — resolve via API
+  try {
+    const res = await fetch(`${BASE_URL}/view/${parsed.id}`, { headers: headers() });
+    if (!res.ok) return null;
+    const data = await res.json();
+    // The view's parent list id is at data.view.list.id or data.view.parent.id
+    return data?.view?.list?.id ?? data?.view?.parent?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synchronous extraction for display purposes (stores the raw parsed ID).
+ * Use resolveClickUpListId() for actual API calls.
+ */
+export function extractClickUpListId(url: string | null): string | null {
+  const parsed = parseClickUpUrl(url);
+  return parsed?.id ?? null;
 }
 
 // ─── Fetch tasks for a list ───────────────────────────────────────────────────
@@ -90,8 +128,7 @@ export function taskBucket(task: CUTask): Bucket {
   if (!task.due_date) return "no_date";
   const due  = parseInt(task.due_date);
   const now  = Date.now();
-  const day  = 86400000;
-  const week = 7 * day;
+  const week = 7 * 86400000;
 
   // Mon of current week
   const todayDate = new Date();
