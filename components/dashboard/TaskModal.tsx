@@ -131,18 +131,20 @@ export function TaskModal({ title, tasks, onClose }: Props) {
                     }}>
                       {style.label}
                     </span>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: C.text, flex: 1, lineHeight: 1.4 }}>
+                      {task.name}
+                    </span>
                     <a
                       href={task.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        fontWeight: 600, fontSize: 13, color: C.text, flex: 1,
-                        textDecoration: "none", lineHeight: 1.4,
+                        fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0,
+                        padding: "2px 8px", borderRadius: 5, textDecoration: "none",
+                        background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`,
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.color = C.blue)}
-                      onMouseLeave={e => (e.currentTarget.style.color = C.text)}
                     >
-                      {task.name}
+                      ↗ ClickUp
                     </a>
                     <span style={{
                       fontSize: 11, fontFamily: C.mono, fontWeight: 600,
