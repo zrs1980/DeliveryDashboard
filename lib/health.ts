@@ -19,7 +19,9 @@ export function calcHealthScore(p: {
   else if (spi < 0.85)       score -= 10;
   if (p.rem < 15 && p.pct < 0.85) score -= 20;
 
-  const health = score >= 70 ? "green" : score >= 45 ? "yellow" : "red";
+  // Hard override: no remaining budget = always red, regardless of score
+  const overBudget = p.rem <= 0;
+  const health = overBudget || score < 45 ? "red" : score < 70 ? "yellow" : "green";
   return { score: Math.max(0, score), health };
 }
 
