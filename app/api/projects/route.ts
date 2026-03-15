@@ -43,12 +43,18 @@ export async function GET() {
 
         // Fetch ClickUp tasks
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
+        let clickupError: string | null = null;
         try {
           if (clickupListId) {
             tasks = await fetchListTasks(clickupListId);
+          } else {
+            clickupError = p.clickup_url
+              ? `Could not parse list ID from URL: ${p.clickup_url}`
+              : "No ClickUp URL set on this project (custentity20 is empty)";
           }
-        } catch {
-          // ClickUp failure doesn't block project data
+        } catch (e) {
+          clickupError = e instanceof Error ? e.message : String(e);
+          console.error(`[ClickUp] project ${p.id} (${p.companyname}):`, clickupError);
         }
 
         const pct       = computePct(tasks);
@@ -111,6 +117,7 @@ export async function GET() {
           milestones:    tasks.filter(isMilestone),
           timebillWarning,
           notes: parseNotes(p.user_notes),
+          clickupError,
         } satisfies Project;
       })
     );

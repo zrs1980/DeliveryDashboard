@@ -67,6 +67,7 @@ export interface Project {
   milestones: CUTask[];
   timebillWarning: boolean;   // remaining_hours drift flag
   notes: ProjectNote[];
+  clickupError: string | null;
 }
 
 // ─── Phase (projecttask) ─────────────────────────────────────────────────────
