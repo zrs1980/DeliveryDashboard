@@ -50,19 +50,7 @@ function sumPeriod(rows: DayRow[], from: Date, to: Date) {
 
 export async function GET() {
   try {
-    const allEmployeeIds = Object.keys(EMPLOYEES).map(Number);
-
-    // Filter to active employees only
-    const activeRows = await runSuiteQL<{ id: string }>(`
-      SELECT id FROM employee
-      WHERE id IN (${allEmployeeIds.join(", ")})
-        AND isInactive = 'F'
-    `);
-    const employeeIds = activeRows.map(r => parseInt(r.id));
-
-    if (employeeIds.length === 0) {
-      return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
-    }
+    const employeeIds = Object.keys(EMPLOYEES).map(Number);
 
     const rows = await runSuiteQL<DayRow>(`
       SELECT
@@ -111,7 +99,9 @@ export async function GET() {
       weeks.push(w);
     }
 
-    const result = employeeIds.filter(id => EMPLOYEES[id]).map(empId => {
+    // Only include employees with at least one timebill entry in the window —
+    // inactive employees won't have recent records so they're naturally excluded.
+    const result = employeeIds.filter(id => EMPLOYEES[id] && byEmployee[String(id)]).map(empId => {
       const empRows = byEmployee[String(empId)] ?? [];
 
       const weeklyTrend = weeks.map(weekStart => {
