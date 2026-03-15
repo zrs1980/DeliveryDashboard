@@ -645,116 +645,116 @@ export function ResourceAllocation({ allocations, error }: Props) {
                     ))}
                   </tr>
 
-                  {/* Resource sub-rows */}
-                  {isExp && proj.rows.map((a, ai) => {
-                    const isSaving = savingId === a.id || savingRef.current;
-                    const hasError = cellError?.id === a.id;
-                    const subBg        = pi % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
-                    const isLast       = ai === proj.rows.length - 1;
+                  {/* Resource sub-rows — one row per employee, hours summed across all their allocations */}
+                  {isExp && (() => {
+                    // Group allocations by employee
+                    const empMap = new Map<number, { name: string; allocs: NSAllocation[] }>();
+                    for (const a of proj.rows) {
+                      if (!empMap.has(a.employeeId)) empMap.set(a.employeeId, { name: a.employeeName, allocs: [] });
+                      empMap.get(a.employeeId)!.allocs.push(a);
+                    }
+                    const employees = Array.from(empMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
-                    return (
-                      <tr key={`${proj.projectId}-${a.id}`} style={{ background: subBg }}>
-                        {/* Resource name + date range */}
-                        <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", ...stickyLeft, background: subBg }}>
-                          <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                          <span style={{ fontWeight: 600 }}>{a.employeeName}</span>
-                          <span style={{ marginLeft: 8, color: C.textSub, fontSize: 10 }}>
-                            {a.startDate} → {a.endDate}
-                          </span>
-                          {isSaving && (
-                            <span style={{ marginLeft: 8, fontSize: 10, color: C.blue }}>saving…</span>
-                          )}
-                          {hasError && (
-                            <span style={{ marginLeft: 8, fontSize: 10, color: C.red }}>{cellError!.msg}</span>
-                          )}
-                        </td>
+                    return employees.map((emp, ei) => {
+                      const isLast   = ei === employees.length - 1;
+                      const subBg    = pi % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
+                      const empSaving = emp.allocs.some(a => savingId === a.id) || savingRef.current;
+                      const empError  = emp.allocs.find(a => cellError?.id === a.id);
 
-                        {/* Budget / Allocated / Gap — empty for sub-rows */}
-                        <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
-                        <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
-                        <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
+                      return (
+                        <tr key={`${proj.projectId}-${emp.name}`} style={{ background: subBg }}>
+                          {/* Resource name */}
+                          <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", ...stickyLeft, background: subBg }}>
+                            <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                            <span style={{ fontWeight: 600 }}>{emp.name}</span>
+                            {empSaving && <span style={{ marginLeft: 8, fontSize: 10, color: C.blue }}>saving…</span>}
+                            {empError  && <span style={{ marginLeft: 8, fontSize: 10, color: C.red }}>{cellError!.msg}</span>}
+                          </td>
 
-                        {/* Editable week cells */}
-                        {weeks.map((w, wi) => {
-                          const hrs    = hoursForWeek(a, w);
-                          const active = allocCoversWeek(a, w);
-                          const wMs    = w.getTime();
+                          {/* Budget / Allocated / Gap — empty for sub-rows */}
+                          <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
+                          <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
+                          <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
 
-                          // Is this specific cell being edited?
-                          const isEditingThis =
-                            editingCell !== null &&
-                            editingCell.weekMs === wMs &&
-                            (editingCell.allocationId === a.id ||
-                              (editingCell.allocationId === null &&
-                               editingCell.employeeId === a.employeeId &&
-                               editingCell.projectId  === proj.projectId));
+                          {/* Editable week cells */}
+                          {weeks.map((w, wi) => {
+                            const wMs = w.getTime();
+                            // Find which allocation (if any) covers this week for this employee
+                            const coveringAlloc = emp.allocs.find(a => allocCoversWeek(a, w));
+                            const hrs           = coveringAlloc ? hoursForWeek(coveringAlloc, w) : 0;
+                            const isEditingThis =
+                              editingCell !== null &&
+                              editingCell.weekMs     === wMs &&
+                              editingCell.employeeId === emp.allocs[0].employeeId &&
+                              editingCell.projectId  === proj.projectId;
 
-                          const cellContext: CellEdit = {
-                            allocationId:   active ? a.id : null,
-                            employeeId:     a.employeeId,
-                            employeeName:   a.employeeName,
-                            projectId:      proj.projectId,
-                            projectName:    proj.name,
-                            remainingHours: proj.remainingHours,
-                            budgetHours:    proj.budgetHours,
-                            weekMs:         wMs,
-                          };
+                            const cellContext: CellEdit = {
+                              allocationId:   coveringAlloc?.id ?? null,
+                              employeeId:     emp.allocs[0].employeeId,
+                              employeeName:   emp.name,
+                              projectId:      proj.projectId,
+                              projectName:    proj.name,
+                              remainingHours: proj.remainingHours,
+                              budgetHours:    proj.budgetHours,
+                              weekMs:         wMs,
+                            };
 
-                          return (
-                            <td
-                              key={wi}
-                              title={!isSaving ? (active ? "Click to edit" : "Click to add allocation") : undefined}
-                              style={{
-                                padding:      "4px 6px",
-                                textAlign:    "center",
-                                fontSize:     11,
-                                fontFamily:   C.mono,
-                                borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`,
-                                borderLeft:   `1px solid ${C.border}`,
-                                cursor:       !isSaving ? "pointer" : "default",
-                                background:   isEditingThis ? "#EBF5FF" : undefined,
-                                transition:   "background 0.1s",
-                              }}
-                              onClick={() => {
-                                if (isSaving) return;
-                                setEditingCell(cellContext);
-                                setEditValue(active && hrs > 0 ? hrs.toFixed(1) : "0");
-                              }}
-                            >
-                              {isEditingThis ? (
-                                <input
-                                  autoFocus
-                                  type="number"
-                                  min={0}
-                                  max={40}
-                                  step={0.5}
-                                  value={editValue}
-                                  onChange={e => setEditValue(e.target.value)}
-                                  onKeyDown={e => {
-                                    if (e.key === "Enter") { e.preventDefault(); handleSave(); }
-                                    if (e.key === "Escape") setEditingCell(null);
-                                  }}
-                                  onBlur={() => handleSave()}
-                                  style={{
-                                    width: 50, padding: "2px 4px", fontSize: 11,
-                                    fontFamily: C.mono, border: `1.5px solid ${C.blue}`,
-                                    borderRadius: 3, textAlign: "center", outline: "none",
-                                    background: "#fff",
-                                  }}
-                                />
-                              ) : active ? (
-                                <span style={{ color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
-                                  {hrs > 0 ? hrs.toFixed(1) : "0"}
-                                </span>
-                              ) : (
-                                <span style={{ color: C.mid, fontSize: 13, lineHeight: 1 }}>+</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
+                            return (
+                              <td
+                                key={wi}
+                                title={!empSaving ? (coveringAlloc ? "Click to edit" : "Click to add allocation") : undefined}
+                                style={{
+                                  padding:      "4px 6px",
+                                  textAlign:    "center",
+                                  fontSize:     11,
+                                  fontFamily:   C.mono,
+                                  borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`,
+                                  borderLeft:   `1px solid ${C.border}`,
+                                  cursor:       !empSaving ? "pointer" : "default",
+                                  background:   isEditingThis ? "#EBF5FF" : undefined,
+                                  transition:   "background 0.1s",
+                                }}
+                                onClick={() => {
+                                  if (empSaving) return;
+                                  setEditingCell(cellContext);
+                                  setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
+                                }}
+                              >
+                                {isEditingThis ? (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    min={0}
+                                    max={40}
+                                    step={0.5}
+                                    value={editValue}
+                                    onChange={e => setEditValue(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") { e.preventDefault(); handleSave(); }
+                                      if (e.key === "Escape") setEditingCell(null);
+                                    }}
+                                    onBlur={() => handleSave()}
+                                    style={{
+                                      width: 50, padding: "2px 4px", fontSize: 11,
+                                      fontFamily: C.mono, border: `1.5px solid ${C.blue}`,
+                                      borderRadius: 3, textAlign: "center", outline: "none",
+                                      background: "#fff",
+                                    }}
+                                  />
+                                ) : coveringAlloc ? (
+                                  <span style={{ color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
+                                    {hrs > 0 ? hrs.toFixed(1) : "0"}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: C.mid, fontSize: 13, lineHeight: 1 }}>+</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    });
+                  })()}
                 </>
               );
             })}
