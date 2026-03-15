@@ -188,14 +188,6 @@ export function ProjectTable({ projects, onProjectsChange }: Props) {
                       {p.clickupUrl && (
                         <LinkBtn href={p.clickupUrl} color={C.blue} bg={C.blueBg} bd={C.blueBd} label="ClickUp" />
                       )}
-                      {p.clickupError && (
-                        <span
-                          title={p.clickupError}
-                          style={{ fontSize: 10, color: C.orange, cursor: "help" }}
-                        >
-                          ⚠ CU: {p.clickupError.slice(0, 40)}{p.clickupError.length > 40 ? "…" : ""}
-                        </span>
-                      )}
                     </div>
                   </td>
                 </tr>
