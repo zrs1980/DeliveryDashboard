@@ -131,6 +131,31 @@ export async function fetchRecord<T = Record<string, unknown>>(
   return res.json() as Promise<T>;
 }
 
+export async function postRecord(
+  recordType: string,
+  fields: Record<string, unknown>,
+): Promise<string> {
+  const url    = `${BASE_URL}/services/rest/record/v1/${recordType}`;
+  const method = "POST";
+  const auth   = buildOAuthHeader(method, url);
+
+  const res = await fetch(url, {
+    method,
+    headers: { "Authorization": auth, "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NS POST error ${res.status}: ${text}`);
+  }
+
+  const location = res.headers.get("Location") ?? "";
+  const idMatch  = location.match(/\/(\d+)$/);
+  if (!idMatch) throw new Error("Could not extract new record ID from NetSuite response");
+  return idMatch[1];
+}
+
 export async function patchRecord(
   recordType: string,
   id: number,

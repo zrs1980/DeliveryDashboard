@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { runSuiteQL } from "@/lib/netsuite";
+import { NextRequest, NextResponse } from "next/server";
+import { runSuiteQL, postRecord } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSAllocation } from "@/lib/types";
 
@@ -64,5 +64,40 @@ export async function GET() {
       error: err instanceof Error ? err.message : "Unknown error",
       updatedAt: new Date().toISOString(),
     });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { employeeId, projectId, weekStart, weeklyHours } = await req.json() as {
+      employeeId: number;
+      projectId: number;
+      weekStart: string;  // YYYY-MM-DD (Monday)
+      weeklyHours: number;
+    };
+
+    const start = new Date(weekStart + "T00:00:00");
+    const end   = new Date(weekStart + "T00:00:00");
+    end.setDate(end.getDate() + 6); // Sunday of same week
+
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+    const pct  = (weeklyHours / 40) * 100;
+
+    const newId = await postRecord("resourceallocation", {
+      allocationResource: { id: String(employeeId) },
+      project:            { id: String(projectId)  },
+      startDate:          fmt(start),
+      endDate:            fmt(end),
+      allocationUnit:     { id: "P" },
+      allocationAmount:   pct,
+    });
+
+    return NextResponse.json({ id: newId, success: true });
+  } catch (err) {
+    console.error("[POST /api/resources]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 },
+    );
   }
 }

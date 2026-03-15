@@ -8,6 +8,17 @@ interface Props {
   error?: string | null;
 }
 
+interface CellEdit {
+  allocationId:  string | null;   // null = creating a new allocation
+  employeeId:    number;
+  employeeName:  string;
+  projectId:     number;
+  projectName:   string;
+  remainingHours: number | null;
+  budgetHours:   number | null;
+  weekMs:        number;
+}
+
 // ─── Week helpers ─────────────────────────────────────────────────────────────
 
 function getMondayOf(d: Date): Date {
@@ -128,10 +139,10 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
   // Project grid state
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
-  const [editingCell, setEditingCell]   = useState<{ id: string; weekMs: number } | null>(null);
-  const [editValue,   setEditValue]     = useState("");
-  const [savingId,    setSavingId]      = useState<string | null>(null);
-  const [cellError,   setCellError]     = useState<{ id: string; msg: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<CellEdit | null>(null);
+  const [editValue,   setEditValue]   = useState("");
+  const [savingId,    setSavingId]    = useState<string | null>(null);
+  const [cellError,   setCellError]   = useState<{ id: string; msg: string } | null>(null);
   const savingRef = useRef(false);
 
   // Group by employee
@@ -198,31 +209,75 @@ export function ResourceAllocation({ allocations, error }: Props) {
     });
   }
 
-  async function handleSave(a: NSAllocation) {
-    if (savingRef.current) return;
+  async function handleSave() {
+    if (savingRef.current || !editingCell) return;
     const newHrs = parseFloat(editValue);
-    if (isNaN(newHrs) || newHrs < 0) { setEditingCell(null); return; }
+    if (isNaN(newHrs) || newHrs <= 0) { setEditingCell(null); return; }
 
     savingRef.current = true;
+    const cell   = editingCell;
+    const saveKey = cell.allocationId ?? `${cell.employeeId}-${cell.projectId}-${cell.weekMs}`;
     setEditingCell(null);
-    setSavingId(a.id);
+    setSavingId(saveKey);
 
     try {
       const newPct = (newHrs / 40) * 100;
-      const res = await fetch(`/api/resources/${a.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ percentOfTime: newPct }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error((d as { error?: string }).error ?? `Save failed (${res.status})`);
+
+      if (cell.allocationId) {
+        // ── PATCH existing allocation ────────────────────────────────────
+        const res = await fetch(`/api/resources/${cell.allocationId}`, {
+          method:  "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ percentOfTime: newPct }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error ?? `Save failed (${res.status})`);
+        }
+        setLocalAllocs(prev =>
+          prev.map(x => x.id === cell.allocationId ? { ...x, percentOfMax: newPct } : x),
+        );
+      } else {
+        // ── POST new allocation ──────────────────────────────────────────
+        const weekStart = new Date(cell.weekMs);
+        const weekEnd   = new Date(cell.weekMs);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+
+        const res = await fetch("/api/resources", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({
+            employeeId:  cell.employeeId,
+            projectId:   cell.projectId,
+            weekStart:   fmt(weekStart),
+            weeklyHours: newHrs,
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error ?? `Create failed (${res.status})`);
+        }
+        const { id } = await res.json() as { id: string };
+
+        const newAlloc: NSAllocation = {
+          id,
+          employeeId:     cell.employeeId,
+          employeeName:   cell.employeeName,
+          projectId:      cell.projectId,
+          projectName:    cell.projectName,
+          startDate:      weekStart.toLocaleDateString("en-US"),
+          endDate:        weekEnd.toLocaleDateString("en-US"),
+          allocationUnit: "P",
+          percentOfMax:   newPct,
+          hoursPerDay:    0,
+          remainingHours: cell.remainingHours,
+          budgetHours:    cell.budgetHours,
+        };
+        setLocalAllocs(prev => [...prev, newAlloc]);
       }
-      setLocalAllocs(prev =>
-        prev.map(x => x.id === a.id ? { ...x, percentOfMax: newPct } : x),
-      );
     } catch (err) {
-      setCellError({ id: a.id, msg: err instanceof Error ? err.message : "Save failed" });
+      setCellError({ id: saveKey, msg: err instanceof Error ? err.message : "Failed" });
       setTimeout(() => setCellError(null), 5000);
     } finally {
       setSavingId(null);
@@ -479,9 +534,8 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
                   {/* Resource sub-rows */}
                   {isExp && proj.rows.map((a, ai) => {
-                    const isEditingRow = editingCell?.id === a.id;
-                    const isSaving     = savingId === a.id;
-                    const hasError     = cellError?.id === a.id;
+                    const isSaving = savingId === a.id || savingRef.current;
+                    const hasError = cellError?.id === a.id;
                     const subBg        = pi % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                     const isLast       = ai === proj.rows.length - 1;
 
@@ -509,14 +563,34 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
                         {/* Editable week cells */}
                         {weeks.map((w, wi) => {
-                          const hrs          = hoursForWeek(a, w);
-                          const active       = allocCoversWeek(a, w);
-                          const isEditingThis = isEditingRow && editingCell?.weekMs === w.getTime();
+                          const hrs    = hoursForWeek(a, w);
+                          const active = allocCoversWeek(a, w);
+                          const wMs    = w.getTime();
+
+                          // Is this specific cell being edited?
+                          const isEditingThis =
+                            editingCell !== null &&
+                            editingCell.weekMs === wMs &&
+                            (editingCell.allocationId === a.id ||
+                              (editingCell.allocationId === null &&
+                               editingCell.employeeId === a.employeeId &&
+                               editingCell.projectId  === proj.projectId));
+
+                          const cellContext: CellEdit = {
+                            allocationId:   active ? a.id : null,
+                            employeeId:     a.employeeId,
+                            employeeName:   a.employeeName,
+                            projectId:      proj.projectId,
+                            projectName:    proj.name,
+                            remainingHours: proj.remainingHours,
+                            budgetHours:    proj.budgetHours,
+                            weekMs:         wMs,
+                          };
 
                           return (
                             <td
                               key={wi}
-                              title={active && !isEditingRow ? "Click to edit" : undefined}
+                              title={!isSaving ? (active ? "Click to edit" : "Click to add allocation") : undefined}
                               style={{
                                 padding:      "4px 6px",
                                 textAlign:    "center",
@@ -524,14 +598,14 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                 fontFamily:   C.mono,
                                 borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`,
                                 borderLeft:   `1px solid ${C.border}`,
-                                cursor:       active && !isSaving ? "pointer" : "default",
+                                cursor:       !isSaving ? "pointer" : "default",
                                 background:   isEditingThis ? "#EBF5FF" : undefined,
                                 transition:   "background 0.1s",
                               }}
                               onClick={() => {
-                                if (!active || isSaving) return;
-                                setEditingCell({ id: a.id, weekMs: w.getTime() });
-                                setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
+                                if (isSaving) return;
+                                setEditingCell(cellContext);
+                                setEditValue(active && hrs > 0 ? hrs.toFixed(1) : "0");
                               }}
                             >
                               {isEditingThis ? (
@@ -544,10 +618,10 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                   value={editValue}
                                   onChange={e => setEditValue(e.target.value)}
                                   onKeyDown={e => {
-                                    if (e.key === "Enter") { e.preventDefault(); handleSave(a); }
+                                    if (e.key === "Enter") { e.preventDefault(); handleSave(); }
                                     if (e.key === "Escape") setEditingCell(null);
                                   }}
-                                  onBlur={() => handleSave(a)}
+                                  onBlur={() => handleSave()}
                                   style={{
                                     width: 50, padding: "2px 4px", fontSize: 11,
                                     fontFamily: C.mono, border: `1.5px solid ${C.blue}`,
@@ -560,7 +634,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                   {hrs > 0 ? hrs.toFixed(1) : "0"}
                                 </span>
                               ) : (
-                                <span style={{ color: C.mid }}>—</span>
+                                <span style={{ color: C.mid, fontSize: 13, lineHeight: 1 }}>+</span>
                               )}
                             </td>
                           );
