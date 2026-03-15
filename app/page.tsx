@@ -6,6 +6,7 @@ import { ProjectTable } from "@/components/dashboard/ProjectTable";
 import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
 import { TaskCommandCenter } from "@/components/dashboard/TaskCommandCenter";
 import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
+import { TimeAnalysis } from "@/components/dashboard/TimeAnalysis";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
@@ -25,13 +26,14 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "consultant" | "cases";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
   { id: "tasks",      label: "Tasks",       icon: "🗂️" },
   { id: "resources",  label: "Resource Allocation", icon: "👥" },
-  { id: "consultant", label: "My Work",     icon: "👤" },
+  { id: "time",       label: "Time Analysis",       icon: "⏱️" },
+  { id: "consultant", label: "My Work",             icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
 ];
 
@@ -265,6 +267,13 @@ export default function DashboardPage() {
         {hasLoaded && tab === "resources" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <ResourceAllocation allocations={allocations} />
+          </div>
+        )}
+
+        {/* Time Analysis */}
+        {tab === "time" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <TimeAnalysis />
           </div>
         )}
 
