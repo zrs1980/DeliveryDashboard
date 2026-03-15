@@ -107,25 +107,13 @@ export default function DashboardPage() {
 
           {/* CEBA Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 9,
-              background: "linear-gradient(135deg, #1A56DB, #3B82F6)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 8px rgba(26,86,219,0.5)",
-              flexShrink: 0,
-            }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L3 7v10l9 5 9-5V7L12 2z" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round"/>
-                <path d="M12 2v20M3 7l9 5 9-5" stroke="#fff" strokeWidth="1.4" strokeOpacity="0.6"/>
-              </svg>
-            </div>
-            <div>
-              <div style={{ color: "#F1F5F9", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em", lineHeight: 1.1 }}>
-                CEBA Solutions
-              </div>
-              <div style={{ color: "#64748B", fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>
-                PROJECT MANAGEMENT
-              </div>
+            <img
+              src="/ceba-logo.webp"
+              alt="CEBA Solutions"
+              style={{ height: 36, width: "auto", objectFit: "contain", flexShrink: 0 }}
+            />
+            <div style={{ color: "#64748B", fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>
+              PROJECT MANAGEMENT
             </div>
           </div>
 
