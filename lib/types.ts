@@ -108,10 +108,13 @@ export interface NSAllocation {
   id: string;
   employeeId: number;
   employeeName: string;
+  projectId: number;
   projectName: string;
-  startDate: string;   // e.g. "3/16/2026"
+  startDate: string;        // e.g. "3/16/2026"
   endDate: string;
-  allocationUnit: string; // "2" = percentage, "1" = hours per day
-  percentOfMax: number;   // used when allocationUnit = "2"
-  hoursPerDay: number;    // used when allocationUnit = "1"
+  allocationUnit: string;   // "H" = hours, "P" = percentage
+  percentOfMax: number;     // percentOfTime from NS (e.g. 32.5 = 32.5% of 40h/wk)
+  hoursPerDay: number;      // fallback if percentOfMax is 0
+  remainingHours: number | null;  // from job.custentity_project_remaining_hours
+  budgetHours: number | null;     // from job.custentity_ceba_project_budget_hours
 }

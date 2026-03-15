@@ -10,7 +10,10 @@ export async function GET() {
     const rows = await runSuiteQL<{
       id: string;
       employee_id: string;
+      project_id: string;
       project_name: string;
+      remaining_hours: string | null;
+      budget_hours: string | null;
       startdate: string;
       enddate: string;
       allocationunit: string;
@@ -19,14 +22,18 @@ export async function GET() {
     }>(`
       SELECT
         ra.id,
-        ra.allocationResource      AS employee_id,
-        BUILTIN.DF(ra.project)     AS project_name,
+        ra.allocationResource                          AS employee_id,
+        ra.project                                     AS project_id,
+        BUILTIN.DF(ra.project)                         AS project_name,
+        j.custentity_project_remaining_hours           AS remaining_hours,
+        j.custentity_ceba_project_budget_hours         AS budget_hours,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
         ra.percentOfTime,
         ra.numberHours
       FROM resourceallocation ra
+      LEFT JOIN job j ON j.id = ra.project
       WHERE ra.endDate >= SYSDATE
       ORDER BY ra.allocationResource, ra.startDate
     `);
@@ -37,12 +44,15 @@ export async function GET() {
         id:             r.id,
         employeeId:     empId,
         employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
+        projectId:      parseInt(r.project_id) || 0,
         projectName:    r.project_name || "—",
         startDate:      r.startdate,
         endDate:        r.enddate,
         allocationUnit: r.allocationunit ?? "H",
         percentOfMax:   parseFloat(r.percentoftime) || 0,
         hoursPerDay:    parseFloat(r.numberhours) || 0,
+        remainingHours: r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
+        budgetHours:    r.budget_hours != null ? parseFloat(r.budget_hours) : null,
       };
     });
 
