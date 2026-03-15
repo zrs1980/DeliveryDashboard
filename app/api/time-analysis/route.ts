@@ -50,19 +50,34 @@ function sumPeriod(rows: DayRow[], from: Date, to: Date) {
 
 export async function GET() {
   try {
-    const employeeIds = Object.keys(EMPLOYEES).map(Number);
+    const allEmployeeIds = Object.keys(EMPLOYEES).map(Number);
 
+    // Filter to active employees only
+    const activeRows = await runSuiteQL<{ id: string }>(`
+      SELECT id FROM employee
+      WHERE id IN (${allEmployeeIds.join(", ")})
+        AND isInactive = 'F'
+    `);
+    const employeeIds = activeRows.map(r => parseInt(r.id));
+
+    if (employeeIds.length === 0) {
+      return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
+    }
+
+    // Start from ~6 months ago to stay well under the 1000-row SuiteQL limit.
+    // With ~130 working days × 6 employees = ~780 rows max — safely under limit.
+    // The 12-week trend chart and MTD/last-month periods are fully covered.
     const rows = await runSuiteQL<DayRow>(`
       SELECT
         tb.employee,
         tb.tranDate,
         SUM(tb.hours)                                                      AS total_hours,
-        SUM(CASE WHEN tb.isBillable  = 'T' THEN tb.hours ELSE 0 END)      AS billable_hours,
-        SUM(CASE WHEN tb.isUtilized  = 'T' THEN tb.hours ELSE 0 END)      AS utilized_hours,
+        SUM(CASE WHEN tb.isBillable   = 'T' THEN tb.hours ELSE 0 END)     AS billable_hours,
+        SUM(CASE WHEN tb.isUtilized   = 'T' THEN tb.hours ELSE 0 END)     AS utilized_hours,
         SUM(CASE WHEN tb.isProductive = 'T' THEN tb.hours ELSE 0 END)     AS productive_hours
       FROM timebill tb
       WHERE tb.employee IN (${employeeIds.join(", ")})
-        AND tb.tranDate >= TO_DATE('10/01/2024', 'MM/DD/YYYY')
+        AND tb.tranDate >= TO_DATE('10/01/2025', 'MM/DD/YYYY')
         AND tb.tranDate <= SYSDATE
       GROUP BY tb.employee, tb.tranDate
       ORDER BY tb.employee, tb.tranDate
@@ -99,7 +114,7 @@ export async function GET() {
       weeks.push(w);
     }
 
-    const result = employeeIds.map(empId => {
+    const result = employeeIds.filter(id => EMPLOYEES[id]).map(empId => {
       const empRows = byEmployee[String(empId)] ?? [];
 
       const weeklyTrend = weeks.map(weekStart => {
