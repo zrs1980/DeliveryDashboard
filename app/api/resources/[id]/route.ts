@@ -7,17 +7,26 @@ export async function PATCH(
 ) {
   try {
     const { id } = await props.params;
-    const { percentOfTime } = await req.json();
+    const body = await req.json() as {
+      percentOfTime?: number;
+      startDate?: string;   // YYYY-MM-DD
+      endDate?: string;     // YYYY-MM-DD
+    };
 
-    if (typeof percentOfTime !== "number" || percentOfTime < 0 || percentOfTime > 100) {
-      return NextResponse.json({ error: "percentOfTime must be a number 0–100" }, { status: 400 });
+    const fields: Record<string, unknown> = {};
+
+    if (body.percentOfTime !== undefined) {
+      fields.allocationUnit   = { id: "P" };
+      fields.allocationAmount = body.percentOfTime;
+    }
+    if (body.startDate !== undefined) fields.startDate = body.startDate;
+    if (body.endDate   !== undefined) fields.endDate   = body.endDate;
+
+    if (Object.keys(fields).length === 0) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
-    await patchRecord("resourceallocation", parseInt(id), {
-      allocationUnit:   { id: "P" },
-      allocationAmount: percentOfTime,
-    });
-
+    await patchRecord("resourceallocation", parseInt(id), fields);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[PATCH /api/resources/[id]]", err);

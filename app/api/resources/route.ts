@@ -69,25 +69,21 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { employeeId, projectId, weekStart, weeklyHours } = await req.json() as {
-      employeeId: number;
-      projectId: number;
-      weekStart: string;  // YYYY-MM-DD (Monday)
+    const { employeeId, projectId, startDate, endDate, weeklyHours } = await req.json() as {
+      employeeId:  number;
+      projectId:   number;
+      startDate:   string;   // YYYY-MM-DD
+      endDate:     string;   // YYYY-MM-DD
       weeklyHours: number;
     };
 
-    const start = new Date(weekStart + "T00:00:00");
-    const end   = new Date(weekStart + "T00:00:00");
-    end.setDate(end.getDate() + 6); // Sunday of same week
-
-    const fmt = (d: Date) => d.toISOString().split("T")[0];
-    const pct  = (weeklyHours / 40) * 100;
+    const pct = (weeklyHours / 40) * 100;
 
     const newId = await postRecord("resourceallocation", {
       allocationResource: { id: String(employeeId) },
       project:            { id: String(projectId)  },
-      startDate:          fmt(start),
-      endDate:            fmt(end),
+      startDate,
+      endDate,
       allocationUnit:     { id: "P" },
       allocationAmount:   pct,
     });

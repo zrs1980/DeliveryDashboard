@@ -102,6 +102,20 @@ function hoursForWeek(a: NSAllocation, weekStart: Date): number {
   return (weeklyHours(a) / 5) * workDays;
 }
 
+function countWorkDays(start: Date, end: Date): number {
+  let count = 0;
+  const d = new Date(start);
+  d.setHours(0, 0, 0, 0);
+  const e = new Date(end);
+  e.setHours(0, 0, 0, 0);
+  while (d <= e) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
 // Estimated total future hours from today to endDate
 function estimatedFutureHours(a: NSAllocation, today: Date): number {
   const end = parseNSDate(a.endDate);
@@ -240,66 +254,140 @@ export function ResourceAllocation({ allocations, error }: Props) {
     if (isNaN(newHrs) || newHrs <= 0) { setEditingCell(null); return; }
 
     savingRef.current = true;
-    const cell   = editingCell;
+    const cell    = editingCell;
     const saveKey = cell.allocationId ?? `${cell.employeeId}-${cell.projectId}-${cell.weekMs}`;
     setEditingCell(null);
     setSavingId(saveKey);
 
-    try {
-      const newPct = (newHrs / 40) * 100;
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-      if (cell.allocationId) {
-        // ── PATCH existing allocation ────────────────────────────────────
-        const res = await fetch(`/api/resources/${cell.allocationId}`, {
-          method:  "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ percentOfTime: newPct }),
-        });
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({}));
-          throw new Error((d as { error?: string }).error ?? `Save failed (${res.status})`);
-        }
-        setLocalAllocs(prev =>
-          prev.map(x => x.id === cell.allocationId ? { ...x, percentOfMax: newPct } : x),
-        );
-      } else {
-        // ── POST new allocation ──────────────────────────────────────────
+    // Helper — POST a new allocation record, returns its new NS id
+    async function createAlloc(startDate: string, endDate: string, weeklyHrs: number): Promise<string> {
+      const res = await fetch("/api/resources", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ employeeId: cell.employeeId, projectId: cell.projectId, startDate, endDate, weeklyHours: weeklyHrs }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error ?? `Create failed (${res.status})`);
+      }
+      return ((await res.json()) as { id: string }).id;
+    }
+
+    // Helper — PATCH an existing allocation record
+    async function patchAlloc(id: string, fields: { percentOfTime?: number; startDate?: string; endDate?: string }) {
+      const res = await fetch(`/api/resources/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(fields),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error ?? `Patch failed (${res.status})`);
+      }
+    }
+
+    try {
+      if (!cell.allocationId) {
+        // ── CREATE new allocation (empty cell clicked) ───────────────────
         const weekStart = new Date(cell.weekMs);
         const weekEnd   = new Date(cell.weekMs);
         weekEnd.setDate(weekEnd.getDate() + 6);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-        const res = await fetch("/api/resources", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({
-            employeeId:  cell.employeeId,
-            projectId:   cell.projectId,
-            weekStart:   fmt(weekStart),
-            weeklyHours: newHrs,
-          }),
-        });
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({}));
-          throw new Error((d as { error?: string }).error ?? `Create failed (${res.status})`);
-        }
-        const { id } = await res.json() as { id: string };
-
+        const newId = await createAlloc(fmt(weekStart), fmt(weekEnd), newHrs);
         const newAlloc: NSAllocation = {
-          id,
+          id:             newId,
           employeeId:     cell.employeeId,
           employeeName:   cell.employeeName,
           projectId:      cell.projectId,
           projectName:    cell.projectName,
-          startDate:      weekStart.toLocaleDateString("en-US"),
-          endDate:        weekEnd.toLocaleDateString("en-US"),
+          startDate:      fmt(weekStart),
+          endDate:        fmt(weekEnd),
           allocationUnit: "P",
-          percentOfMax:   newPct,
+          percentOfMax:   (newHrs / 40) * 100,
           hoursPerDay:    0,
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
         };
         setLocalAllocs(prev => [...prev, newAlloc]);
+
+      } else {
+        // ── EDIT existing allocation — split to preserve other weeks ─────
+        const orig       = localAllocs.find(x => x.id === cell.allocationId)!;
+        const allocStart = parseNSDate(orig.startDate)!;
+        const allocEnd   = parseNSDate(orig.endDate)!;
+
+        const weekStart = new Date(cell.weekMs);
+        const weekEnd   = new Date(cell.weekMs);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+
+        // Clip new allocation to the actual allocation bounds (handles partial weeks)
+        const newStart = allocStart > weekStart ? allocStart : weekStart;
+        const newEnd   = allocEnd   < weekEnd   ? allocEnd   : weekEnd;
+
+        // Convert entered hours to weekly rate (pro-rated for partial weeks)
+        const wDays      = countWorkDays(newStart, newEnd);
+        const dailyHrs   = wDays > 0 ? newHrs / wDays : newHrs / 5;
+        const newWeeklyH = dailyHrs * 5;
+        const newPct     = (newWeeklyH / 40) * 100;
+
+        const origWeeklyH = orig.percentOfMax / 100 * 40;
+
+        const dayBefore = new Date(weekStart); dayBefore.setDate(dayBefore.getDate() - 1);
+        const dayAfter  = new Date(weekEnd);   dayAfter.setDate(dayAfter.getDate() + 1);
+
+        const hasBefore = allocStart < weekStart;
+        const hasAfter  = allocEnd   > weekEnd;
+
+        // Accumulate state changes, apply atomically at the end
+        let nextAllocs = [...localAllocs];
+
+        if (!hasBefore && !hasAfter) {
+          // ── Case 1: allocation IS this week — just update the rate ──────
+          await patchAlloc(cell.allocationId, { percentOfTime: newPct });
+          nextAllocs = nextAllocs.map(x =>
+            x.id === cell.allocationId ? { ...x, percentOfMax: newPct } : x,
+          );
+
+        } else if (hasBefore && !hasAfter) {
+          // ── Case 2: allocation ends this week (or before) ───────────────
+          // POST new allocation for this week at new rate FIRST
+          const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+          nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+          // Then trim existing to end before this week
+          await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+          nextAllocs = nextAllocs.map(x =>
+            x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+          );
+
+        } else if (!hasBefore && hasAfter) {
+          // ── Case 3: allocation starts this week ─────────────────────────
+          // POST new for this week at new rate FIRST
+          const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+          nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+          // Then shift existing to start after this week (preserves original rate)
+          await patchAlloc(cell.allocationId, { startDate: fmt(dayAfter) });
+          nextAllocs = nextAllocs.map(x =>
+            x.id === cell.allocationId ? { ...x, startDate: fmt(dayAfter) } : x,
+          );
+
+        } else {
+          // ── Case 4: week is in the middle — three-way split ─────────────
+          // POST new for this week at new rate
+          const newId1 = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+          nextAllocs.push({ ...orig, id: newId1, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+          // POST new for the "after" period at original rate
+          const newId2 = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
+          nextAllocs.push({ ...orig, id: newId2, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: orig.percentOfMax });
+          // Trim existing to end before this week
+          await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+          nextAllocs = nextAllocs.map(x =>
+            x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+          );
+        }
+
+        setLocalAllocs(nextAllocs);
       }
     } catch (err) {
       setCellError({ id: saveKey, msg: err instanceof Error ? err.message : "Failed" });
