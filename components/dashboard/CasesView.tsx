@@ -27,7 +27,7 @@ interface Props {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const NS_CASE_URL = (id: string) =>
-  `https://system.na1.netsuite.com/app/crm/support/nlcase.nl?id=${id}`;
+  `https://3550424.app.netsuite.com/app/crm/support/supportcase.nl?id=${id}&whence=`;
 
 const CLOSED_STATUSES = ["closed", "resolved"];
 function isClosedCase(c: NSCase): boolean {
