@@ -36,7 +36,7 @@ interface EmployeeTimeData {
   employeeName: string;
   periods: Record<PeriodKey, PeriodMetrics>;
   weeklyTrend: WeekPoint[];
-  projectBreakdown: ProjectBreakdown[];
+  projectBreakdown: Record<PeriodKey, ProjectBreakdown[]>;
 }
 
 interface AiState { loading: boolean; text: string | null; error: string | null; }
@@ -123,7 +123,7 @@ export function TimeAnalysis() {
           employeeName:     emp.employeeName,
           periodLabel:      PERIOD_LABELS[period],
           metrics:          emp.periods[period],
-          projectBreakdown: emp.projectBreakdown,
+          projectBreakdown: emp.projectBreakdown[period] ?? [],
         }),
       });
       const json = await res.json();
@@ -261,10 +261,10 @@ export function TimeAnalysis() {
                               {/* ── Left: Project breakdown ── */}
                               <div>
                                 <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>
-                                  Project Breakdown <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>(last 3 months)</span>
+                                  Project Breakdown <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>— {PERIOD_LABELS[period]}</span>
                                 </div>
-                                {emp.projectBreakdown.length === 0 ? (
-                                  <div style={{ color: C.textSub, fontSize: 13 }}>No project data available.</div>
+                                {(emp.projectBreakdown[period] ?? []).length === 0 ? (
+                                  <div style={{ color: C.textSub, fontSize: 13 }}>No project data for this period.</div>
                                 ) : (
                                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                                     <thead>
@@ -276,7 +276,7 @@ export function TimeAnalysis() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {emp.projectBreakdown.map((proj, pi) => {
+                                      {(emp.projectBreakdown[period] ?? []).map((proj, pi) => {
                                         const nonBill = proj.total - proj.billable;
                                         const isInternal = !proj.projectId;
                                         return (

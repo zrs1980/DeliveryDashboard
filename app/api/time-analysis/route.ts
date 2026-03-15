@@ -35,6 +35,7 @@ interface ProjectRow {
   project_id: string | null;
   company_name: string | null;
   project_number: string | null;
+  trandate: string;
   total_hours: string;
   billable_hours: string;
   utilized_hours: string;
@@ -86,6 +87,7 @@ export async function GET() {
         tb.customer                                                          AS project_id,
         j.companyname                                                        AS company_name,
         j.entityid                                                           AS project_number,
+        tb.tranDate,
         SUM(tb.hours)                                                        AS total_hours,
         SUM(CASE WHEN tb.isBillable   = 'T' THEN tb.hours ELSE 0 END)       AS billable_hours,
         SUM(CASE WHEN tb.isUtilized   = 'T' THEN tb.hours ELSE 0 END)       AS utilized_hours,
@@ -95,8 +97,8 @@ export async function GET() {
       WHERE tb.employee IN (${employeeIds.join(", ")})
         AND tb.tranDate >= ADD_MONTHS(SYSDATE, -3)
         AND tb.tranDate <= SYSDATE
-      GROUP BY tb.employee, tb.customer, j.companyname, j.entityid
-      ORDER BY tb.employee, SUM(tb.hours) DESC
+      GROUP BY tb.employee, tb.customer, j.companyname, j.entityid, tb.tranDate
+      ORDER BY tb.employee, tb.customer, tb.tranDate
     `),
     ]);
 
@@ -153,20 +155,54 @@ export async function GET() {
         };
       });
 
-      const projectBreakdown = (projectsByEmployee[String(empId)] ?? []).map(p => ({
-        projectId:     p.project_id ? parseInt(p.project_id) : null,
-        projectName:   p.project_number
-                         ? `${p.company_name ?? "Unknown"} — #${p.project_number}`
-                         : (p.company_name ?? "Internal / Admin"),
-        companyName:   p.company_name ?? "Internal / Admin",
-        total:         parseFloat(p.total_hours)      || 0,
-        billable:      parseFloat(p.billable_hours)   || 0,
-        utilized:      parseFloat(p.utilized_hours)   || 0,
-        productive:    parseFloat(p.productive_hours) || 0,
-        billablePct:   (parseFloat(p.total_hours) || 0) > 0
-                         ? (parseFloat(p.billable_hours) || 0) / (parseFloat(p.total_hours) || 1)
-                         : 0,
-      }));
+      // Build project breakdown for each period by filtering daily project rows
+      const empProjRows = projectsByEmployee[String(empId)] ?? [];
+      const periods2 = {
+        thisWeek:  [thisMonday,        today],
+        lastWeek:  [lastMonday,        lastSunday],
+        thisMonth: [firstOfMonth,      today],
+        lastMonth: [firstOfLastMonth,  lastDayLastMonth],
+      } as const;
+
+      const projectBreakdown = Object.fromEntries(
+        (Object.entries(periods2) as [string, readonly [Date, Date]][]).map(([key, [from, to]]) => {
+          // Accumulate hours per project for this period
+          const byProj: Record<string, { projectId: number | null; companyName: string; projectNumber: string | null; total: number; billable: number; utilized: number; productive: number }> = {};
+          for (const r of empProjRows) {
+            const d = parseNSDate(r.trandate);
+            if (!d || d < from || d > to) continue;
+            const key2 = r.project_id ?? "__internal__";
+            if (!byProj[key2]) {
+              byProj[key2] = {
+                projectId:     r.project_id ? parseInt(r.project_id) : null,
+                companyName:   r.company_name ?? "Internal / Admin",
+                projectNumber: r.project_number ?? null,
+                total: 0, billable: 0, utilized: 0, productive: 0,
+              };
+            }
+            byProj[key2].total      += parseFloat(r.total_hours)      || 0;
+            byProj[key2].billable   += parseFloat(r.billable_hours)   || 0;
+            byProj[key2].utilized   += parseFloat(r.utilized_hours)   || 0;
+            byProj[key2].productive += parseFloat(r.productive_hours) || 0;
+          }
+          const list = Object.values(byProj)
+            .filter(p => p.total > 0)
+            .sort((a, b) => b.total - a.total)
+            .map(p => ({
+              projectId:   p.projectId,
+              projectName: p.projectNumber
+                ? `${p.companyName} — #${p.projectNumber}`
+                : p.companyName,
+              companyName:  p.companyName,
+              total:        Math.round(p.total * 100) / 100,
+              billable:     Math.round(p.billable * 100) / 100,
+              utilized:     Math.round(p.utilized * 100) / 100,
+              productive:   Math.round(p.productive * 100) / 100,
+              billablePct:  p.total > 0 ? p.billable / p.total : 0,
+            }));
+          return [key, list];
+        })
+      ) as Record<string, { projectId: number | null; projectName: string; companyName: string; total: number; billable: number; utilized: number; productive: number; billablePct: number }[]>;
 
       return {
         employeeId:   empId,
