@@ -73,8 +73,33 @@ function totalPctForWeek(allocations: NSAllocation[], weekStart: Date): number {
 }
 
 function hoursForWeek(a: NSAllocation, weekStart: Date): number {
-  if (!allocCoversWeek(a, weekStart)) return 0;
-  return weeklyHours(a);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+
+  const s = parseNSDate(a.startDate);
+  const e = parseNSDate(a.endDate);
+  if (!s || !e) return 0;
+  if (s > weekEnd || e < weekStart) return 0;
+
+  // Fully covered week — return full weekly hours
+  if (s <= weekStart && e >= weekEnd) return weeklyHours(a);
+
+  // Partial week — pro-rate by working days (Mon–Fri) in the overlap
+  const overlapStart = s > weekStart ? s : weekStart;
+  const overlapEnd   = e < weekEnd   ? e : weekEnd;
+
+  let workDays = 0;
+  const d = new Date(overlapStart);
+  d.setHours(0, 0, 0, 0);
+  const last = new Date(overlapEnd);
+  last.setHours(0, 0, 0, 0);
+  while (d <= last) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) workDays++;
+    d.setDate(d.getDate() + 1);
+  }
+
+  return (weeklyHours(a) / 5) * workDays;
 }
 
 // Estimated total future hours from today to endDate
