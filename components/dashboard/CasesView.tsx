@@ -15,6 +15,7 @@ interface NSCase {
   assigned: string;
   createdDate: string;
   lastModified: string;
+  lastNote?: string;
 }
 
 interface Props {
@@ -219,11 +220,13 @@ function fmtDate(dateStr: string): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CasesView({ cases, loading = false, error = null }: Props) {
-  const [search,       setSearch]       = useState("");
-  const [filterPrio,   setFilterPrio]   = useState("All");
-  const [filterAssign, setFilterAssign] = useState("All");
-  const [sortKey,      setSortKey]      = useState<SortKey>("lastModified");
-  const [sortDir,      setSortDir]      = useState<SortDir>("desc");
+  const [search,         setSearch]         = useState("");
+  const [filterPrio,     setFilterPrio]     = useState("All");
+  const [filterAssign,   setFilterAssign]   = useState("All");
+  const [filterCompany,  setFilterCompany]  = useState("All");
+  const [filterStatus,   setFilterStatus]   = useState("All");
+  const [sortKey,        setSortKey]        = useState<SortKey>("lastModified");
+  const [sortDir,        setSortDir]        = useState<SortDir>("desc");
 
   // ── KPI calculations ───────────────────────────────────────────────────────
 
@@ -244,13 +247,18 @@ export function CasesView({ cases, loading = false, error = null }: Props) {
     return new Date(c.lastModified).toDateString() === today;
   }).length;
 
-  // ── Unique assignees for dropdown ──────────────────────────────────────────
+  // ── Unique values for dropdowns ────────────────────────────────────────────
 
   const assignees = useMemo(() => {
-    const names = Array.from(
-      new Set(cases.map(c => c.assigned || "Unassigned"))
-    ).sort();
-    return names;
+    return Array.from(new Set(cases.map(c => c.assigned || "Unassigned"))).sort();
+  }, [cases]);
+
+  const companies = useMemo(() => {
+    return Array.from(new Set(cases.map(c => c.company || "—").filter(x => x !== "—"))).sort();
+  }, [cases]);
+
+  const statuses = useMemo(() => {
+    return Array.from(new Set(cases.map(c => c.status).filter(Boolean))).sort();
   }, [cases]);
 
   // ── Filtered & sorted rows ─────────────────────────────────────────────────
@@ -281,8 +289,16 @@ export function CasesView({ cases, loading = false, error = null }: Props) {
       rows = rows.filter(c => (c.assigned || "Unassigned") === filterAssign);
     }
 
+    if (filterCompany !== "All") {
+      rows = rows.filter(c => c.company === filterCompany);
+    }
+
+    if (filterStatus !== "All") {
+      rows = rows.filter(c => c.status === filterStatus);
+    }
+
     return sortCases(rows, sortKey, sortDir);
-  }, [cases, search, filterPrio, filterAssign, sortKey, sortDir]);
+  }, [cases, search, filterPrio, filterAssign, filterCompany, filterStatus, sortKey, sortDir]);
 
   // ── Sort header click handler ──────────────────────────────────────────────
 
@@ -495,6 +511,56 @@ export function CasesView({ cases, loading = false, error = null }: Props) {
           ))}
         </select>
 
+        {/* Company filter */}
+        <label style={{ fontSize: 12, color: C.textMid, fontWeight: 600, whiteSpace: "nowrap" }}>
+          Company:
+        </label>
+        <select
+          value={filterCompany}
+          onChange={e => setFilterCompany(e.target.value)}
+          style={{
+            fontSize: 12,
+            padding: "5px 10px",
+            borderRadius: 6,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            color: C.text,
+            fontFamily: C.font,
+            cursor: "pointer",
+            maxWidth: 200,
+          }}
+        >
+          <option value="All">All</option>
+          {companies.map(co => (
+            <option key={co} value={co}>{co}</option>
+          ))}
+        </select>
+
+        {/* Status filter */}
+        <label style={{ fontSize: 12, color: C.textMid, fontWeight: 600, whiteSpace: "nowrap" }}>
+          Status:
+        </label>
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value)}
+          style={{
+            fontSize: 12,
+            padding: "5px 10px",
+            borderRadius: 6,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            color: C.text,
+            fontFamily: C.font,
+            cursor: "pointer",
+            maxWidth: 200,
+          }}
+        >
+          <option value="All">All</option>
+          {statuses.map(s => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
         {/* Result count */}
         <span style={{ marginLeft: "auto", fontSize: 12, color: C.textSub, whiteSpace: "nowrap" }}>
           {filtered.length} of {totalOpen} case{totalOpen !== 1 ? "s" : ""}
@@ -550,12 +616,15 @@ export function CasesView({ cases, loading = false, error = null }: Props) {
                   <th style={thStyle} onClick={() => handleSort("age")}>
                     Age{sortIndicator("age")}
                   </th>
+                  <th style={{ ...thStyle, minWidth: 220, cursor: "default" }}>
+                    Last Note
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ ...tdStyle, textAlign: "center", color: C.textSub, padding: "32px 12px" }}>
+                    <td colSpan={9} style={{ ...tdStyle, textAlign: "center", color: C.textSub, padding: "32px 12px" }}>
                       No cases match the current filters.
                     </td>
                   </tr>
@@ -660,6 +729,27 @@ export function CasesView({ cases, loading = false, error = null }: Props) {
                           }}>
                             {isNaN(age) ? "—" : `${age}d`}
                           </span>
+                        </td>
+
+                        {/* Last Note */}
+                        <td style={{ ...tdStyle, maxWidth: 280 }}>
+                          {c.lastNote ? (
+                            <span
+                              title={c.lastNote}
+                              style={{
+                                fontSize: 11,
+                                color: C.textMid,
+                                display: "block",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {c.lastNote}
+                            </span>
+                          ) : (
+                            <span style={{ color: C.mid, fontSize: 11 }}>—</span>
+                          )}
                         </td>
                       </tr>
                     );

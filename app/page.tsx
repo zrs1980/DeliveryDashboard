@@ -22,6 +22,7 @@ interface NSCase {
   assigned: string;
   createdDate: string;
   lastModified: string;
+  lastNote?: string;
 }
 
 type Tab = "projects" | "tasks" | "resources" | "consultant" | "cases";
