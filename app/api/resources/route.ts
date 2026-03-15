@@ -12,6 +12,7 @@ export async function GET() {
       employee_id: string;
       project_id: string;
       project_name: string;
+      company_name: string | null;
       remaining_hours: string | null;
       budget_hours: string | null;
       startdate: string;
@@ -25,6 +26,7 @@ export async function GET() {
         ra.allocationResource                          AS employee_id,
         ra.project                                     AS project_id,
         BUILTIN.DF(ra.project)                         AS project_name,
+        j.companyname                                  AS company_name,
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         ra.startDate,
@@ -46,6 +48,7 @@ export async function GET() {
         employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
         projectId:      parseInt(r.project_id) || 0,
         projectName:    r.project_name || "—",
+        companyName:    r.company_name || "",
         startDate:      r.startdate,
         endDate:        r.enddate,
         allocationUnit: r.allocationunit ?? "H",

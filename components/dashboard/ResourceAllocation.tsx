@@ -200,6 +200,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
     const map = new Map<number, {
       projectId: number;
       name: string;
+      companyName: string;
       remainingHours: number | null;
       budgetHours: number | null;
       rows: NSAllocation[];
@@ -209,6 +210,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
         map.set(a.projectId, {
           projectId:      a.projectId,
           name:           a.projectName,
+          companyName:    a.companyName,
           remainingHours: a.remainingHours,
           budgetHours:    a.budgetHours,
           rows:           [],
@@ -600,6 +602,9 @@ export function ResourceAllocation({ allocations, error }: Props) {
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
                       {proj.name}
+                      {proj.companyName && (
+                        <span style={{ marginLeft: 8, fontWeight: 400, color: C.textSub, fontSize: 12 }}>— {proj.companyName}</span>
+                      )}
                     </td>
 
                     {/* Rem. Budget */}
