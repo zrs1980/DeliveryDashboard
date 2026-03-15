@@ -14,15 +14,23 @@ function headers() {
 
 export function extractClickUpListId(url: string | null): string | null {
   if (!url) return null;
-  // /v/l/{listId}
-  // Strip query string before parsing
   const clean = url.split("?")[0];
-  const listMatch = clean.match(/\/l\/([a-z0-9-]+)/i);
-  if (listMatch) return listMatch[1];
-  // Fallback to last path segment
+
+  // /v/l/182ddq-334693 — space-hash prefix + numeric list ID → extract numeric part only
+  const lHyphenMatch = clean.match(/\/v\/l\/[a-z0-9]+-(\d+)/i);
+  if (lHyphenMatch) return lHyphenMatch[1];
+
+  // /v/l/12345678 — plain numeric list ID
+  const lNumericMatch = clean.match(/\/v\/l\/(\d+)/i);
+  if (lNumericMatch) return lNumericMatch[1];
+
+  // /v/li/{parentId}/{listId} — use the last numeric segment
+  const liMatch = clean.match(/\/v\/li\/\d+\/(\d+)/i);
+  if (liMatch) return liMatch[1];
+
+  // Fallback: last path segment
   const segments = clean.replace(/\/$/, "").split("/");
-  const last = segments[segments.length - 1];
-  return last || null;
+  return segments[segments.length - 1] || null;
 }
 
 // ─── Fetch tasks for a list ───────────────────────────────────────────────────
