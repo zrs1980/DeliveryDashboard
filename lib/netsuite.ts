@@ -159,6 +159,7 @@ export async function fetchActiveProjects() {
       custentity_project_remaining_hours   AS remaining_hours
     FROM job
     WHERE entitystatus = 2
+      AND jobtype IN (1, 2)
     ORDER BY custentity_project_golive_date ASC
   `);
 }
@@ -245,6 +246,7 @@ export async function fetchAllPhases() {
     FROM projecttask pt
     JOIN job j ON j.id = pt.project
     WHERE j.entitystatus = 2
+      AND j.jobtype IN (1, 2)
     ORDER BY j.id, pt.id ASC
   `);
 }
