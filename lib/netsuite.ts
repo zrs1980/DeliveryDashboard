@@ -162,6 +162,7 @@ export async function fetchActiveProjects() {
     id: string;
     entityid: string;
     companyname: string;
+    customer_name: string | null;
     startdate: string | null;
     golive_date: string | null;
     entitystatus: string;
@@ -175,6 +176,7 @@ export async function fetchActiveProjects() {
       id,
       entityid,
       companyname,
+      BUILTIN.DF(customer)                 AS customer_name,
       startdate,
       custentity_project_golive_date       AS golive_date,
       entitystatus,

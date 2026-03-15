@@ -113,11 +113,13 @@ export async function GET() {
         const consumed = budget_hours - remaining;
         const timebillWarning = timebillTotal > consumed + 20;
 
+        const clientName = p.customer_name || p.companyname;
+
         return {
           id,
           entityid:      p.entityid,
-          label:         `${p.companyname} — ${p.entityid}`,
-          client:        p.companyname,
+          label:         `${clientName} — ${p.entityid}`,
+          client:        clientName,
           projectType:   parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
           goliveDate,
