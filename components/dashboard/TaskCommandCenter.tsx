@@ -131,6 +131,11 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
 
   const totalDone = allTasks.filter(({ task }) => isDone(task)).length;
 
+  // Diagnostic: task counts per project
+  const taskDiag = projects.map(p =>
+    `${p.client}: ${p.tasks.length} fetched, listId=${p.clickupListId ?? "none"}${p.clickupError ? ` ERR:${p.clickupError}` : ""}`
+  ).join(" | ");
+
   function renderTimeline() {
     const buckets: Bucket[] = ["overdue", "this_week", "next_week", "upcoming", "no_date"];
     return buckets.map(b => {
@@ -199,6 +204,7 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
         <span style={{ marginLeft: "auto", fontSize: 12, color: C.textSub }}>
           {totalDone} / {allTasks.length} done
         </span>
+        <span style={{ fontSize: 10, color: C.textSub, fontFamily: C.mono }}>{taskDiag}</span>
       </div>
 
 
