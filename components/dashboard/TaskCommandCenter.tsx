@@ -202,20 +202,18 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
       </div>
 
       {/* ClickUp diagnostics — show per-project fetch status */}
-      {projects.some(p => p.clickupError || p.tasks.length === 0) && (
-        <div style={{ marginBottom: 14 }}>
-          {projects.map(p => (
-            <div key={p.id} style={{ fontSize: 11, color: p.clickupError ? C.red : p.tasks.length === 0 ? C.orange : C.green, marginBottom: 2 }}>
-              {p.clickupError
-                ? `⚠ ${p.client}: ${p.clickupError}`
-                : p.tasks.length === 0
-                ? `⚠ ${p.client}: 0 tasks fetched — List ID: ${p.clickupListId ?? "none"} | URL: ${p.clickupUrl ?? "not set"}`
-                : `✓ ${p.client}: ${p.tasks.length} tasks loaded`
-              }
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ marginBottom: 14 }}>
+        {projects.map(p => (
+          <div key={p.id} style={{ fontSize: 11, color: p.clickupError ? C.red : p.tasks.length === 0 ? C.orange : C.green, marginBottom: 3 }}>
+            {p.clickupError
+              ? `⚠ ${p.client}: ${p.clickupError} | List ID parsed: "${p.clickupListId ?? "none"}" | Raw URL: ${p.clickupUrl ?? "not set"}`
+              : p.tasks.length === 0
+              ? `⚠ ${p.client}: 0 tasks | List ID: "${p.clickupListId ?? "none"}" | URL: ${p.clickupUrl ?? "not set"}`
+              : `✓ ${p.client}: ${p.tasks.length} tasks (List ID: ${p.clickupListId})`
+            }
+          </div>
+        ))}
+      </div>
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${C.border}`, marginBottom: 16 }}>
