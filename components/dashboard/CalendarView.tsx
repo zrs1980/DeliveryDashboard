@@ -51,8 +51,9 @@ function addDays(date: Date, n: number): Date {
   return d;
 }
 
-const HOURS     = Array.from({ length: 12 }, (_, i) => i + 7); // 7am–6pm
-const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SLOT_HEIGHT = 36;  // px per 30-min slot
+const HOURS       = Array.from({ length: 12 }, (_, i) => i + 7); // 7am–6pm
+const DAY_NAMES   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function fmtHour(h: number) {
   if (h === 0 || h === 12) return `12${h === 0 ? "am" : "pm"}`;
@@ -75,56 +76,73 @@ function isToday(date: Date): boolean {
 function EventChip({
   event,
   isLinked,
+  top,
+  height,
+  durLabel,
   onDelete,
   onDragStart,
+  onResizeStart,
 }: {
   event: CalEvent;
   isLinked: boolean;
+  top: number;
+  height: number;
+  durLabel: string;
   onDelete: () => void;
   onDragStart: () => void;
+  onResizeStart: (startY: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const bg = isLinked ? C.greenBg : C.blueBg;
+  const fg = isLinked ? C.green   : C.blue;
+  const bd = isLinked ? C.greenBd : C.blueBd;
   return (
     <div
       draggable
       onDragStart={onDragStart}
       style={{
-        display: "flex", alignItems: "center",
+        position: "absolute",
+        top, left: 2, right: 2, height,
+        zIndex: 2,
+        display: "flex", flexDirection: "column",
         fontSize: 10, fontWeight: 600,
-        background: isLinked ? C.greenBg : C.blueBg,
-        color:      isLinked ? C.green   : C.blue,
-        border:     `1px solid ${isLinked ? C.greenBd : C.blueBd}`,
-        borderRadius: 4, marginBottom: 2,
-        overflow: "hidden", cursor: "grab",
+        background: bg, color: fg,
+        border: `1px solid ${bd}`,
+        borderRadius: 4,
+        overflow: "hidden",
+        cursor: "grab",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.10)",
+        userSelect: "none",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <a
-        href={event.htmlLink ?? "#"}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={event.summary}
-        style={{
-          flex: 1, display: "block", padding: "2px 5px",
-          overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
-          textDecoration: "none", color: "inherit",
-        }}
-      >
-        {event.summary ?? "(untitled)"}
-      </a>
-      {hovered && (
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          title="Remove from calendar"
-          style={{
-            flexShrink: 0, padding: "2px 5px",
-            background: "none", border: "none",
-            color: C.red, cursor: "pointer", fontSize: 11, fontWeight: 700,
-            lineHeight: 1,
-          }}
-        >×</button>
-      )}
+      {/* Content row */}
+      <div style={{ flex: 1, display: "flex", alignItems: "flex-start", gap: 3, padding: "2px 5px", overflow: "hidden", minHeight: 0 }}>
+        <a
+          href={event.htmlLink ?? "#"}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={event.summary}
+          onClick={e => e.stopPropagation()}
+          style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none", color: "inherit" }}
+        >
+          {event.summary ?? "(untitled)"}
+        </a>
+        <span style={{ flexShrink: 0, fontSize: 9, opacity: 0.7, whiteSpace: "nowrap" }}>{durLabel}</span>
+        {hovered && (
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            title="Remove from calendar"
+            style={{ flexShrink: 0, background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0, lineHeight: 1 }}
+          >×</button>
+        )}
+      </div>
+      {/* Resize handle */}
+      <div
+        style={{ height: 5, flexShrink: 0, cursor: "ns-resize", background: bd, opacity: hovered ? 0.8 : 0.2, transition: "opacity 0.15s" }}
+        onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onResizeStart(e.clientY); }}
+      />
     </div>
   );
 }
@@ -165,6 +183,46 @@ export function CalendarView({ projects, cases }: Props) {
         setEventToTaskId(map);
       })
       .catch(() => {});
+  }, []);
+
+  // ── Resize state ─────────────────────────────────────────────────────────────
+  const resizeRef = useRef<{
+    eventId:     string;
+    startY:      number;
+    startTime:   string;
+    originalEnd: string;
+    origDurMin:  number;
+  } | null>(null);
+  const [resizingId,     setResizingId]     = useState<string | null>(null);
+  const [resizeDurMin,   setResizeDurMin]   = useState<number>(60);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!resizeRef.current) return;
+      const deltaSlots = Math.round((e.clientY - resizeRef.current.startY) / SLOT_HEIGHT);
+      const newDur = Math.max(30, resizeRef.current.origDurMin + deltaSlots * 30);
+      setResizeDurMin(newDur);
+    }
+    function onUp(e: MouseEvent) {
+      if (!resizeRef.current) return;
+      const deltaSlots = Math.round((e.clientY - resizeRef.current.startY) / SLOT_HEIGHT);
+      const newDur = Math.max(30, resizeRef.current.origDurMin + deltaSlots * 30);
+      if (deltaSlots !== 0) {
+        const newEnd = new Date(new Date(resizeRef.current.startTime).getTime() + newDur * 60_000);
+        fetch("/api/calendar/events", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId: resizeRef.current.eventId, start: resizeRef.current.startTime, end: newEnd.toISOString() }),
+        }).then(() => { fetchEvents(); showToast("Duration updated"); })
+          .catch(() => { showToast("Failed to update duration", false); fetchEvents(); });
+      }
+      resizeRef.current = null;
+      setResizingId(null);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Check calendar token status once session is available ────────────────────
@@ -226,10 +284,10 @@ export function CalendarView({ projects, cases }: Props) {
   }
 
   // ── Create event ─────────────────────────────────────────────────────────────
-  async function createEvent(title: string, description: string, dayIndex: number, hour: number, taskId?: string) {
+  async function createEvent(title: string, description: string, dayIndex: number, hour: number, minute = 0, taskId?: string) {
     const day = addDays(weekStart, dayIndex);
-    const start = new Date(day); start.setHours(hour, 0, 0, 0);
-    const end   = new Date(day); end.setHours(hour + 1, 0, 0, 0);
+    const start = new Date(day); start.setHours(hour, minute, 0, 0);
+    const end   = new Date(start.getTime() + 3_600_000); // +1 hour
     setCreating(true);
     try {
       const res = await fetch("/api/calendar/events", {
@@ -280,10 +338,14 @@ export function CalendarView({ projects, cases }: Props) {
   }
 
   // ── Reschedule existing event ─────────────────────────────────────────────────
-  async function rescheduleEvent(eventId: string, dayIndex: number, hour: number) {
+  async function rescheduleEvent(eventId: string, dayIndex: number, hour: number, minute = 0) {
+    const origEvent = events.find(e => e.id === eventId);
+    const origDur   = origEvent?.start.dateTime && origEvent?.end.dateTime
+      ? new Date(origEvent.end.dateTime).getTime() - new Date(origEvent.start.dateTime).getTime()
+      : 3_600_000;
     const day   = addDays(weekStart, dayIndex);
-    const start = new Date(day); start.setHours(hour, 0, 0, 0);
-    const end   = new Date(day); end.setHours(hour + 1, 0, 0, 0);
+    const start = new Date(day); start.setHours(hour, minute, 0, 0);
+    const end   = new Date(start.getTime() + origDur); // preserve original duration
 
     // Optimistically update UI
     setEvents(prev => prev.map(e => {
@@ -313,8 +375,8 @@ export function CalendarView({ projects, cases }: Props) {
     }
   }
 
-  // ── Events for a specific slot ────────────────────────────────────────────────
-  function slotEvents(dayIndex: number, hour: number): CalEvent[] {
+  // ── Events starting in a given hour (any minute) ─────────────────────────────
+  function eventsInHour(dayIndex: number, hour: number): CalEvent[] {
     const day = addDays(weekStart, dayIndex);
     return events.filter(e => {
       const dt = e.start.dateTime;
@@ -325,6 +387,27 @@ export function CalendarView({ projects, cases }: Props) {
              s.getDate()      === day.getDate() &&
              s.getHours()     === hour;
     });
+  }
+
+  function eventTop(ev: CalEvent): number {
+    const min = ev.start.dateTime ? new Date(ev.start.dateTime).getMinutes() : 0;
+    return min >= 30 ? SLOT_HEIGHT : 0;
+  }
+
+  function eventHeight(ev: CalEvent, overrideMin?: number): number {
+    const start = ev.start.dateTime ? new Date(ev.start.dateTime).getTime() : 0;
+    const end   = ev.end.dateTime   ? new Date(ev.end.dateTime).getTime()   : start + 3_600_000;
+    const durMin = overrideMin ?? Math.round((end - start) / 60_000);
+    return Math.max(SLOT_HEIGHT, Math.round((durMin / 30) * SLOT_HEIGHT));
+  }
+
+  function eventDurLabel(ev: CalEvent): string {
+    const start = ev.start.dateTime ? new Date(ev.start.dateTime).getTime() : 0;
+    const end   = ev.end.dateTime   ? new Date(ev.end.dateTime).getTime()   : start + 3_600_000;
+    const min   = Math.round((end - start) / 60_000);
+    if (min < 60) return `${min}m`;
+    const h = Math.floor(min / 60), m = min % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
   }
 
   // ── Sidebar data + filtering ──────────────────────────────────────────────────
@@ -741,89 +824,95 @@ export function CalendarView({ projects, cases }: Props) {
             {/* Hour rows */}
             <tbody>
               {HOURS.map(hour => (
-                <tr key={hour} style={{ height: 68 }}>
+                <tr key={hour} style={{ height: SLOT_HEIGHT * 2 }}>
                   {/* Time label */}
                   <td style={{
-                    padding: "4px 6px 0 4px", border: `1px solid ${C.border}`,
-                    fontSize: 10, color: C.textSub, textAlign: "right",
-                    background: C.alt, verticalAlign: "top", whiteSpace: "nowrap",
+                    border: `1px solid ${C.border}`,
+                    background: C.alt, position: "relative", padding: 0,
                   }}>
-                    {fmtHour(hour)}
+                    <span style={{ position: "absolute", top: 3, right: 4, fontSize: 9, color: C.textSub, whiteSpace: "nowrap" }}>{fmtHour(hour)}</span>
+                    <span style={{ position: "absolute", top: SLOT_HEIGHT + 3, right: 4, fontSize: 8, color: C.mid }}>{":30"}</span>
                   </td>
 
                   {/* Day cells */}
                   {DAY_NAMES.map((_, dayIndex) => {
-                    const key  = `${dayIndex}-${hour}`;
-                    const over = dropTarget === key;
-                    const date = addDays(weekStart, dayIndex);
+                    const date  = addDays(weekStart, dayIndex);
                     const today = isToday(date);
-                    const cellEvents = slotEvents(dayIndex, hour);
 
                     return (
                       <td
                         key={dayIndex}
-                        onDragOver={e => { e.preventDefault(); setDropTarget(key); }}
-                        onDragLeave={() => setDropTarget(null)}
-                        onDrop={e => {
-                          e.preventDefault();
-                          setDropTarget(null);
-                          const item = dragRef.current;
-                          if (!item) return;
-                          dragRef.current = null;
-                          if (item.type === "event") {
-                            rescheduleEvent(item.event.id, dayIndex, hour);
-                          } else if (item.type === "task") {
-                            const client = item.projectLabel.split(" — ")[0];
-                            createEvent(
-                              `${client} — ${item.task.name}`,
-                              `Task from ${item.projectLabel}\n${item.task.url}`,
-                              dayIndex,
-                              hour,
-                              item.task.id,
-                            );
-                          } else {
-                            createEvent(
-                              `#${item.caseNumber}: ${item.caseTitle}`,
-                              `Support case — ${item.company}`,
-                              dayIndex,
-                              hour,
-                            );
-                          }
-                        }}
                         style={{
                           border: `1px solid ${C.border}`,
-                          verticalAlign: "top",
-                          background: over
-                            ? "#DBEAFE"
-                            : today
-                            ? "rgba(235,245,255,0.35)"
-                            : "#fff",
-                          padding: 3,
-                          transition: "background 0.1s",
-                          cursor: "default",
-                          outline: over ? `2px solid ${C.blue}` : "none",
-                          outlineOffset: -2,
+                          background: today ? "rgba(235,245,255,0.35)" : "#fff",
+                          padding: 0,
                           position: "relative",
+                          height: SLOT_HEIGHT * 2,
+                          overflow: "visible",
                         }}
                       >
-                        {over && (
-                          <div style={{
-                            position: "absolute", inset: 2,
-                            border: `2px dashed ${C.blue}`,
-                            borderRadius: 5, pointerEvents: "none",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 10, color: C.blue, fontWeight: 700,
-                          }}>
-                            Drop to schedule
-                          </div>
-                        )}
-                        {!over && cellEvents.map(ev => (
+                        {/* :00 drop zone */}
+                        {[0, 30].map(min => {
+                          const zKey = `${dayIndex}-${hour}-${min}`;
+                          const zOver = dropTarget === zKey;
+                          return (
+                            <div
+                              key={min}
+                              style={{
+                                position: "absolute",
+                                top: min === 0 ? 0 : SLOT_HEIGHT,
+                                left: 0, right: 0, height: SLOT_HEIGHT,
+                                borderBottom: min === 0 ? `1px dashed ${C.border}` : "none",
+                                background: zOver ? "#DBEAFE" : "transparent",
+                                outline: zOver ? `2px solid ${C.blue}` : "none",
+                                outlineOffset: -2,
+                                zIndex: 0,
+                              }}
+                              onDragOver={e => { e.preventDefault(); setDropTarget(zKey); }}
+                              onDragLeave={() => setDropTarget(null)}
+                              onDrop={e => {
+                                e.preventDefault();
+                                setDropTarget(null);
+                                const item = dragRef.current;
+                                dragRef.current = null;
+                                if (!item) return;
+                                if (item.type === "event") {
+                                  rescheduleEvent(item.event.id, dayIndex, hour, min);
+                                } else if (item.type === "task") {
+                                  const client = item.projectLabel.split(" — ")[0];
+                                  createEvent(`${client} — ${item.task.name}`, `Task from ${item.projectLabel}\n${item.task.url}`, dayIndex, hour, min, item.task.id);
+                                } else {
+                                  createEvent(`#${item.caseNumber}: ${item.caseTitle}`, `Support case — ${item.company}`, dayIndex, hour, min);
+                                }
+                              }}
+                            >
+                              {zOver && (
+                                <div style={{ position: "absolute", inset: 2, border: `2px dashed ${C.blue}`, borderRadius: 4, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: C.blue, fontWeight: 700 }}>
+                                  {fmtHour(hour)}{min === 30 ? ":30" : ""}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Events (absolutely positioned, may overflow cell) */}
+                        {eventsInHour(dayIndex, hour).map(ev => (
                           <EventChip
                             key={ev.id}
                             event={ev}
                             isLinked={eventToTaskId.has(ev.id)}
+                            top={eventTop(ev)}
+                            height={resizingId === ev.id ? eventHeight(ev, resizeDurMin) : eventHeight(ev)}
+                            durLabel={resizingId === ev.id ? (resizeDurMin < 60 ? `${resizeDurMin}m` : `${Math.floor(resizeDurMin/60)}h${resizeDurMin%60?` ${resizeDurMin%60}m`:""}`) : eventDurLabel(ev)}
                             onDelete={() => deleteEvent(ev.id)}
                             onDragStart={() => { dragRef.current = { type: "event", event: ev }; }}
+                            onResizeStart={(startY) => {
+                              const start = ev.start.dateTime ? new Date(ev.start.dateTime).getTime() : 0;
+                              const end   = ev.end.dateTime   ? new Date(ev.end.dateTime).getTime()   : start + 3_600_000;
+                              resizeRef.current = { eventId: ev.id, startY, startTime: ev.start.dateTime ?? "", originalEnd: ev.end.dateTime ?? "", origDurMin: Math.round((end - start) / 60_000) };
+                              setResizingId(ev.id);
+                              setResizeDurMin(Math.round((end - start) / 60_000));
+                            }}
                           />
                         ))}
                       </td>
