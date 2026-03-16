@@ -75,13 +75,19 @@ export function CalendarView({ projects, cases }: Props) {
   const { data: session } = useSession();
   const [weekStart, setWeekStart]         = useState<Date>(() => getMondayOf(new Date()));
   const [events, setEvents]               = useState<CalEvent[]>([]);
-  const [calendarReady, setCalendarReady] = useState<boolean | null>(null); // null = checking
+  const [calendarReady, setCalendarReady] = useState<boolean | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [creating, setCreating]           = useState(false);
   const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
   const [dropTarget, setDropTarget]       = useState<string | null>(null);
   const [sidebarTab, setSidebarTab]       = useState<"tasks" | "cases">("tasks");
   const dragRef = useRef<DragItem | null>(null);
+
+  // ── Filters ──────────────────────────────────────────────────────────────────
+  const [filterScheduled, setFilterScheduled] = useState<"all" | "scheduled" | "unscheduled">("all");
+  const [filterDue,       setFilterDue]       = useState<"all" | "overdue" | "today" | "week" | "none">("all");
+  const [filterProject,   setFilterProject]   = useState<string>("all");
+  const [scheduledIds,    setScheduledIds]     = useState<Set<string>>(new Set());
 
   // ── Check calendar token status once session is available ────────────────────
   useEffect(() => {
@@ -90,6 +96,11 @@ export function CalendarView({ projects, cases }: Props) {
       .then(r => r.json())
       .then(d => setCalendarReady(d.connected))
       .catch(() => setCalendarReady(false));
+    // Load scheduled task IDs
+    fetch("/api/calendar/scheduled")
+      .then(r => r.json())
+      .then(d => setScheduledIds(new Set(d.taskIds ?? [])))
+      .catch(() => {});
   }, [session]);
 
   // ── Fetch events for visible week ────────────────────────────────────────────
@@ -116,7 +127,7 @@ export function CalendarView({ projects, cases }: Props) {
   }
 
   // ── Create event ─────────────────────────────────────────────────────────────
-  async function createEvent(title: string, description: string, dayIndex: number, hour: number) {
+  async function createEvent(title: string, description: string, dayIndex: number, hour: number, taskId?: string) {
     const day = addDays(weekStart, dayIndex);
     const start = new Date(day); start.setHours(hour, 0, 0, 0);
     const end   = new Date(day); end.setHours(hour + 1, 0, 0, 0);
@@ -131,6 +142,15 @@ export function CalendarView({ projects, cases }: Props) {
       if (res.ok) {
         showToast(`✓ "${title}" added to calendar`);
         fetchEvents();
+        // Mark the task as scheduled
+        if (taskId) {
+          fetch("/api/calendar/scheduled", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId, taskName: title, eventId: data.event?.id }),
+          }).catch(() => {});
+          setScheduledIds(prev => new Set(prev).add(taskId));
+        }
       } else {
         showToast(data.error ?? "Failed to create event", false);
       }
@@ -153,12 +173,41 @@ export function CalendarView({ projects, cases }: Props) {
     });
   }
 
-  // ── Sidebar data ──────────────────────────────────────────────────────────────
-  const openTasks = projects.flatMap(p =>
+  // ── Sidebar data + filtering ──────────────────────────────────────────────────
+  const projectOptions = projects.map(p => ({ id: String(p.id), label: p.client }));
+
+  const allOpenTasks = projects.flatMap(p =>
     p.tasks
       .filter(t => !isDone(t))
-      .map(t => ({ task: t, projectLabel: p.label }))
+      .map(t => ({ task: t, projectLabel: p.label, projectId: String(p.id) }))
   );
+
+  const now = Date.now();
+  const openTasks = allOpenTasks.filter(({ task, projectId }) => {
+    // Scheduled filter
+    if (filterScheduled === "scheduled"   && !scheduledIds.has(task.id)) return false;
+    if (filterScheduled === "unscheduled" &&  scheduledIds.has(task.id)) return false;
+    // Project filter
+    if (filterProject !== "all" && projectId !== filterProject) return false;
+    // Due date filter
+    if (filterDue !== "all") {
+      const due = task.due_date ? parseInt(task.due_date) : null;
+      if (filterDue === "none"    && due !== null) return false;
+      if (filterDue === "overdue" && (due === null || due >= now)) return false;
+      if (filterDue === "today") {
+        if (!due) return false;
+        const diff = Math.round((due - now) / 86400000);
+        if (diff !== 0) return false;
+      }
+      if (filterDue === "week") {
+        if (!due) return false;
+        const diff = Math.round((due - now) / 86400000);
+        if (diff < 0 || diff > 7) return false;
+      }
+    }
+    return true;
+  });
+
   const openCases = cases.filter(c => c.status !== "Closed" && c.status !== "closed");
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -239,9 +288,79 @@ export function CalendarView({ projects, cases }: Props) {
         overflow: "hidden",
       }}>
         {/* Sidebar header */}
-        <div style={{ padding: "12px 14px 0", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ padding: "12px 14px 0", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 2 }}>Schedule Items</div>
-          <div style={{ fontSize: 11, color: C.textSub, marginBottom: 10 }}>Drag onto a time slot to create an event</div>
+          <div style={{ fontSize: 11, color: C.textSub, marginBottom: 8 }}>Drag onto a time slot to create an event</div>
+
+          {/* ── Filters ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 8 }}>
+
+            {/* Schedule status */}
+            <div style={{ display: "flex", gap: 3 }}>
+              {(["all", "unscheduled", "scheduled"] as const).map(v => (
+                <button key={v} onClick={() => setFilterScheduled(v)} style={{
+                  flex: 1, padding: "3px 0", fontSize: 10, fontWeight: 600,
+                  borderRadius: 4, border: `1px solid ${filterScheduled === v ? C.blue : C.border}`,
+                  background: filterScheduled === v ? C.blueBg : "#fff",
+                  color: filterScheduled === v ? C.blue : C.textSub,
+                  cursor: "pointer", fontFamily: C.font,
+                }}>
+                  {v === "all" ? "All" : v === "unscheduled" ? "⬜ Pending" : "✓ Scheduled"}
+                </button>
+              ))}
+            </div>
+
+            {/* Due date */}
+            <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+              {([
+                { v: "all",     label: "Any date" },
+                { v: "overdue", label: "⚠ Overdue" },
+                { v: "today",   label: "Today" },
+                { v: "week",    label: "This week" },
+                { v: "none",    label: "No date" },
+              ] as const).map(({ v, label }) => (
+                <button key={v} onClick={() => setFilterDue(v)} style={{
+                  padding: "3px 6px", fontSize: 10, fontWeight: 600,
+                  borderRadius: 4, border: `1px solid ${filterDue === v ? C.blue : C.border}`,
+                  background: filterDue === v ? C.blueBg : "#fff",
+                  color: filterDue === v ? C.blue : C.textSub,
+                  cursor: "pointer", fontFamily: C.font, whiteSpace: "nowrap",
+                }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Project */}
+            <select
+              value={filterProject}
+              onChange={e => setFilterProject(e.target.value)}
+              style={{
+                width: "100%", padding: "4px 6px", fontSize: 11,
+                border: `1px solid ${filterProject !== "all" ? C.blue : C.border}`,
+                borderRadius: 4, background: filterProject !== "all" ? C.blueBg : "#fff",
+                color: filterProject !== "all" ? C.blue : C.textMid,
+                fontFamily: C.font, cursor: "pointer",
+              }}
+            >
+              <option value="all">All projects</option>
+              {projectOptions.map(p => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+
+            {/* Result count */}
+            <div style={{ fontSize: 10, color: C.textSub, display: "flex", justifyContent: "space-between" }}>
+              <span>{openTasks.length} task{openTasks.length !== 1 ? "s" : ""} shown</span>
+              {(filterScheduled !== "all" || filterDue !== "all" || filterProject !== "all") && (
+                <button onClick={() => { setFilterScheduled("all"); setFilterDue("all"); setFilterProject("all"); }}
+                  style={{ background: "none", border: "none", fontSize: 10, color: C.blue, cursor: "pointer", padding: 0, fontFamily: C.font }}>
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Tab switcher */}
           <div style={{ display: "flex", gap: 0 }}>
             {(["tasks", "cases"] as const).map(st => (
@@ -274,6 +393,7 @@ export function CalendarView({ projects, cases }: Props) {
                   const dueColor = days === null ? C.textSub : days < 0 ? C.red : days === 0 ? C.orange : days <= 3 ? C.yellow : C.textSub;
                   const dueLabel = days === null ? null : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Due today" : `${days}d left`;
                   const st = task.status.status.toLowerCase();
+                  const isScheduled = scheduledIds.has(task.id);
                   return (
                     <div
                       key={task.id}
@@ -281,12 +401,16 @@ export function CalendarView({ projects, cases }: Props) {
                       onDragStart={() => { dragRef.current = { type: "task", task, projectLabel }; }}
                       style={{
                         padding: "8px 10px", marginBottom: 5, borderRadius: 7,
-                        background: "#fff", border: `1px solid ${C.border}`,
+                        background: isScheduled ? "#F0FDF4" : "#fff",
+                        border: `1px solid ${isScheduled ? C.greenBd : C.border}`,
                         cursor: "grab", fontSize: 11, color: C.text, lineHeight: 1.4,
                         userSelect: "none", boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                       }}
                     >
-                      <div style={{ fontWeight: 600, marginBottom: 3, lineHeight: 1.35 }}>{task.name}</div>
+                      <div style={{ fontWeight: 600, marginBottom: 3, lineHeight: 1.35, display: "flex", alignItems: "flex-start", gap: 5 }}>
+                        <span style={{ flex: 1 }}>{task.name}</span>
+                        {isScheduled && <span style={{ fontSize: 9, fontWeight: 700, color: C.green, background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 3, padding: "1px 5px", flexShrink: 0 }}>✓ Scheduled</span>}
+                      </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <span style={{
                           fontSize: 9, fontWeight: 700, borderRadius: 3, padding: "1px 5px",
@@ -471,6 +595,7 @@ export function CalendarView({ projects, cases }: Props) {
                               `Task from ${item.projectLabel}\n${item.task.url}`,
                               dayIndex,
                               hour,
+                              item.task.id,
                             );
                           } else {
                             createEvent(
