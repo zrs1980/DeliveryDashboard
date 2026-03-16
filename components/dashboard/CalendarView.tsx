@@ -722,6 +722,19 @@ export function CalendarView({ projects, cases }: Props) {
                         background: C.orangeBg, color: C.orange, border: `1px solid ${C.orangeBd}`,
                       }}>{c.status}</span>
                       <span style={{ fontSize: 10, color: C.textSub }}>{c.company}</span>
+                      <a
+                        href={`https://system.na1.netsuite.com/app/crm/support/supportcase.nl?id=${c.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          marginLeft: "auto", fontSize: 9, fontWeight: 700,
+                          color: C.purple, background: C.purpleBg,
+                          border: `1px solid ${C.purpleBd}`,
+                          borderRadius: 3, padding: "1px 5px",
+                          textDecoration: "none", whiteSpace: "nowrap",
+                        }}
+                      >↗ NS</a>
                     </div>
                     {c.assigned && (
                       <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>{c.assigned}</div>
