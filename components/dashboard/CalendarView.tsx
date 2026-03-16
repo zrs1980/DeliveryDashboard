@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSession, signIn } from "next-auth/react";
 import { C } from "@/lib/constants";
 import { isDone } from "@/lib/clickup";
 import type { Project, CUTask } from "@/lib/types";
@@ -71,29 +72,29 @@ function isToday(date: Date): boolean {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function CalendarView({ projects, cases }: Props) {
-  const [weekStart, setWeekStart]       = useState<Date>(() => getMondayOf(new Date()));
-  const [events, setEvents]             = useState<CalEvent[]>([]);
-  const [connected, setConnected]       = useState(false);
-  const [configured, setConfigured]     = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState(true);
+  const { data: session } = useSession();
+  const [weekStart, setWeekStart]         = useState<Date>(() => getMondayOf(new Date()));
+  const [events, setEvents]               = useState<CalEvent[]>([]);
+  const [calendarReady, setCalendarReady] = useState<boolean | null>(null); // null = checking
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const [creating, setCreating]         = useState(false);
-  const [toast, setToast]               = useState<{ msg: string; ok: boolean } | null>(null);
-  const [dropTarget, setDropTarget]     = useState<string | null>(null);  // "dayIndex-hour"
-  const [sidebarTab, setSidebarTab]     = useState<"tasks" | "cases">("tasks");
+  const [creating, setCreating]           = useState(false);
+  const [toast, setToast]                 = useState<{ msg: string; ok: boolean } | null>(null);
+  const [dropTarget, setDropTarget]       = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab]       = useState<"tasks" | "cases">("tasks");
   const dragRef = useRef<DragItem | null>(null);
 
-  // ── Auth status ─────────────────────────────────────────────────────────────
+  // ── Check calendar token status once session is available ────────────────────
   useEffect(() => {
+    if (!session) return;
     fetch("/api/calendar/status")
       .then(r => r.json())
-      .then(d => { setConfigured(d.configured); setConnected(d.connected); })
-      .finally(() => setLoadingStatus(false));
-  }, []);
+      .then(d => setCalendarReady(d.connected))
+      .catch(() => setCalendarReady(false));
+  }, [session]);
 
   // ── Fetch events for visible week ────────────────────────────────────────────
   const fetchEvents = useCallback(() => {
-    if (!connected) return;
+    if (!calendarReady) return;
     const start = weekStart.toISOString();
     const end   = addDays(weekStart, 7).toISOString();
     setLoadingEvents(true);
@@ -104,7 +105,7 @@ export function CalendarView({ projects, cases }: Props) {
         else setEvents(d.events ?? []);
       })
       .finally(() => setLoadingEvents(false));
-  }, [connected, weekStart]);
+  }, [calendarReady, weekStart]);
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
@@ -164,72 +165,39 @@ export function CalendarView({ projects, cases }: Props) {
   const weekEnd = addDays(weekStart, 6);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Render: loading
-  if (loadingStatus) {
+  // Render: checking
+  if (calendarReady === null) {
     return (
       <div style={{ padding: 48, textAlign: "center", color: C.textSub, fontSize: 13 }}>
-        Checking Google Calendar connection…
+        Loading calendar…
       </div>
     );
   }
 
-  // Render: not configured
-  if (!configured) {
+  // Render: calendar token missing (shouldn't happen normally — user signed in with Google)
+  if (!calendarReady) {
     return (
       <div style={{ padding: "56px 24px", textAlign: "center" }}>
         <div style={{ fontSize: 36, marginBottom: 16 }}>📅</div>
         <div style={{ fontWeight: 700, fontSize: 17, color: C.text, marginBottom: 8 }}>
-          Google Calendar Not Configured
+          Calendar access needs re-authorisation
         </div>
-        <div style={{ fontSize: 13, color: C.textSub, maxWidth: 500, margin: "0 auto 24px" }}>
-          Add these environment variables to enable calendar integration:
+        <div style={{ fontSize: 13, color: C.textSub, maxWidth: 420, margin: "0 auto 24px" }}>
+          Your Google Calendar access has expired or was not granted during sign-in.
+          Sign out and sign back in to reconnect.
         </div>
-        <div style={{
-          background: "#0D1117", color: "#E2E8F0", borderRadius: 10, padding: "16px 24px",
-          fontSize: 12, fontFamily: C.mono, textAlign: "left", display: "inline-block",
-          maxWidth: 520, lineHeight: 2,
-        }}>
-          <div><span style={{ color: "#60A5FA" }}>GOOGLE_CLIENT_ID</span>=your-client-id.apps.googleusercontent.com</div>
-          <div><span style={{ color: "#60A5FA" }}>GOOGLE_CLIENT_SECRET</span>=your-client-secret</div>
-          <div><span style={{ color: "#60A5FA" }}>GOOGLE_REDIRECT_URI</span>=https://your-app.vercel.app/api/calendar/callback</div>
-        </div>
-        <div style={{ marginTop: 20, fontSize: 12, color: C.textSub }}>
-          Create credentials at{" "}
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" style={{ color: C.blue }}>
-            Google Cloud Console
-          </a>{" "}
-          → OAuth 2.0 Client ID (Web application).
-        </div>
-      </div>
-    );
-  }
-
-  // Render: not connected
-  if (!connected) {
-    return (
-      <div style={{ padding: "56px 24px", textAlign: "center" }}>
-        <div style={{ fontSize: 36, marginBottom: 16 }}>📅</div>
-        <div style={{ fontWeight: 700, fontSize: 17, color: C.text, marginBottom: 8 }}>
-          Connect Google Calendar
-        </div>
-        <div style={{ fontSize: 13, color: C.textSub, maxWidth: 420, margin: "0 auto 28px" }}>
-          Authorise access so you can drag tasks and cases directly onto your schedule.
-        </div>
-        <a
-          href="/api/calendar/auth"
+        <button
+          onClick={() => signIn("google", { callbackUrl: "/" })}
           style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
             background: "linear-gradient(135deg, #1A56DB, #2563EB)",
-            color: "#fff", borderRadius: 10, padding: "12px 32px",
-            fontSize: 14, fontWeight: 700, textDecoration: "none",
+            color: "#fff", border: "none", borderRadius: 10,
+            padding: "12px 32px", fontSize: 14, fontWeight: 700,
+            cursor: "pointer", fontFamily: C.font,
             boxShadow: "0 4px 14px rgba(26,86,219,0.35)",
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M6 2V6M18 2V6M2 10H22M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Connect Google Calendar
-        </a>
+          Re-authorise Google Calendar
+        </button>
       </div>
     );
   }
@@ -413,11 +381,11 @@ export function CalendarView({ projects, cases }: Props) {
               onClick={fetchEvents}
               style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 11, color: C.textMid, fontFamily: C.font }}
             >↻</button>
-            <a
-              href="/api/calendar/auth"
-              style={{ fontSize: 11, color: C.textSub, textDecoration: "none", borderBottom: `1px dotted ${C.border}` }}
+            <button
+              onClick={() => signIn("google", { callbackUrl: "/" })}
+              style={{ background: "none", border: "none", fontSize: 11, color: C.textSub, cursor: "pointer", fontFamily: C.font, textDecoration: "underline", textDecorationStyle: "dotted" }}
               title="Re-authorise Google Calendar"
-            >Reconnect</a>
+            >Reconnect</button>
           </div>
         </div>
 

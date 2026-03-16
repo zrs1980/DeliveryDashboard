@@ -1,5 +1,6 @@
 "use client";
 import { useState, useCallback } from "react";
+import { useSession, signOut } from "next-auth/react";
 import { C } from "@/lib/constants";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { ProjectTable } from "@/components/dashboard/ProjectTable";
@@ -48,6 +49,7 @@ interface DataState {
 }
 
 export default function DashboardPage() {
+  const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], updatedAt: null });
   const [loading, setLoading]     = useState(false);
@@ -151,6 +153,27 @@ export default function DashboardPage() {
             <span style={{ fontSize: 10, color: "#475569", whiteSpace: "nowrap" }}>
               Updated {new Date(updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}
             </span>
+          )}
+
+          {/* Signed-in user */}
+          {session?.user && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              {session.user.image
+                ? <img src={session.user.image} alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.15)" }} />
+                : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff" }}>
+                    {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
+                  </div>
+              }
+              <span style={{ fontSize: 11, color: "#94A3B8", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {session.user.name ?? session.user.email}
+              </span>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                style={{ background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "3px 9px", fontSize: 11, color: "#64748B", cursor: "pointer", fontFamily: C.font }}
+              >
+                Sign out
+              </button>
+            </div>
           )}
 
           <button
