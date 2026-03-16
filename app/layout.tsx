@@ -5,6 +5,10 @@ import { Providers } from "@/components/providers";
 export const metadata: Metadata = {
   title: "CEBA Solutions — Project Dashboard",
   description: "Internal project health dashboard for CEBA Solutions",
+  icons: {
+    icon: "/ceba-logo.webp",
+    apple: "/ceba-logo.webp",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
