@@ -69,6 +69,61 @@ function isToday(date: Date): boolean {
          date.getFullYear() === now.getFullYear();
 }
 
+// ─── EventChip ────────────────────────────────────────────────────────────────
+
+function EventChip({
+  event,
+  isLinked,
+  onDelete,
+}: {
+  event: CalEvent;
+  isLinked: boolean;
+  onDelete: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center",
+        fontSize: 10, fontWeight: 600,
+        background: isLinked ? C.greenBg : C.blueBg,
+        color:      isLinked ? C.green   : C.blue,
+        border:     `1px solid ${isLinked ? C.greenBd : C.blueBd}`,
+        borderRadius: 4, marginBottom: 2,
+        overflow: "hidden",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <a
+        href={event.htmlLink ?? "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={event.summary}
+        style={{
+          flex: 1, display: "block", padding: "2px 5px",
+          overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+          textDecoration: "none", color: "inherit",
+        }}
+      >
+        {event.summary ?? "(untitled)"}
+      </a>
+      {hovered && (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          title="Remove from calendar"
+          style={{
+            flexShrink: 0, padding: "2px 5px",
+            background: "none", border: "none",
+            color: C.red, cursor: "pointer", fontSize: 11, fontWeight: 700,
+            lineHeight: 1,
+          }}
+        >×</button>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function CalendarView({ projects, cases }: Props) {
@@ -89,6 +144,23 @@ export function CalendarView({ projects, cases }: Props) {
   const [filterProject,   setFilterProject]   = useState<string>("all");
   const [filterMine,      setFilterMine]      = useState(false);
   const [scheduledIds,    setScheduledIds]     = useState<Set<string>>(new Set());
+  // event_id → task_id (for in-app delete + sync awareness)
+  const [eventToTaskId,   setEventToTaskId]   = useState<Map<string, string>>(new Map());
+
+  // ── Load scheduled tasks and build lookup maps ────────────────────────────────
+  const loadScheduled = useCallback(() => {
+    fetch("/api/calendar/scheduled")
+      .then(r => r.json())
+      .then((d: { tasks?: Array<{ task_id: string; event_id?: string | null }> }) => {
+        setScheduledIds(new Set((d.tasks ?? []).map(t => t.task_id)));
+        const map = new Map<string, string>();
+        for (const t of d.tasks ?? []) {
+          if (t.event_id) map.set(t.event_id, t.task_id);
+        }
+        setEventToTaskId(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Check calendar token status once session is available ────────────────────
   useEffect(() => {
@@ -97,12 +169,33 @@ export function CalendarView({ projects, cases }: Props) {
       .then(r => r.json())
       .then(d => setCalendarReady(d.connected))
       .catch(() => setCalendarReady(false));
-    // Load scheduled task IDs
-    fetch("/api/calendar/scheduled")
+    loadScheduled();
+  }, [session, loadScheduled]);
+
+  // ── Sync: remove stale scheduled entries when calendar is confirmed ready ─────
+  useEffect(() => {
+    if (!calendarReady) return;
+    fetch("/api/calendar/sync", { method: "POST" })
       .then(r => r.json())
-      .then(d => setScheduledIds(new Set(d.taskIds ?? [])))
+      .then((d: { removed?: string[] }) => {
+        if (d.removed && d.removed.length > 0) {
+          setScheduledIds(prev => {
+            const next = new Set(prev);
+            d.removed!.forEach(id => next.delete(id));
+            return next;
+          });
+          setEventToTaskId(prev => {
+            const next = new Map(prev);
+            // Remove entries pointing to unscheduled task IDs
+            for (const [evId, taskId] of next) {
+              if (d.removed!.includes(taskId)) next.delete(evId);
+            }
+            return next;
+          });
+        }
+      })
       .catch(() => {});
-  }, [session]);
+  }, [calendarReady]);
 
   // ── Fetch events for visible week ────────────────────────────────────────────
   const fetchEvents = useCallback(() => {
@@ -149,14 +242,35 @@ export function CalendarView({ projects, cases }: Props) {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ taskId, taskName: title, eventId: data.event?.id }),
-          }).catch(() => {});
+          }).then(() => loadScheduled()).catch(() => {});
           setScheduledIds(prev => new Set(prev).add(taskId));
+          if (data.event?.id) {
+            setEventToTaskId(prev => new Map(prev).set(data.event.id, taskId));
+          }
         }
       } else {
         showToast(data.error ?? "Failed to create event", false);
       }
     } finally {
       setCreating(false);
+    }
+  }
+
+  // ── Delete event ─────────────────────────────────────────────────────────────
+  async function deleteEvent(eventId: string) {
+    try {
+      await fetch(`/api/calendar/events?eventId=${encodeURIComponent(eventId)}`, { method: "DELETE" });
+      // Remove from scheduled_tasks if it was linked to a task
+      const taskId = eventToTaskId.get(eventId);
+      if (taskId) {
+        await fetch(`/api/calendar/scheduled?taskId=${encodeURIComponent(taskId)}`, { method: "DELETE" });
+        setScheduledIds(prev => { const next = new Set(prev); next.delete(taskId); return next; });
+        setEventToTaskId(prev => { const next = new Map(prev); next.delete(eventId); return next; });
+      }
+      setEvents(prev => prev.filter(e => e.id !== eventId));
+      showToast("Event removed from calendar");
+    } catch {
+      showToast("Failed to delete event", false);
     }
   }
 
@@ -662,24 +776,12 @@ export function CalendarView({ projects, cases }: Props) {
                           </div>
                         )}
                         {!over && cellEvents.map(ev => (
-                          <a
+                          <EventChip
                             key={ev.id}
-                            href={ev.htmlLink ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={ev.summary}
-                            style={{
-                              display: "block", fontSize: 10, fontWeight: 600,
-                              background: C.blueBg, color: C.blue,
-                              border: `1px solid ${C.blueBd}`,
-                              borderRadius: 4, padding: "2px 6px",
-                              marginBottom: 2, overflow: "hidden",
-                              whiteSpace: "nowrap", textOverflow: "ellipsis",
-                              textDecoration: "none",
-                            }}
-                          >
-                            {ev.summary ?? "(untitled)"}
-                          </a>
+                            event={ev}
+                            isLinked={eventToTaskId.has(ev.id)}
+                            onDelete={() => deleteEvent(ev.id)}
+                          />
                         ))}
                       </td>
                     );

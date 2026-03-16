@@ -9,7 +9,7 @@ export async function GET() {
   const db = getSupabaseAdmin();
   const { data } = await db
     .from("scheduled_tasks")
-    .select("task_id, task_name, scheduled_at")
+    .select("task_id, task_name, scheduled_at, event_id")
     .eq("user_email", session.user.email);
 
   return NextResponse.json({
