@@ -775,7 +775,7 @@ export function CalendarView({ projects, cases }: Props) {
                           } else if (item.type === "task") {
                             const client = item.projectLabel.split(" — ")[0];
                             createEvent(
-                              `${item.task.name} — ${client}`,
+                              `${client} — ${item.task.name}`,
                               `Task from ${item.projectLabel}\n${item.task.url}`,
                               dayIndex,
                               hour,
