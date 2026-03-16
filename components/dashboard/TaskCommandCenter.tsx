@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
@@ -113,6 +114,7 @@ function TableHead() {
         <th style={{ ...th, width: 130 }}>Client</th>
         <th style={{ ...th, width: 110 }}>Assignees</th>
         <th style={{ ...th, width: 80 }}>Due</th>
+        <th style={{ ...th, width: 90 }}>Scheduled</th>
         <th style={{ ...th, width: 100 }}>Links</th>
       </tr>
     </thead>
@@ -125,10 +127,12 @@ function TaskTableRow({
   task,
   project,
   isAlt,
+  scheduledAt,
 }: {
   task: CUTask;
   project: Project;
   isAlt: boolean;
+  scheduledAt?: string | null;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -229,6 +233,28 @@ function TaskTableRow({
         {formatDue(task.due_date)}
       </td>
 
+      {/* Scheduled */}
+      <td style={{ ...td, whiteSpace: "nowrap" }}>
+        {scheduledAt ? (
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 3,
+            fontSize: 10,
+            fontWeight: 600,
+            borderRadius: 3,
+            padding: "1px 5px",
+            background: C.greenBg,
+            color: C.green,
+            border: `1px solid ${C.greenBd}`,
+          }}>
+            📅 {new Date(scheduledAt).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+          </span>
+        ) : (
+          <span style={{ color: C.textSub, fontSize: 11 }}>—</span>
+        )}
+      </td>
+
       {/* Links */}
       <td style={td}>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -258,7 +284,7 @@ function GroupHeaderRow({ label }: { label: string }) {
   return (
     <tr>
       <td
-        colSpan={6}
+        colSpan={7}
         style={{
           padding: "4px 10px",
           background: "#DDEAF8",
@@ -282,9 +308,11 @@ function GroupHeaderRow({ label }: { label: string }) {
 function TaskTable({
   rows,
   groupByProject,
+  scheduledMap,
 }: {
   rows: TaskRow[];
   groupByProject: boolean;
+  scheduledMap: Map<string, string>;
 }) {
   if (rows.length === 0) {
     return (
@@ -307,7 +335,7 @@ function TaskTable({
         const alt = rowIndex % 2 === 1;
         rowIndex++;
         return (
-          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} />
+          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} scheduledAt={scheduledMap.get(task.id)} />
         );
       });
     }
@@ -333,7 +361,7 @@ function TaskTable({
         const alt = rowIndex % 2 === 1;
         rowIndex++;
         result.push(
-          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} />
+          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} scheduledAt={scheduledMap.get(task.id)} />
         );
       }
     }
@@ -354,6 +382,7 @@ function TaskTable({
           <col style={{ width: 140 }} />
           <col style={{ width: 120 }} />
           <col style={{ width: 85 }} />
+          <col style={{ width: 100 }} />
           <col style={{ width: 110 }} />
         </colgroup>
         <TableHead />
@@ -366,10 +395,27 @@ function TaskTable({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
+  const { data: session } = useSession();
   const [tab, setTab]                       = useState<TabId>("overdue");
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
+  const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
+  // Map of task_id → scheduled_at ISO string
+  const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    fetch("/api/calendar/scheduled")
+      .then(r => r.json())
+      .then((data: { tasks?: Array<{ task_id: string; scheduled_at: string }> }) => {
+        const map = new Map<string, string>();
+        for (const t of data.tasks ?? []) {
+          map.set(t.task_id, t.scheduled_at);
+        }
+        setScheduledMap(map);
+      })
+      .catch(() => {});
+  }, [session]);
 
   const visibleProjects = selectedProject
     ? projects.filter(p => p.id === selectedProject)
@@ -378,6 +424,11 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
   const allRows: TaskRow[] = visibleProjects.flatMap(p =>
     p.tasks
       .filter(t => !selectedResource || t.assignees.some(a => a.username === selectedResource))
+      .filter(t => {
+        if (scheduleFilter === "scheduled")   return scheduledMap.has(t.id);
+        if (scheduleFilter === "unscheduled") return !scheduledMap.has(t.id);
+        return true;
+      })
       .map(t => ({ task: t, project: p }))
   );
 
@@ -451,6 +502,19 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
           </select>
         </div>
 
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <label style={labelStyle}>Schedule</label>
+          <select
+            value={scheduleFilter}
+            onChange={e => setScheduleFilter(e.target.value as "all" | "scheduled" | "unscheduled")}
+            style={selectStyle}
+          >
+            <option value="all">All</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="unscheduled">Unscheduled</option>
+          </select>
+        </div>
+
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
           <input
             type="checkbox"
@@ -514,7 +578,7 @@ export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
         overflow: "hidden",
         boxShadow: C.sh,
       }}>
-        <TaskTable rows={activeRows} groupByProject={groupByProject} />
+        <TaskTable rows={activeRows} groupByProject={groupByProject} scheduledMap={scheduledMap} />
       </div>
 
       {/* ── Notes panel (single project selected) ── */}

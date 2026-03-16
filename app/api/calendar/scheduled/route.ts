@@ -9,10 +9,13 @@ export async function GET() {
   const db = getSupabaseAdmin();
   const { data } = await db
     .from("scheduled_tasks")
-    .select("task_id")
+    .select("task_id, task_name, scheduled_at")
     .eq("user_email", session.user.email);
 
-  return NextResponse.json({ taskIds: (data ?? []).map((r: { task_id: string }) => r.task_id) });
+  return NextResponse.json({
+    taskIds: (data ?? []).map((r: { task_id: string }) => r.task_id),
+    tasks: data ?? [],
+  });
 }
 
 export async function POST(req: NextRequest) {
