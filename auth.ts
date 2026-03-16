@@ -6,22 +6,19 @@ import { authConfig } from "./auth.config";
 
 const ALLOWED_DOMAIN = process.env.AUTH_ALLOWED_DOMAIN;
 
-// Lazily created pool — not instantiated at build time
-let _pool: Pool | null = null;
-function getPool() {
-  if (!_pool && process.env.DATABASE_URL) {
-    _pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 3, // keep connection count low for serverless
-    });
-  }
-  return _pool ?? undefined;
-}
+// Try multiple env var names — Supabase Vercel integration sets POSTGRES_URL
+const DB_URL =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL;
+
+const pool = DB_URL
+  ? new Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false }, max: 3 })
+  : null;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  adapter: getPool() ? PostgresAdapter(getPool()!) : undefined,
+  adapter: pool ? PostgresAdapter(pool) : undefined,
   providers: [
     Google({
       clientId:     process.env.GOOGLE_CLIENT_ID!,
