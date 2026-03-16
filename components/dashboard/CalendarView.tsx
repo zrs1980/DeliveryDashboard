@@ -773,8 +773,9 @@ export function CalendarView({ projects, cases }: Props) {
                           if (item.type === "event") {
                             rescheduleEvent(item.event.id, dayIndex, hour);
                           } else if (item.type === "task") {
+                            const client = item.projectLabel.split(" — ")[0];
                             createEvent(
-                              item.task.name,
+                              `${item.task.name} — ${client}`,
                               `Task from ${item.projectLabel}\n${item.task.url}`,
                               dayIndex,
                               hour,
