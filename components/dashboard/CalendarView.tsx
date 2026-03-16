@@ -87,6 +87,7 @@ export function CalendarView({ projects, cases }: Props) {
   const [filterScheduled, setFilterScheduled] = useState<"all" | "scheduled" | "unscheduled">("all");
   const [filterDue,       setFilterDue]       = useState<"all" | "overdue" | "today" | "week" | "none">("all");
   const [filterProject,   setFilterProject]   = useState<string>("all");
+  const [filterMine,      setFilterMine]      = useState(false);
   const [scheduledIds,    setScheduledIds]     = useState<Set<string>>(new Set());
 
   // ── Check calendar token status once session is available ────────────────────
@@ -183,7 +184,19 @@ export function CalendarView({ projects, cases }: Props) {
   );
 
   const now = Date.now();
+  // Match logged-in user to ClickUp assignees by name (first name or full name)
+  const myFullName  = (session?.user?.name ?? "").toLowerCase();
+  const myFirstName = myFullName.split(" ")[0];
+
   const openTasks = allOpenTasks.filter(({ task, projectId }) => {
+    // My tasks filter
+    if (filterMine) {
+      const assigned = task.assignees.some(a => {
+        const u = a.username.toLowerCase();
+        return u === myFullName || (myFirstName && u === myFirstName) || (myFirstName && u.startsWith(myFirstName));
+      });
+      if (!assigned) return false;
+    }
     // Scheduled filter
     if (filterScheduled === "scheduled"   && !scheduledIds.has(task.id)) return false;
     if (filterScheduled === "unscheduled" &&  scheduledIds.has(task.id)) return false;
@@ -295,6 +308,21 @@ export function CalendarView({ projects, cases }: Props) {
           {/* ── Filters ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 8 }}>
 
+            {/* My Tasks toggle */}
+            <button
+              onClick={() => setFilterMine(f => !f)}
+              style={{
+                padding: "5px 10px", fontSize: 11, fontWeight: 700,
+                borderRadius: 6, cursor: "pointer", fontFamily: C.font,
+                border: `1px solid ${filterMine ? C.blue : C.border}`,
+                background: filterMine ? C.blue : "#fff",
+                color: filterMine ? "#fff" : C.textMid,
+                textAlign: "left",
+              }}
+            >
+              👤 {filterMine ? "My Tasks only" : "Show all assignees"}
+            </button>
+
             {/* Schedule status */}
             <div style={{ display: "flex", gap: 3 }}>
               {(["all", "unscheduled", "scheduled"] as const).map(v => (
@@ -352,8 +380,8 @@ export function CalendarView({ projects, cases }: Props) {
             {/* Result count */}
             <div style={{ fontSize: 10, color: C.textSub, display: "flex", justifyContent: "space-between" }}>
               <span>{openTasks.length} task{openTasks.length !== 1 ? "s" : ""} shown</span>
-              {(filterScheduled !== "all" || filterDue !== "all" || filterProject !== "all") && (
-                <button onClick={() => { setFilterScheduled("all"); setFilterDue("all"); setFilterProject("all"); }}
+              {(filterMine || filterScheduled !== "all" || filterDue !== "all" || filterProject !== "all") && (
+                <button onClick={() => { setFilterMine(false); setFilterScheduled("all"); setFilterDue("all"); setFilterProject("all"); }}
                   style={{ background: "none", border: "none", fontSize: 10, color: C.blue, cursor: "pointer", padding: 0, fontFamily: C.font }}>
                   Clear filters
                 </button>
