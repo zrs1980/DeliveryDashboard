@@ -26,8 +26,9 @@ interface CalEvent {
 }
 
 type DragItem =
-  | { type: "task"; task: CUTask; projectLabel: string }
-  | { type: "case"; caseNumber: string; caseTitle: string; company: string };
+  | { type: "task";  task: CUTask; projectLabel: string }
+  | { type: "case";  caseNumber: string; caseTitle: string; company: string }
+  | { type: "event"; event: CalEvent };
 
 interface Props {
   projects: Project[];
@@ -75,14 +76,18 @@ function EventChip({
   event,
   isLinked,
   onDelete,
+  onDragStart,
 }: {
   event: CalEvent;
   isLinked: boolean;
   onDelete: () => void;
+  onDragStart: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
+      draggable
+      onDragStart={onDragStart}
       style={{
         display: "flex", alignItems: "center",
         fontSize: 10, fontWeight: 600,
@@ -90,7 +95,7 @@ function EventChip({
         color:      isLinked ? C.green   : C.blue,
         border:     `1px solid ${isLinked ? C.greenBd : C.blueBd}`,
         borderRadius: 4, marginBottom: 2,
-        overflow: "hidden",
+        overflow: "hidden", cursor: "grab",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -271,6 +276,40 @@ export function CalendarView({ projects, cases }: Props) {
       showToast("Event removed from calendar");
     } catch {
       showToast("Failed to delete event", false);
+    }
+  }
+
+  // ── Reschedule existing event ─────────────────────────────────────────────────
+  async function rescheduleEvent(eventId: string, dayIndex: number, hour: number) {
+    const day   = addDays(weekStart, dayIndex);
+    const start = new Date(day); start.setHours(hour, 0, 0, 0);
+    const end   = new Date(day); end.setHours(hour + 1, 0, 0, 0);
+
+    // Optimistically update UI
+    setEvents(prev => prev.map(e => {
+      if (e.id !== eventId) return e;
+      return { ...e, start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() } };
+    }));
+
+    try {
+      await fetch("/api/calendar/events", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, start: start.toISOString(), end: end.toISOString() }),
+      });
+      // Update scheduled_at in Supabase if linked to a task
+      const taskId = eventToTaskId.get(eventId);
+      if (taskId) {
+        fetch("/api/calendar/scheduled", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, eventId, eventStart: start.toISOString() }),
+        }).then(() => loadScheduled()).catch(() => {});
+      }
+      showToast("Event rescheduled");
+    } catch {
+      showToast("Failed to reschedule event", false);
+      fetchEvents(); // revert on error
     }
   }
 
@@ -731,7 +770,9 @@ export function CalendarView({ projects, cases }: Props) {
                           const item = dragRef.current;
                           if (!item) return;
                           dragRef.current = null;
-                          if (item.type === "task") {
+                          if (item.type === "event") {
+                            rescheduleEvent(item.event.id, dayIndex, hour);
+                          } else if (item.type === "task") {
                             createEvent(
                               item.task.name,
                               `Task from ${item.projectLabel}\n${item.task.url}`,
@@ -781,6 +822,7 @@ export function CalendarView({ projects, cases }: Props) {
                             event={ev}
                             isLinked={eventToTaskId.has(ev.id)}
                             onDelete={() => deleteEvent(ev.id)}
+                            onDragStart={() => { dragRef.current = { type: "event", event: ev }; }}
                           />
                         ))}
                       </td>

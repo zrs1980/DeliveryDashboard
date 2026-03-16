@@ -56,6 +56,29 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const { session, error } = await requireAuth();
+  if (error) return error;
+
+  const { eventId, start, end } = await req.json();
+  if (!eventId || !start || !end) return NextResponse.json({ error: "Missing eventId/start/end" }, { status: 400 });
+
+  const authClient = await getGoogleCalendarClient(session!.user.email!);
+  if (!authClient) return NextResponse.json({ error: "Google Calendar not linked" }, { status: 401 });
+
+  try {
+    const calendar = google.calendar({ version: "v3", auth: authClient });
+    const event = await calendar.events.patch({
+      calendarId: "primary",
+      eventId,
+      requestBody: { start: { dateTime: start }, end: { dateTime: end } },
+    });
+    return NextResponse.json({ event: event.data });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const { session, error } = await requireAuth();
   if (error) return error;
