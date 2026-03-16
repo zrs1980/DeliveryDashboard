@@ -241,7 +241,7 @@ export function CalendarView({ projects, cases }: Props) {
           fetch("/api/calendar/scheduled", {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId, taskName: title, eventId: data.event?.id }),
+            body: JSON.stringify({ taskId, taskName: title, eventId: data.event?.id, eventStart: start.toISOString() }),
           }).then(() => loadScheduled()).catch(() => {});
           setScheduledIds(prev => new Set(prev).add(taskId));
           if (data.event?.id) {

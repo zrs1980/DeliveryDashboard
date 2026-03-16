@@ -22,15 +22,16 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { taskId, taskName, eventId } = await req.json();
+  const { taskId, taskName, eventId, eventStart } = await req.json();
   if (!taskId) return NextResponse.json({ error: "Missing taskId" }, { status: 400 });
 
   const db = getSupabaseAdmin();
   await db.from("scheduled_tasks").upsert({
-    user_email: session.user.email,
-    task_id:    taskId,
-    task_name:  taskName ?? "",
-    event_id:   eventId ?? null,
+    user_email:   session.user.email,
+    task_id:      taskId,
+    task_name:    taskName ?? "",
+    event_id:     eventId ?? null,
+    scheduled_at: eventStart ?? new Date().toISOString(),
   }, { onConflict: "user_email,task_id" });
 
   return NextResponse.json({ ok: true });
