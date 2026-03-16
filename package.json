@@ -9,12 +9,15 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@auth/pg-adapter": "^1.11.1",
     "@auth/supabase-adapter": "^1.11.1",
     "@supabase/supabase-js": "^2.99.1",
+    "@types/pg": "^8.18.0",
     "googleapis": "^171.4.0",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "oauth-1.0a": "^2.2.6",
+    "pg": "^8.20.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.8.0"

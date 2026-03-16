@@ -1,33 +1,36 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { SupabaseAdapter } from "@auth/supabase-adapter";
+import PostgresAdapter from "@auth/pg-adapter";
+import { Pool } from "pg";
 import { authConfig } from "./auth.config";
 
-// Allowed email domain — set AUTH_ALLOWED_DOMAIN=cebasolutions.com in env vars to restrict.
-// Leave unset to allow any Google account.
 const ALLOWED_DOMAIN = process.env.AUTH_ALLOWED_DOMAIN;
 
-// Build an adapter only when the env vars are present (they will be at runtime, not during build)
-function makeAdapter() {
-  const url    = process.env.SUPABASE_URL;
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !secret) return undefined;
-  return SupabaseAdapter({ url, secret });
+// Lazily created pool — not instantiated at build time
+let _pool: Pool | null = null;
+function getPool() {
+  if (!_pool && process.env.DATABASE_URL) {
+    _pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 3, // keep connection count low for serverless
+    });
+  }
+  return _pool ?? undefined;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  adapter: makeAdapter(),
+  adapter: getPool() ? PostgresAdapter(getPool()!) : undefined,
   providers: [
     Google({
       clientId:     process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          // Request calendar access + offline access at sign-in time
           scope:       "openid email profile https://www.googleapis.com/auth/calendar",
           access_type: "offline",
-          prompt:      "consent",   // always show consent so we get a refresh_token
+          prompt:      "consent",
         },
       },
     }),
