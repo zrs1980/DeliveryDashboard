@@ -283,6 +283,13 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
     }
   }
 
+  // ── Delete category ───────────────────────────────────────────────────────
+  async function deleteCategory(id: number) {
+    await fetch(`/api/wiki/categories/${id}`, { method: "DELETE" });
+    if (categoryFilter === id) setCategoryFilter(null);
+    await loadData();
+  }
+
   // ── Save category ─────────────────────────────────────────────────────────
   async function saveCategory() {
     if (!newCatForm.name.trim()) { setCatError("Name is required."); return; }
@@ -354,23 +361,60 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
   // ── Sidebar ───────────────────────────────────────────────────────────────
   function CategoryItem({ cat, depth = 0 }: { cat: WikiCategory; depth?: number }) {
     const isActive = categoryFilter === cat.id;
+    const [confirmDel, setConfirmDel] = useState(false);
     return (
       <div>
-        <button
-          onClick={() => { setCategoryFilter(cat.id); setView("home"); setSearchQuery(""); }}
+        <div
           style={{
-            display: "flex", alignItems: "center", gap: 7,
-            width: "100%", padding: `6px 14px 6px ${14 + depth * 14}px`,
-            background: isActive ? C.blueBg : "none", border: "none",
+            display: "flex", alignItems: "center",
+            background: isActive ? C.blueBg : "none",
             borderLeft: isActive ? `3px solid ${C.blue}` : "3px solid transparent",
-            cursor: "pointer", textAlign: "left", fontSize: 12.5,
-            color: isActive ? C.blue : C.textMid, fontFamily: C.font,
-            fontWeight: isActive ? 600 : 400,
           }}
+          onMouseLeave={() => setConfirmDel(false)}
         >
-          <span style={{ fontSize: 13 }}>{cat.icon ?? "📁"}</span>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
-        </button>
+          <button
+            onClick={() => { setCategoryFilter(cat.id); setView("home"); setSearchQuery(""); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 7, flex: 1,
+              padding: `6px 6px 6px ${14 + depth * 14}px`,
+              background: "none", border: "none",
+              cursor: "pointer", textAlign: "left", fontSize: 12.5,
+              color: isActive ? C.blue : C.textMid, fontFamily: C.font,
+              fontWeight: isActive ? 600 : 400, minWidth: 0,
+            }}
+          >
+            <span style={{ fontSize: 13, flexShrink: 0 }}>{cat.icon ?? "📁"}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+          </button>
+
+          {confirmDel ? (
+            <>
+              <button
+                onClick={() => deleteCategory(cat.id)}
+                title="Confirm delete"
+                style={{ background: C.red, color: "#fff", border: "none", borderRadius: 4, padding: "2px 6px", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0, marginRight: 4 }}
+              >
+                ✓
+              </button>
+              <button
+                onClick={() => setConfirmDel(false)}
+                title="Cancel"
+                style={{ background: C.alt, color: C.textSub, border: "none", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", flexShrink: 0, marginRight: 6 }}
+              >
+                ✕
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmDel(true); }}
+              title="Delete category"
+              style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", padding: "2px 8px 2px 4px", fontSize: 13, opacity: 0.4, flexShrink: 0 }}
+              className="cat-del-btn"
+            >
+              ×
+            </button>
+          )}
+        </div>
         {cat.children?.map(child => <CategoryItem key={child.id} cat={child} depth={depth + 1} />)}
       </div>
     );
