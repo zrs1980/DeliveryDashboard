@@ -225,68 +225,208 @@ function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
 }
 
 // ── Email modal ───────────────────────────────────────────────────────────────
-function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void }) {
-  const [tone, setTone]       = useState<Tone>("professional");
-  const [subject, setSubject] = useState("");
-  const [body, setBody]       = useState("");
-  const [toEmail, setToEmail] = useState(opp.email ?? "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [copied, setCopied]   = useState(false);
-  const generated             = useRef(false);
+interface AttachmentFile { name: string; mimeType: string; data: string; size: number; }
 
-  const generate = async (t: Tone = tone) => {
-    setLoading(true); setError(null);
+function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void }) {
+  const [tone, setTone]               = useState<Tone>("professional");
+  const [subject, setSubject]         = useState("");
+  const [body, setBody]               = useState("");
+  const [toEmail, setToEmail]         = useState(opp.email ?? "");
+  const [generating, setGenerating]   = useState(false);
+  const [sending, setSending]         = useState(false);
+  const [sent, setSent]               = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [notes, setNotes]             = useState<{ id: number; text: string; date: string | null }[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const generated                     = useRef(false);
+  const fileInputRef                  = useRef<HTMLInputElement>(null);
+
+  // Fetch notes context on mount
+  useEffect(() => {
+    setNotesLoading(true);
+    fetch(`/api/service-requests/notes-context?oppId=${opp.id}`)
+      .then(r => r.json())
+      .then(d => setNotes(d.notes ?? []))
+      .catch(() => {})
+      .finally(() => setNotesLoading(false));
+  }, [opp.id]);
+
+  const generate = async (t: Tone = tone, noteContext = notes) => {
+    setGenerating(true); setError(null);
     try {
-      const res  = await fetch("/api/service-requests/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunity: opp, tone: t }) });
+      const res  = await fetch("/api/service-requests/email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunity: opp, tone: t, notes: noteContext }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setSubject(data.subject); setBody(data.body);
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
-    finally { setLoading(false); }
+    finally { setGenerating(false); }
   };
 
-  useEffect(() => { if (!generated.current) { generated.current = true; generate(); } }, []); // eslint-disable-line
+  // Auto-generate once notes are loaded
+  useEffect(() => {
+    if (!generated.current && !notesLoading) {
+      generated.current = true;
+      generate(tone, notes);
+    }
+  }, [notesLoading]); // eslint-disable-line
 
-  const mailtoLink = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const copyAll    = async () => { await navigator.clipboard.writeText(`To: ${toEmail}\nSubject: ${subject}\n\n${body}`); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const sendViaGmail = async () => {
+    if (!subject || !body || !toEmail) return;
+    setSending(true); setError(null);
+    try {
+      const res  = await fetch("/api/email/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: toEmail, subject, body, attachments }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Send failed");
+      setSent(true);
+      setTimeout(onClose, 1800);
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setSending(false); }
+  };
+
+  const handleFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const dataUrl = ev.target?.result as string;
+        const base64  = dataUrl.split(",")[1];
+        setAttachments(prev => [...prev, { name: file.name, mimeType: file.type || "application/octet-stream", data: base64, size: file.size }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const removeAttachment = (i: number) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
+
+  const fmtSize = (bytes: number) => bytes < 1024 ? `${bytes}B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+
+  const loading = generating || notesLoading;
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 620, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "92vh" }}>
+      <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 660, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "94vh" }}>
+
+        {/* Header */}
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>✉ Draft Follow-up Email</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>✉ Follow-up Email — Gmail</div>
             <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{opp.title} · {opp.client}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: C.textSub, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
-        <div style={{ padding: "10px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+
+        {/* Tone + Regenerate bar */}
+        <div style={{ padding: "9px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 7, flexShrink: 0, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Tone:</span>
           {(["professional","formal","friendly","urgent"] as Tone[]).map(t => (
-            <button key={t} onClick={() => { setTone(t); generate(t); }} disabled={loading} style={{ padding: "3px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: C.font, background: tone === t ? C.blueBg : C.alt, color: tone === t ? C.blue : C.textMid, border: `1px solid ${tone === t ? C.blueBd : C.border}`, textTransform: "capitalize" }}>{t}</button>
+            <button key={t} onClick={() => { setTone(t); generate(t); }} disabled={loading} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: C.font, background: tone === t ? C.blueBg : C.alt, color: tone === t ? C.blue : C.textMid, border: `1px solid ${tone === t ? C.blueBd : C.border}`, textTransform: "capitalize" }}>{t}</button>
           ))}
-          <button onClick={() => generate()} disabled={loading} style={{ marginLeft: "auto", padding: "3px 13px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: C.font, background: loading ? C.alt : C.purpleBg, color: loading ? C.textSub : C.purple, border: `1px solid ${loading ? C.border : C.purpleBd}`, display: "flex", alignItems: "center", gap: 5 }}>
+          <button onClick={() => generate()} disabled={loading} style={{ marginLeft: "auto", padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: C.font, background: loading ? C.alt : C.purpleBg, color: loading ? C.textSub : C.purple, border: `1px solid ${loading ? C.border : C.purpleBd}`, display: "flex", alignItems: "center", gap: 5 }}>
             {loading ? <><span style={{ display: "inline-block", width: 10, height: 10, border: `2px solid ${C.purpleBd}`, borderTopColor: C.purple, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> Generating…</> : "↺ Regenerate"}
           </button>
         </div>
-        <div style={{ padding: "14px 20px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 11 }}>
+
+        <div style={{ padding: "14px 20px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+
+          {/* Notes context banner */}
+          {notes.length > 0 && (
+            <div style={{ background: C.purpleBg, border: `1px solid ${C.purpleBd}`, borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                ✨ Based on {notes.length} recent note{notes.length !== 1 ? "s" : ""} from NetSuite
+              </div>
+              {notes.slice(0, 2).map((n, i) => (
+                <div key={i} style={{ fontSize: 12, color: C.textMid, marginTop: i > 0 ? 4 : 0, borderLeft: `2px solid ${C.purpleBd}`, paddingLeft: 8, lineHeight: 1.5 }}>
+                  {n.text.slice(0, 120)}{n.text.length > 120 ? "…" : ""}
+                </div>
+              ))}
+            </div>
+          )}
+
           {error && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 7, padding: "8px 14px", color: C.red, fontSize: 13 }}>⚠ {error}</div>}
-          <div><label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>To</label><input value={toEmail} onChange={e => setToEmail(e.target.value)} style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} /></div>
-          <div><label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Subject</label><input value={subject} onChange={e => setSubject(e.target.value)} placeholder={loading ? "Generating…" : ""} style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} /></div>
+
+          {/* To */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>To</label>
+            <input value={toEmail} onChange={e => setToEmail(e.target.value)} style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} />
+          </div>
+
+          {/* Subject */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={loading ? "Generating…" : ""} style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} />
+          </div>
+
+          {/* Body */}
           <div style={{ flex: 1 }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Message</label>
             {loading && !body ? (
-              <div style={{ background: C.alt, borderRadius: 7, border: `1px solid ${C.border}`, padding: "20px 14px", textAlign: "center", color: C.textSub, fontSize: 13 }}><div style={{ fontSize: 20, marginBottom: 8 }}>✨</div>Drafting with Claude…</div>
+              <div style={{ background: C.alt, borderRadius: 7, border: `1px solid ${C.border}`, padding: "24px 14px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>✨</div>
+                {notesLoading ? "Loading notes from NetSuite…" : "Drafting with Claude…"}
+              </div>
             ) : (
-              <textarea value={body} onChange={e => setBody(e.target.value)} rows={10} style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text, resize: "vertical", lineHeight: 1.65 }} />
+              <textarea value={body} onChange={e => setBody(e.target.value)} rows={9} style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text, resize: "vertical", lineHeight: 1.65 }} />
+            )}
+          </div>
+
+          {/* Attachments */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Attachments</label>
+              <button onClick={() => fileInputRef.current?.click()} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: C.font, background: C.alt, color: C.textMid, border: `1px solid ${C.border}` }}>
+                + Add File
+              </button>
+              <input ref={fileInputRef} type="file" multiple onChange={handleFileAdd} style={{ display: "none" }} />
+            </div>
+            {attachments.length === 0 ? (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                style={{ border: `1.5px dashed ${C.border}`, borderRadius: 7, padding: "10px 14px", textAlign: "center", fontSize: 12, color: C.textSub, cursor: "pointer" }}
+              >
+                Click or drag files here to attach
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {attachments.map((a, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: C.alt, borderRadius: 6, padding: "6px 10px", border: `1px solid ${C.border}` }}>
+                    <span style={{ fontSize: 14 }}>📎</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+                      <div style={{ fontSize: 11, color: C.textSub }}>{fmtSize(a.size)}</div>
+                    </div>
+                    <button onClick={() => removeAttachment(i)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                  </div>
+                ))}
+                <button onClick={() => fileInputRef.current?.click()} style={{ fontSize: 11, color: C.blue, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "2px 0" }}>+ Add another file</button>
+              </div>
             )}
           </div>
         </div>
-        <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, flexShrink: 0 }}>
-          <a href={subject && body ? mailtoLink : "#"} onClick={e => { if (!subject || !body) e.preventDefault(); }} style={{ flex: 1, padding: "9px 0", borderRadius: 8, textAlign: "center", fontSize: 13, fontWeight: 700, textDecoration: "none", background: subject && body ? "linear-gradient(135deg,#1A56DB,#2563EB)" : C.alt, color: subject && body ? "#fff" : C.textSub, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, pointerEvents: subject && body ? "auto" : "none" }}>✉ Open in Mail Client</a>
-          <button onClick={copyAll} disabled={!subject || !body} style={{ padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: copied ? C.greenBg : C.alt, color: copied ? C.green : C.textMid, border: `1px solid ${copied ? C.greenBd : C.border}` }}>{copied ? "✓ Copied!" : "⎘ Copy"}</button>
-          <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}` }}>Close</button>
+
+        {/* Footer */}
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={sendViaGmail}
+            disabled={sending || sent || !subject || !body || !toEmail}
+            style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, border: "none", cursor: sending || sent || !subject || !body ? "not-allowed" : "pointer", fontFamily: C.font, background: sent ? C.greenBg : sending ? C.alt : "linear-gradient(135deg,#EA4335,#D93025)", color: sent ? C.green : sending ? C.textSub : "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, boxShadow: sending || sent ? "none" : "0 2px 8px rgba(234,67,53,0.35)", transition: "background 0.15s" }}
+          >
+            {sent ? "✓ Sent!" : sending
+              ? <><span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(0,0,0,0.15)", borderTopColor: C.textMid, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Sending…</>
+              : <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                  Send via Gmail{attachments.length > 0 ? ` (${attachments.length} attachment${attachments.length !== 1 ? "s" : ""})` : ""}
+                </>
+            }
+          </button>
+          <button onClick={onClose} style={{ padding: "9px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}` }}>Cancel</button>
         </div>
       </div>
     </div>
