@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
+import { EMPLOYEES } from "@/lib/constants";
 
 export interface ServiceRequest {
   id: number;
@@ -13,9 +14,10 @@ export interface ServiceRequest {
   weightedTotal: number;
   expectedCloseDate: string | null;
   createdDate: string;
-  lastModifiedDate: string | null;
+  lastActivityDate: string | null;
   daysOpen: number;
-  salesRep: string | null;
+  assignedTo: string | null;
+  assignedToId: number | null;
   memo: string | null;
   actionItem: string | null;
   noteCount: number;
@@ -24,11 +26,11 @@ export interface ServiceRequest {
 
 export async function GET() {
   try {
-    // Fetch open opportunities with lastModifiedDate
     const oppsResult = await runSuiteQL(`
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
-             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem
+             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
+             o.createdBy
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -41,7 +43,7 @@ export async function GET() {
     const oppIds    = oppsResult.map((r: any) => parseInt(r.id));
     const entityIds = [...new Set(oppsResult.map((r: any) => r.entity).filter(Boolean))] as number[];
 
-    // Fetch customer names + emails in one query
+    // Customer names + emails
     const clientMap: Record<number, { name: string; email: string | null }> = {};
     if (entityIds.length > 0) {
       const custResult = await runSuiteQL(`
@@ -54,7 +56,7 @@ export async function GET() {
       }
     }
 
-    // Fetch note counts per opportunity
+    // Note counts per opportunity
     const noteCountMap: Record<number, number> = {};
     if (oppIds.length > 0) {
       const noteResult = await runSuiteQL(`
@@ -74,6 +76,7 @@ export async function GET() {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
       const cust      = clientMap[r.entity];
+      const createdById = parseInt(r.createdby ?? "0");
       return {
         id:                parseInt(r.id),
         tranId:            r.tranid ?? "",
@@ -86,9 +89,10 @@ export async function GET() {
         weightedTotal:     Math.round(projected * prob),
         expectedCloseDate: r.expectedclosedate ?? null,
         createdDate:       r.trandate ?? "",
-        lastModifiedDate:  r.lastmodifieddate ?? null,
+        lastActivityDate:  r.lastmodifieddate ?? null,
         daysOpen:          parseInt(r.daysopen ?? "0"),
-        salesRep:          null,
+        assignedTo:        EMPLOYEES[createdById] ?? null,
+        assignedToId:      createdById || null,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
