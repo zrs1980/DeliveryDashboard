@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm list:*)",
+      "mcp__claude_ai_NetSuite__ns_runCustomSuiteQL",
+      "mcp__claude_ai_NetSuite__ns_getSuiteQLMetadata",
+      "mcp__claude_ai_Slack__slack_search_channels"
+    ]
+  }
+}
