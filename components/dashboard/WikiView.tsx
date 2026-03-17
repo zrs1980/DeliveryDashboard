@@ -827,11 +827,11 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
 
   return (
     <div style={{ display: "flex", gap: 20, alignItems: "flex-start", fontFamily: C.font }}>
-      <Sidebar />
+      {Sidebar()}
       <main style={{ flex: 1, minWidth: 0, background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: C.sh, padding: "24px 28px" }}>
-        {view === "home" && <HomeView />}
-        {view === "page" && <PageViewContent />}
-        {view === "edit" && <EditViewContent />}
+        {view === "home" && HomeView()}
+        {view === "page" && PageViewContent()}
+        {view === "edit" && EditViewContent()}
       </main>
     </div>
   );
