@@ -96,7 +96,7 @@ export async function GET() {
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
-        nsUrl:             `https://system.na1.netsuite.com/app/crm/sales/opportunity.nl?id=${r.id}`,
+        nsUrl:             `https://3550424.app.netsuite.com/app/crm/sales/opportunity.nl?id=${r.id}`,
       };
     });
 
