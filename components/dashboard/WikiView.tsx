@@ -161,6 +161,10 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isNew, setIsNew]             = useState(false);
   const [editorKey, setEditorKey]     = useState(0); // force re-mount on new/edit switch
+  const [showNewCat, setShowNewCat]   = useState(false);
+  const [newCatForm, setNewCatForm]   = useState({ name: "", parent_id: "", icon: "" });
+  const [savingCat, setSavingCat]     = useState(false);
+  const [catError, setCatError]       = useState<string | null>(null);
 
   const defaultAuthor = userEmail?.split("@")[0]?.replace(/\./g, " ").replace(/\b\w/g, c => c.toUpperCase()) ?? "CEBA Staff";
 
@@ -276,6 +280,34 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
       setView("home");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── Save category ─────────────────────────────────────────────────────────
+  async function saveCategory() {
+    if (!newCatForm.name.trim()) { setCatError("Name is required."); return; }
+    setSavingCat(true);
+    setCatError(null);
+    try {
+      const r = await fetch("/api/wiki/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:      newCatForm.name.trim(),
+          slug:      slugify(newCatForm.name),
+          parent_id: newCatForm.parent_id ? parseInt(newCatForm.parent_id) : null,
+          icon:      newCatForm.icon.trim() || null,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed to create category");
+      setNewCatForm({ name: "", parent_id: "", icon: "" });
+      setShowNewCat(false);
+      await loadData();
+    } catch (e) {
+      setCatError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSavingCat(false);
     }
   }
 
@@ -396,8 +428,8 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
         )}
       </div>
 
-      {/* New Page */}
-      <div style={{ padding: "12px 14px 4px", borderTop: `1px solid ${C.border}` }}>
+      {/* Action buttons */}
+      <div style={{ padding: "12px 14px 4px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
         <button
           onClick={() => openEdit()}
           style={{
@@ -409,6 +441,65 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
         >
           + New Page
         </button>
+        <button
+          onClick={() => { setShowNewCat(v => !v); setCatError(null); }}
+          style={{
+            width: "100%", background: showNewCat ? C.alt : "transparent",
+            color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 12px",
+            fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+            display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+          }}
+        >
+          {showNewCat ? "✕ Cancel" : "+ New Category"}
+        </button>
+
+        {/* Inline new-category form */}
+        {showNewCat && (
+          <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {catError && (
+              <div style={{ fontSize: 11, color: C.red, fontWeight: 500 }}>⚠ {catError}</div>
+            )}
+            <input
+              type="text"
+              placeholder="Category name *"
+              value={newCatForm.name}
+              onChange={e => setNewCatForm(f => ({ ...f, name: e.target.value }))}
+              onKeyDown={e => e.key === "Enter" && saveCategory()}
+              autoFocus
+              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 9px", fontSize: 12, color: C.text, fontFamily: C.font, outline: "none", background: C.surface }}
+            />
+            <select
+              value={newCatForm.parent_id}
+              onChange={e => setNewCatForm(f => ({ ...f, parent_id: e.target.value }))}
+              style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 9px", fontSize: 12, color: C.text, fontFamily: C.font, outline: "none", background: C.surface }}
+            >
+              <option value="">— Top-level category —</option>
+              {flatCats.map(c => (
+                <option key={c.id} value={c.id}>
+                  {"  ".repeat(c.depth)}{c.depth > 0 ? "└ " : ""}{c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              placeholder="Icon (emoji, optional)"
+              value={newCatForm.icon}
+              onChange={e => setNewCatForm(f => ({ ...f, icon: e.target.value }))}
+              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 9px", fontSize: 12, color: C.text, fontFamily: C.font, outline: "none", background: C.surface }}
+            />
+            <button
+              onClick={saveCategory}
+              disabled={savingCat}
+              style={{
+                width: "100%", background: savingCat ? C.alt : C.blue, color: "#fff",
+                border: "none", borderRadius: 6, padding: "7px", fontSize: 12,
+                fontWeight: 700, cursor: savingCat ? "not-allowed" : "pointer", fontFamily: C.font,
+              }}
+            >
+              {savingCat ? "Saving…" : "✓ Create Category"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
