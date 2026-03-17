@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "@/lib/constants";
+import { RichTextEditor } from "@/components/wiki/RichTextEditor";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
   const [error, setError]             = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isNew, setIsNew]             = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [editorKey, setEditorKey]     = useState(0); // force re-mount on new/edit switch
 
   const defaultAuthor = userEmail?.split("@")[0]?.replace(/\./g, " ").replace(/\b\w/g, c => c.toUpperCase()) ?? "CEBA Staff";
 
@@ -222,7 +223,7 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
   // ── Open editor ───────────────────────────────────────────────────────────
   function openEdit(page?: WikiPage) {
     setError(null);
-    setShowPreview(false);
+    setEditorKey(k => k + 1);
     if (page) {
       setEditForm({ title: page.title, slug: page.slug, content: page.body, category_id: page.category_id?.toString() ?? "", author: page.author, is_pinned: page.is_pinned });
       setIsNew(false);
@@ -653,11 +654,16 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
 
         <div style={{ height: 1, background: C.border, marginBottom: 28 }} />
 
-        {/* Body */}
+        {/* Body — HTML from WYSIWYG editor, or legacy Markdown */}
         {selectedPage.body ? (
           <div
+            className="wiki-body"
             style={{ maxWidth: 760, fontFamily: C.font }}
-            dangerouslySetInnerHTML={{ __html: renderMd(selectedPage.body) }}
+            dangerouslySetInnerHTML={{
+              __html: selectedPage.body.trimStart().startsWith("<")
+                ? selectedPage.body
+                : renderMd(selectedPage.body),
+            }}
           />
         ) : (
           <div style={{ padding: "40px 0", textAlign: "center", color: C.textSub, fontSize: 14 }}>
@@ -770,38 +776,17 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
             </div>
           </div>
 
-          {/* Markdown editor + preview toggle */}
+          {/* WYSIWYG editor */}
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Content <span style={{ fontWeight: 400, fontSize: 10 }}>(Markdown)</span>
-              </label>
-              <button
-                onClick={() => setShowPreview(v => !v)}
-                style={{ background: showPreview ? C.blueBg : C.alt, color: showPreview ? C.blue : C.textMid, border: `1px solid ${showPreview ? C.blueBd : C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}
-              >
-                {showPreview ? "✏️ Editor" : "👁 Preview"}
-              </button>
-            </div>
-
-            {showPreview ? (
-              <div
-                style={{ minHeight: 400, border: `1px solid ${C.border}`, borderRadius: 8, padding: "16px 20px", background: C.surface, fontFamily: C.font, overflowY: "auto" }}
-                dangerouslySetInnerHTML={{ __html: editForm.content ? renderMd(editForm.content) : `<p style="color:${C.textSub};font-style:italic">Nothing to preview yet…</p>` }}
-              />
-            ) : (
-              <textarea
-                value={editForm.content}
-                onChange={e => setEditForm(f => ({ ...f, content: e.target.value }))}
-                placeholder={"# Page Title\n\nWrite your content here...\n\n## Section\n\n- List item 1\n- List item 2\n\n**Bold** and *italic* are supported.\n\n> Blockquote text\n\n```\ncode block\n```"}
-                style={{
-                  width: "100%", boxSizing: "border-box", border: `1px solid ${C.border}`,
-                  borderRadius: 8, padding: "12px", fontSize: 13, color: C.text,
-                  fontFamily: C.mono, outline: "none", background: C.surface,
-                  minHeight: 400, resize: "vertical", lineHeight: 1.6,
-                }}
-              />
-            )}
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Content
+            </label>
+            <RichTextEditor
+              key={editorKey}
+              content={editForm.content}
+              onChange={html => setEditForm(f => ({ ...f, content: html }))}
+              placeholder="Start writing your page content here…"
+            />
           </div>
 
           {/* Actions */}
