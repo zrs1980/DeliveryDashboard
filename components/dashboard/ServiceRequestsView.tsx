@@ -106,7 +106,7 @@ function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
   const templates    = buildSlackTemplates(opp);
   const defaultTpl   = isOverdue(opp.expectedCloseDate) ? "urgent" : !opp.assignedTo ? "assign" : "checkin";
   const [tplId, setTplId]       = useState(defaultTpl);
-  const [channel, setChannel]   = useState("#service-requests");
+  const [channel, setChannel]   = useState("#service-request");
   const [message, setMessage]   = useState(() => templates.find(t => t.id === defaultTpl)!.text);
   const [addNote, setAddNote]   = useState(true);
   const [sending, setSending]   = useState(false);

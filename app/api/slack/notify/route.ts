@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const SLACK_BOT_TOKEN    = process.env.SLACK_BOT_TOKEN;
-const SLACK_DEFAULT_CHANNEL = process.env.SLACK_DEFAULT_CHANNEL ?? "#service-requests";
+const SLACK_DEFAULT_CHANNEL = process.env.SLACK_DEFAULT_CHANNEL ?? "#service-request";
 
 export async function POST(req: NextRequest) {
   if (!SLACK_BOT_TOKEN) {
