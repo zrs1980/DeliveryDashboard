@@ -12,6 +12,7 @@ import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
 import { CalendarView } from "@/components/dashboard/CalendarView";
+import { WikiView } from "@/components/dashboard/WikiView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -28,7 +29,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -38,6 +39,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "consultant", label: "My Work",             icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
   { id: "calendar",   label: "Calendar",    icon: "📅" },
+  { id: "wiki",       label: "Company Wiki", icon: "📚" },
 ];
 
 interface DataState {
@@ -235,7 +237,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!hasLoaded && !loading && !error && (
+        {!hasLoaded && !loading && !error && tab !== "wiki" && (
           <div style={{ background: "#fff", borderRadius: 16, padding: "64px 24px", textAlign: "center", border: `1px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <div style={{
               width: 64, height: 64, borderRadius: 16, margin: "0 auto 20px",
@@ -314,6 +316,11 @@ export default function DashboardPage() {
             <div style={{ fontSize: 12, color: C.textSub, marginBottom: 18 }}>Open cases from NetSuite — support desk manager view.</div>
             <CasesView cases={cases} error={casesError} />
           </div>
+        )}
+
+        {/* Wiki */}
+        {tab === "wiki" && (
+          <WikiView userEmail={session?.user?.email} />
         )}
 
         {/* Calendar */}
