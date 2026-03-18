@@ -30,7 +30,7 @@ export async function GET() {
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.createdBy
+             o.custbody10
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -76,7 +76,7 @@ export async function GET() {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
       const cust      = clientMap[r.entity];
-      const createdById = parseInt(r.createdby ?? "0");
+      const assignedToId = r.custbody10 ? parseInt(r.custbody10) : null;
       return {
         id:                parseInt(r.id),
         tranId:            r.tranid ?? "",
@@ -91,8 +91,8 @@ export async function GET() {
         createdDate:       r.trandate ?? "",
         lastActivityDate:  r.lastmodifieddate ?? null,
         daysOpen:          parseInt(r.daysopen ?? "0"),
-        assignedTo:        EMPLOYEES[createdById] ?? null,
-        assignedToId:      createdById || null,
+        assignedTo:        assignedToId ? (EMPLOYEES[assignedToId] ?? null) : null,
+        assignedToId:      assignedToId,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,

@@ -46,6 +46,8 @@ type SortKey = "title" | "client" | "assignedTo" | "probability" | "projectedTot
 type SortDir = "asc" | "desc";
 type Tone    = "professional" | "formal" | "friendly" | "urgent";
 
+interface NsEmployee { id: number; name: string; }
+
 // Slack handle map — add real Slack user IDs here if known
 const SLACK_HANDLES: Record<string, string> = {
   "Shai Aradais":     "@Shai",
@@ -465,6 +467,8 @@ export function ServiceRequestsView() {
   const [slackOpp, setSlackOpp]   = useState<ServiceRequest | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [briefs, setBriefs]         = useState<Record<number, AiBrief>>({});
+  const [employees, setEmployees]   = useState<NsEmployee[]>([]);
+  const [assigning, setAssigning]   = useState<Record<number, boolean>>({});
 
   const [filterClient, setFilterClient]     = useState("all");
   const [filterTier, setFilterTier]         = useState("all");
@@ -485,7 +489,33 @@ export function ServiceRequestsView() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/service-requests/employees")
+      .then(r => r.json())
+      .then(d => setEmployees(d.employees ?? []))
+      .catch(() => {});
+  }, []);
+
+  const assignEmployee = async (opp: ServiceRequest, employeeId: number | null) => {
+    setAssigning(prev => ({ ...prev, [opp.id]: true }));
+    try {
+      const res  = await fetch("/api/service-requests/assign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: opp.id, employeeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const emp = employees.find(e => e.id === employeeId);
+      setRequests(prev => prev.map(r =>
+        r.id === opp.id ? { ...r, assignedTo: emp?.name ?? null, assignedToId: employeeId } : r
+      ));
+    } catch (e) {
+      alert("Failed to update assignee: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setAssigning(prev => ({ ...prev, [opp.id]: false }));
+    }
+  };
 
   const toggleExpand = async (r: ServiceRequest) => {
     if (expandedId === r.id) { setExpandedId(null); return; }
@@ -662,16 +692,29 @@ export function ServiceRequestsView() {
                     </td>
 
                     {/* Col 2: Owner + Last Activity */}
-                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                      {r.assignedTo ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {Avatar({ name: r.assignedTo })}
-                          <span style={{ fontSize: 13, color: C.text }}>{r.assignedTo}</span>
+                    <td style={{ padding: "10px 14px", minWidth: 160 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {r.assignedTo && Avatar({ name: r.assignedTo, size: 22 })}
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <select
+                            value={r.assignedToId ?? ""}
+                            disabled={assigning[r.id]}
+                            onChange={e => {
+                              const val = e.target.value;
+                              assignEmployee(r, val ? parseInt(val) : null);
+                            }}
+                            style={{ width: "100%", padding: "3px 22px 3px 6px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: C.font, color: r.assignedTo ? C.text : C.textSub, background: assigning[r.id] ? C.alt : "#fff", cursor: assigning[r.id] ? "not-allowed" : "pointer", appearance: "none", WebkitAppearance: "none" }}
+                          >
+                            <option value="">— Unassigned</option>
+                            {employees.map(e => (
+                              <option key={e.id} value={e.id}>{e.name}</option>
+                            ))}
+                          </select>
+                          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 9, color: C.textSub }}>▼</span>
                         </div>
-                      ) : (
-                        <span style={{ fontSize: 12, color: C.textSub, fontStyle: "italic" }}>Unassigned</span>
-                      )}
-                      <div style={{ fontSize: 11, color: C.textSub, marginTop: 3 }}>
+                        {assigning[r.id] && <span style={{ width: 12, height: 12, flexShrink: 0, display: "inline-block", border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textSub, marginTop: 4 }}>
                         {actAgo ? `Updated ${actAgo}` : "—"}
                       </div>
                     </td>
