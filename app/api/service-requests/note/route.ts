@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     // noteType 4 = "Note" (user-visible), 2 = "Email"
     const noteTypeId = noteType === "email" ? "2" : "4";
 
-    const newId = await postRecord("note", {
+    const newId = await postRecord("usernote", {
       transaction: { id: String(opportunityId) },
       entity:      { id: String(entityId) },
       noteType:    { id: noteTypeId },
