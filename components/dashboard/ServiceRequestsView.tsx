@@ -245,6 +245,7 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
   const [sending, setSending]         = useState(false);
   const [sent, setSent]               = useState(false);
   const [error, setError]             = useState<string | null>(null);
+  const [noteWarn, setNoteWarn]       = useState<string | null>(null);
   const [notes, setNotes]             = useState<{ id: number; text: string; date: string | null }[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
@@ -294,17 +295,23 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Send failed");
 
-      // Log email as a note on the NS opportunity
-      await fetch("/api/service-requests/note", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          opportunityId: opp.id,
-          entityId:      opp.entityId,
-          title:         `Email sent: ${subject}`,
-          noteType:      "email",
-          noteText:      `To: ${toEmail}\nSubject: ${subject}\n\n${body}`,
-        }),
-      });
+      // Log email as a note on the NS opportunity (non-blocking)
+      try {
+        const noteRes  = await fetch("/api/service-requests/note", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            opportunityId: opp.id,
+            entityId:      opp.entityId,
+            title:         `Email sent: ${subject}`,
+            noteType:      "email",
+            noteText:      `To: ${toEmail}\nSubject: ${subject}\n\n${body}`,
+          }),
+        });
+        const noteData = await noteRes.json();
+        if (!noteRes.ok) setNoteWarn(`Email sent, but NS note failed: ${noteData.error}`);
+      } catch {
+        setNoteWarn("Email sent, but could not save note to NetSuite.");
+      }
 
       setSent(true);
       setTimeout(onClose, 1800);
@@ -372,7 +379,8 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
             </div>
           )}
 
-          {error && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 7, padding: "8px 14px", color: C.red, fontSize: 13 }}>⚠ {error}</div>}
+          {error    && <div style={{ background: C.redBg,    border: `1px solid ${C.redBd}`,    borderRadius: 7, padding: "8px 14px", color: C.red,    fontSize: 13 }}>⚠ {error}</div>}
+          {noteWarn && <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 7, padding: "8px 14px", color: C.yellow, fontSize: 13 }}>⚠ {noteWarn}</div>}
 
           {/* To */}
           <div>
