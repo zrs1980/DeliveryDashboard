@@ -433,6 +433,9 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
   );
 }
 
+// ── AI Brief row panel ────────────────────────────────────────────────────────
+interface AiBrief { loading: boolean; summary?: string; nextSteps?: string[]; error?: string; }
+
 // ── Main component ────────────────────────────────────────────────────────────
 export function ServiceRequestsView() {
   const [requests, setRequests]   = useState<ServiceRequest[]>([]);
@@ -440,6 +443,8 @@ export function ServiceRequestsView() {
   const [error, setError]         = useState<string | null>(null);
   const [emailOpp, setEmailOpp]   = useState<ServiceRequest | null>(null);
   const [slackOpp, setSlackOpp]   = useState<ServiceRequest | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [briefs, setBriefs]         = useState<Record<number, AiBrief>>({});
 
   const [filterClient, setFilterClient]     = useState("all");
   const [filterTier, setFilterTier]         = useState("all");
@@ -461,6 +466,31 @@ export function ServiceRequestsView() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const toggleExpand = async (r: ServiceRequest) => {
+    if (expandedId === r.id) { setExpandedId(null); return; }
+    setExpandedId(r.id);
+    if (briefs[r.id]) return; // already loaded
+
+    setBriefs(prev => ({ ...prev, [r.id]: { loading: true } }));
+    try {
+      // Fetch notes first
+      const notesRes = await fetch(`/api/service-requests/notes-context?oppId=${r.id}`);
+      const notesData = await notesRes.json();
+      const notes = notesData.notes ?? [];
+
+      // Generate AI brief
+      const briefRes  = await fetch("/api/service-requests/ai-brief", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunity: r, notes }),
+      });
+      const brief = await briefRes.json();
+      if (!briefRes.ok) throw new Error(brief.error ?? "Failed");
+      setBriefs(prev => ({ ...prev, [r.id]: { loading: false, summary: brief.summary, nextSteps: brief.nextSteps } }));
+    } catch (e) {
+      setBriefs(prev => ({ ...prev, [r.id]: { loading: false, error: e instanceof Error ? e.message : "Failed" } }));
+    }
+  };
 
   const clients   = useMemo(() => ["all", ...Array.from(new Set(requests.map(r => r.client))).sort()], [requests]);
   const assignees = useMemo(() => ["all", ...Array.from(new Set(requests.map(r => r.assignedTo).filter(Boolean) as string[])).sort()], [requests]);
@@ -574,6 +604,7 @@ export function ServiceRequestsView() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={{ ...thStyle(), width: 28 }}></th>
                 <th onClick={() => handleSort("title")}   style={thStyle("title")}>Opportunity {SA("title")}</th>
                 <th onClick={() => handleSort("assignedTo")} style={thStyle("assignedTo")}>Owner · Activity {SA("assignedTo")}</th>
                 <th onClick={() => handleSort("probability")} style={thStyle("probability")}>Deal {SA("probability")}</th>
@@ -583,14 +614,22 @@ export function ServiceRequestsView() {
             </thead>
             <tbody>
               {filtered.map((r, i) => {
-                const tier    = probTier(r.probability);
-                const ts      = TIER_STYLES[tier];
-                const overdue = isOverdue(r.expectedCloseDate);
-                const rowBg   = i % 2 === 0 ? "#fff" : C.alt;
-                const actAgo  = timeAgo(r.lastActivityDate);
+                const tier     = probTier(r.probability);
+                const ts       = TIER_STYLES[tier];
+                const overdue  = isOverdue(r.expectedCloseDate);
+                const rowBg    = i % 2 === 0 ? "#fff" : C.alt;
+                const actAgo   = timeAgo(r.lastActivityDate);
+                const isOpen   = expandedId === r.id;
+                const brief    = briefs[r.id];
 
                 return (
-                  <tr key={r.id} style={{ background: rowBg, borderBottom: `1px solid ${C.border}`, transition: "background 0.1s" }} onMouseEnter={e => (e.currentTarget.style.background = C.blueBg)} onMouseLeave={e => (e.currentTarget.style.background = rowBg)}>
+                  <>
+                  <tr key={r.id} style={{ background: isOpen ? C.blueBg : rowBg, borderBottom: isOpen ? "none" : `1px solid ${C.border}`, transition: "background 0.1s" }} onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = C.blueBg; }} onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = rowBg; }}>
+
+                    {/* Expand chevron */}
+                    <td style={{ padding: "10px 6px 10px 14px", width: 28 }}>
+                      <button onClick={() => toggleExpand(r)} title="AI notes summary" style={{ background: "none", border: "none", cursor: "pointer", color: isOpen ? C.blue : C.textSub, fontSize: 13, padding: 0, lineHeight: 1, transition: "transform 0.15s", display: "block", transform: isOpen ? "rotate(90deg)" : "none" }}>▶</button>
+                    </td>
 
                     {/* Col 1: Opportunity + Client */}
                     <td style={{ padding: "10px 14px", minWidth: 220 }}>
@@ -647,6 +686,40 @@ export function ServiceRequestsView() {
                       </div>
                     </td>
                   </tr>
+
+                  {/* Expanded AI brief row */}
+                  {isOpen && (
+                    <tr key={`${r.id}-brief`} style={{ background: "#F0F7FF", borderBottom: `1px solid ${C.border}` }}>
+                      <td colSpan={6} style={{ padding: "0 14px 14px 50px" }}>
+                        {!brief || brief.loading ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.textSub, fontSize: 12, paddingTop: 10 }}>
+                            <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                            Analysing notes with Claude…
+                          </div>
+                        ) : brief.error ? (
+                          <div style={{ color: C.red, fontSize: 12, paddingTop: 10 }}>⚠ {brief.error}</div>
+                        ) : (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, paddingTop: 10 }}>
+                            {/* Summary */}
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>✨ Notes Summary</div>
+                              <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>{brief.summary}</div>
+                            </div>
+                            {/* Next Steps */}
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>→ Recommended Next Steps</div>
+                              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+                                {(brief.nextSteps ?? []).map((step, si) => (
+                                  <li key={si} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.5 }}>{step}</li>
+                                ))}
+                              </ol>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 );
               })}
             </tbody>
