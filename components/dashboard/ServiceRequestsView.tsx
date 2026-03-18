@@ -132,12 +132,19 @@ function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
 
       // Optionally add note to NetSuite
       if (addNote) {
-        await fetch("/api/service-requests/note", {
+        const noteRes = await fetch("/api/service-requests/note", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opportunityId: opp.id, entityId: opp.entityId, noteText: `Slack follow-up sent to ${channel}:\n\n${message}` }),
+          body: JSON.stringify({
+            opportunityId: opp.id,
+            entityId:      opp.entityId,
+            title:         `Slack follow-up — ${channel}`,
+            noteType:      "note",
+            noteText:      `Slack follow-up sent to ${channel}:\n\n${message}`,
+          }),
         });
-        // Note failures are non-fatal — don't throw
+        const noteData = await noteRes.json();
+        if (!noteRes.ok) throw new Error(`Slack sent but NS note failed: ${noteData.error}`);
       }
 
       setSent(true);
@@ -284,6 +291,19 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Send failed");
+
+      // Log email as a note on the NS opportunity
+      await fetch("/api/service-requests/note", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId: opp.id,
+          entityId:      opp.entityId,
+          title:         `Email sent: ${subject}`,
+          noteType:      "email",
+          noteText:      `To: ${toEmail}\nSubject: ${subject}\n\n${body}`,
+        }),
+      });
+
       setSent(true);
       setTimeout(onClose, 1800);
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
