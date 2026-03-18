@@ -517,20 +517,18 @@ export function ServiceRequestsView() {
     }
   };
 
-  const toggleExpand = async (r: ServiceRequest) => {
-    if (expandedId === r.id) { setExpandedId(null); return; }
-    setExpandedId(r.id);
-    if (briefs[r.id]) return; // already loaded
+  const toggleExpand = (r: ServiceRequest) => {
+    setExpandedId(prev => prev === r.id ? null : r.id);
+  };
 
+  const runBrief = async (r: ServiceRequest) => {
     setBriefs(prev => ({ ...prev, [r.id]: { loading: true } }));
     try {
-      // Fetch notes first
-      const notesRes = await fetch(`/api/service-requests/notes-context?oppId=${r.id}`);
+      const notesRes  = await fetch(`/api/service-requests/notes-context?oppId=${r.id}`);
       const notesData = await notesRes.json();
-      const notes = notesData.notes ?? [];
+      const notes     = notesData.notes ?? [];
 
-      // Generate AI brief
-      const briefRes  = await fetch("/api/service-requests/ai-brief", {
+      const briefRes = await fetch("/api/service-requests/ai-brief", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ opportunity: r, notes }),
       });
@@ -750,25 +748,37 @@ export function ServiceRequestsView() {
                     </td>
                   </tr>
 
-                  {/* Expanded AI brief row */}
+                  {/* Expanded panel */}
                   {isOpen && (
                     <tr key={`${r.id}-brief`} style={{ background: "#F0F7FF", borderBottom: `1px solid ${C.border}` }}>
-                      <td colSpan={6} style={{ padding: "0 14px 14px 50px" }}>
-                        {!brief || brief.loading ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.textSub, fontSize: 12, paddingTop: 10 }}>
+                      <td colSpan={6} style={{ padding: "10px 14px 14px 50px" }}>
+                        {!brief ? (
+                          /* Not yet run — show prompt button */
+                          <button
+                            onClick={() => runBrief(r)}
+                            style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}
+                          >
+                            ✨ Run Claude Analysis
+                          </button>
+                        ) : brief.loading ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.textSub, fontSize: 12 }}>
                             <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                             Analysing notes with Claude…
                           </div>
                         ) : brief.error ? (
-                          <div style={{ color: C.red, fontSize: 12, paddingTop: 10 }}>⚠ {brief.error}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ color: C.red, fontSize: 12 }}>⚠ {brief.error}</span>
+                            <button onClick={() => runBrief(r)} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>↺ Retry</button>
+                          </div>
                         ) : (
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, paddingTop: 10 }}>
-                            {/* Summary */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>✨ Notes Summary</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                <span>✨ Notes Summary</span>
+                                <button onClick={() => runBrief(r)} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}`, textTransform: "none", letterSpacing: 0 }}>↺ Re-run</button>
+                              </div>
                               <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>{brief.summary}</div>
                             </div>
-                            {/* Next Steps */}
                             <div>
                               <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>→ Recommended Next Steps</div>
                               <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
