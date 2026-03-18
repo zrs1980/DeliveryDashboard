@@ -86,8 +86,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, messageId: sent.data.id });
   } catch (e: any) {
     const msg = e?.message ?? "Gmail send failed";
-    // Surface the specific Google error if available
     const detail = e?.errors?.[0]?.message ?? msg;
+    // Give a clear re-auth prompt for scope errors
+    if (detail.toLowerCase().includes("insufficient authentication scopes") || detail.toLowerCase().includes("insufficient_scope")) {
+      return NextResponse.json({ error: "Your Google session is missing the Gmail permission. Please sign out and sign back in to grant access, then try again." }, { status: 403 });
+    }
     return NextResponse.json({ error: detail }, { status: 500 });
   }
 }
