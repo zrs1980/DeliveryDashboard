@@ -41,43 +41,56 @@ export async function GET() {
     let matchedId: number | null = null;
     let matchedRecord: NsEmployeeRecord | null = null;
 
+    const diagnostics: string[] = [];
+
     // Attempt 1: REST Record API search by email
     try {
-      const hits = await searchRecords<NsEmployeeRecord & { id: number }>(
+      const hits = await searchRecords<{ id?: string | number; links?: unknown[] }>(
         "employee",
         `email IS "${email}"`,
         1,
       );
+      diagnostics.push(`Search returned ${hits.length} hit(s)`);
       if (hits.length > 0) {
-        const hit = hits[0];
-        matchedId = hit.id ?? null;
-        // Fetch full record to get custom fields
+        const rawId = hits[0].id;
+        matchedId = rawId ? parseInt(String(rawId)) : null;
+        diagnostics.push(`Matched id=${matchedId}`);
         if (matchedId) {
           matchedRecord = await fetchRecord<NsEmployeeRecord>("employee", matchedId);
         }
       }
-    } catch {
-      // Fall through to secondary lookup
+    } catch (e1) {
+      diagnostics.push(`Search error: ${e1 instanceof Error ? e1.message : String(e1)}`);
     }
 
     // Attempt 2: fetch each known employee record and match by email
     if (!matchedId) {
       const empIds = Object.keys(EMPLOYEES).map(Number);
+      diagnostics.push(`Checking ${empIds.length} known employee IDs: ${empIds.join(", ")}`);
       const results = await Promise.allSettled(
         empIds.map(id => fetchRecord<NsEmployeeRecord>("employee", id))
       );
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
-        if (r.status === "fulfilled" && r.value.email?.toLowerCase() === email) {
-          matchedId     = empIds[i];
-          matchedRecord = r.value;
-          break;
+        if (r.status === "fulfilled") {
+          const recEmail = r.value.email?.toLowerCase();
+          diagnostics.push(`ID ${empIds[i]} → email=${recEmail}`);
+          if (recEmail === email) {
+            matchedId     = empIds[i];
+            matchedRecord = r.value;
+            break;
+          }
+        } else {
+          diagnostics.push(`ID ${empIds[i]} → fetch failed: ${r.reason}`);
         }
       }
     }
 
     if (!matchedId || !matchedRecord) {
-      return NextResponse.json({ error: `No NetSuite employee found matching ${email}` }, { status: 404 });
+      return NextResponse.json({
+        error: `No NetSuite employee found matching ${email}`,
+        diagnostics,
+      }, { status: 404 });
     }
 
     const ptoHours  = parseFloat(String(matchedRecord.custentity_ceba_pto_hours  ?? "0")) || 0;
