@@ -26,7 +26,7 @@ export async function GET() {
         ra.allocationResource                          AS employee_id,
         ra.project                                     AS project_id,
         BUILTIN.DF(ra.project)                         AS project_name,
-        j.companyname                                  AS company_name,
+        BUILTIN.DF(j.entity)                           AS company_name,
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         ra.startDate,
