@@ -72,7 +72,7 @@ function buildOAuth(method: string, fullUrl: string) {
 
 async function fetchEmployeeList(): Promise<{ id: number; email?: string }[]> {
   // Fetch the employee list — items include id and basic fields
-  const url = `${BASE_URL}/services/rest/record/v1/employee?limit=200&isInactive=false`;
+  const url = `${BASE_URL}/services/rest/record/v1/employee?limit=200`;
   const res = await fetch(url, {
     headers: { "Authorization": buildOAuth("GET", url), "Content-Type": "application/json" },
   });
