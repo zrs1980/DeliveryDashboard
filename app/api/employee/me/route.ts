@@ -81,10 +81,12 @@ async function fetchEmployeeList(): Promise<{ id: number; email?: string }[]> {
     throw new Error(`NS employee list error ${res.status}: ${text}`);
   }
   const data = await res.json();
-  return (data.items ?? []).map((item: any) => ({
-    id:    parseInt(String(item.id)),
-    email: item.email?.toLowerCase() ?? undefined,
-  }));
+  return (data.items ?? [])
+    .filter((item: any) => item.isInactive !== true)
+    .map((item: any) => ({
+      id:    parseInt(String(item.id)),
+      email: item.email?.toLowerCase() ?? undefined,
+    }));
 }
 
 export async function GET() {
@@ -99,19 +101,23 @@ export async function GET() {
     const list = await fetchEmployeeList();
 
     let matchedId: number | null = null;
+    let matchMethod = "";
 
     // Try matching from list response first (email may be included)
     const listMatch = list.find(e => e.email === email);
     if (listMatch) {
       matchedId = listMatch.id;
+      matchMethod = "list";
     } else {
-      // List items don't include email — fetch records sequentially to avoid
-      // hitting the NS concurrency limit, stopping as soon as we find a match
+      // List items don't include email — fetch records sequentially, skip inactive
       for (const emp of list) {
         try {
           const rec = await fetchRecord<NsEmployeeRecord>("employee", emp.id);
-          if (rec.email?.toLowerCase() === email) {
+          const raw2 = rec as any;
+          if (raw2.isInactive === true) continue;
+          if (raw2.email?.toLowerCase() === email) {
             matchedId = emp.id;
+            matchMethod = "sequential";
             break;
           }
         } catch {
@@ -156,9 +162,7 @@ export async function GET() {
         entries: [],
         _debug: {
           matchedId,
-          recordKeys: Object.keys(record as any),
-          rawPtoField:  raw.custentity_ceba_pto_hours,
-          rawSickField: raw.custentity_ceba_sick_hours,
+          matchMethod,
           projectRows: [],
           note: "No job rows found for entityids: " + allEntityIds.join(", "),
         },
@@ -205,6 +209,9 @@ export async function GET() {
       entries,
       _debug: {
         matchedId,
+        matchMethod,
+        recordName: `${raw.firstName} ${raw.lastName}`,
+        recordEmail: raw.email,
         recordKeys: Object.keys(record as any),
         rawPtoField:  raw.custentity_ceba_pto_hours,
         rawSickField: raw.custentity_ceba_sick_hours,
