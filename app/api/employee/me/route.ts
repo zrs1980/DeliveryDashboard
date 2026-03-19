@@ -188,7 +188,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ balance, entries });
+    return NextResponse.json({ balance, entries, _debug: { recordKeys: Object.keys(record as any) } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
