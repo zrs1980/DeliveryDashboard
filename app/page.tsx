@@ -14,6 +14,7 @@ import { AiInsights } from "@/components/dashboard/AiInsights";
 import { CalendarView } from "@/components/dashboard/CalendarView";
 import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
+import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -30,7 +31,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -42,6 +43,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "calendar",   label: "Calendar",    icon: "📅" },
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
   { id: "service-requests", label: "Service Requests", icon: "💼" },
+  { id: "employee",         label: "My Leave",         icon: "🌴" },
 ];
 
 interface DataState {
@@ -239,7 +241,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!hasLoaded && !loading && !error && tab !== "wiki" && tab !== "service-requests" && (
+        {!hasLoaded && !loading && !error && tab !== "wiki" && tab !== "service-requests" && tab !== "employee" && (
           <div style={{ background: "#fff", borderRadius: 16, padding: "64px 24px", textAlign: "center", border: `1px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <div style={{
               width: 64, height: 64, borderRadius: 16, margin: "0 auto 20px",
@@ -324,6 +326,13 @@ export default function DashboardPage() {
         {tab === "service-requests" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
             <ServiceRequestsView />
+          </div>
+        )}
+
+        {/* Employee Leave */}
+        {tab === "employee" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
+            <EmployeeView />
           </div>
         )}
 
