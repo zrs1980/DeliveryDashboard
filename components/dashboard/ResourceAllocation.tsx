@@ -117,15 +117,19 @@ function countWorkDays(start: Date, end: Date): number {
   return count;
 }
 
-// Estimated total future hours from today to endDate
+// Total future hours from today to endDate — iterate week-by-week so the result
+// matches the discrete work-day calculation used in hoursForWeek()
 function estimatedFutureHours(a: NSAllocation, today: Date): number {
   const end = parseNSDate(a.endDate);
-  const start = parseNSDate(a.startDate);
-  if (!end || !start) return 0;
-  const effective = start < today ? today : start;
-  if (effective > end) return 0;
-  const weeks = (end.getTime() - effective.getTime()) / (7 * 86400000);
-  return weeklyHours(a) * weeks;
+  if (!end) return 0;
+  let total = 0;
+  const week = new Date(today);
+  week.setHours(0, 0, 0, 0);
+  while (week <= end) {
+    total += hoursForWeek(a, week);
+    week.setDate(week.getDate() + 7);
+  }
+  return total;
 }
 
 // ─── Cell colour helpers ──────────────────────────────────────────────────────
@@ -573,6 +577,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
               <th style={{ ...thStyle, textAlign: "left", minWidth: 220, paddingLeft: 14, ...stickyLeft, background: C.alt }}>
                 Project / Resource
               </th>
+              <th style={{ ...thStyle, minWidth: 90 }}>Orig. Budget</th>
               <th style={{ ...thStyle, minWidth: 90 }}>Rem. Budget</th>
               <th style={{ ...thStyle, minWidth: 90 }}>Allocated</th>
               <th style={{ ...thStyle, minWidth: 80 }}>Gap</th>
@@ -606,6 +611,17 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       {proj.name}
                       {proj.companyName && (
                         <span style={{ marginLeft: 8, fontWeight: 400, color: C.textSub, fontSize: 12 }}>— {proj.companyName}</span>
+                      )}
+                    </td>
+
+                    {/* Orig. Budget */}
+                    <td style={{ padding: "8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      {proj.budgetHours != null ? (
+                        <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}>
+                          {proj.budgetHours.toFixed(1)}h
+                        </span>
+                      ) : (
+                        <span style={{ color: C.mid, fontSize: 11 }}>—</span>
                       )}
                     </td>
 
@@ -678,7 +694,8 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             {empError  && <span style={{ marginLeft: 8, fontSize: 10, color: C.red }}>{cellError!.msg}</span>}
                           </td>
 
-                          {/* Budget / Allocated / Gap — empty for sub-rows */}
+                          {/* Orig. Budget / Rem. Budget / Allocated / Gap — empty for sub-rows */}
+                          <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
