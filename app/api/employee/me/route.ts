@@ -127,25 +127,26 @@ export async function GET() {
     // Step 2: fetch full employee record for balance fields
     const record = await fetchRecord<NsEmployeeRecord>("employee", matchedId);
 
-    const ptoHours  = parseFloat(String(record.custentity_ceba_pto_hours  ?? "0")) || 0;
-    const sickHours = parseFloat(String(record.custentity_ceba_sick_hours ?? "0")) || 0;
+    const ptoHours  = parseFloat(String((record as any).custentity_ceba_pto_hours  ?? "0")) || 0;
+    const sickHours = parseFloat(String((record as any).custentity_ceba_sick_hours ?? "0")) || 0;
 
     const balance: EmployeeBalance = {
       id:        matchedId,
-      name:      `${record.firstname ?? ""} ${record.lastname ?? ""}`.trim() || email,
+      name:      `${(record as any).firstname ?? ""} ${(record as any).lastname ?? ""}`.trim() || email,
       email,
       ptoHours,
       sickHours,
     };
 
-    // Step 3: find PTO/Sick projects via SuiteQL
+    // Step 3: look up PTO/Sick projects by known entityids
+    const PTO_ENTITY_IDS  = ["117", "373"];
+    const SICK_ENTITY_IDS = ["118", "371"];
+    const allEntityIds    = [...PTO_ENTITY_IDS, ...SICK_ENTITY_IDS];
+
     const projectRows = await runSuiteQL<{ id: string; entityid: string; companyname: string }>(`
       SELECT id, entityid, companyname
       FROM job
-      WHERE UPPER(entityid)    LIKE '%PTO%'
-         OR UPPER(companyname) LIKE '%PTO%'
-         OR UPPER(entityid)    LIKE '%SICK%'
-         OR UPPER(companyname) LIKE '%SICK%'
+      WHERE entityid IN (${allEntityIds.map(e => `'${e}'`).join(",")})
     `);
 
     if (!projectRows || projectRows.length === 0) {
@@ -154,10 +155,10 @@ export async function GET() {
 
     const projectNameMap: Record<number, { name: string; type: "pto" | "sick" }> = {};
     for (const p of projectRows as any[]) {
-      const id    = parseInt(p.id);
-      const name  = p.companyname || p.entityid || String(id);
-      const upper = `${p.entityid ?? ""} ${p.companyname ?? ""}`.toUpperCase();
-      projectNameMap[id] = { name, type: upper.includes("SICK") ? "sick" : "pto" };
+      const id   = parseInt(p.id);
+      const name = p.companyname || p.entityid || String(id);
+      const type = SICK_ENTITY_IDS.includes(p.entityid) ? "sick" : "pto";
+      projectNameMap[id] = { name, type };
     }
 
     const allProjectIds = Object.keys(projectNameMap).map(Number);
