@@ -18,6 +18,7 @@ export interface ServiceRequest {
   daysOpen: number;
   assignedTo: string | null;
   assignedToId: number | null;
+  statusLabel: string | null;
   memo: string | null;
   actionItem: string | null;
   noteCount: number;
@@ -30,7 +31,7 @@ export async function GET() {
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10
+             o.custbody10, BUILTIN.DF(o.entitystatus) AS status_label
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -93,6 +94,7 @@ export async function GET() {
         daysOpen:          parseInt(r.daysopen ?? "0"),
         assignedTo:        assignedToId ? (EMPLOYEES[assignedToId] ?? null) : null,
         assignedToId:      assignedToId,
+        statusLabel:       r.status_label ?? null,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,

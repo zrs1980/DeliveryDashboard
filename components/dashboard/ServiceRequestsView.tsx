@@ -687,9 +687,16 @@ export function ServiceRequestsView() {
                       <button onClick={() => toggleExpand(r)} title="AI notes summary" style={{ background: "none", border: "none", cursor: "pointer", color: isOpen ? C.blue : C.textSub, fontSize: 13, padding: 0, lineHeight: 1, transition: "transform 0.15s", display: "block", transform: isOpen ? "rotate(90deg)" : "none" }}>▶</button>
                     </td>
 
-                    {/* Col 1: Opportunity + Client */}
+                    {/* Col 1: Opportunity + Client + Status */}
                     <td style={{ padding: "10px 14px", minWidth: 220 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{r.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{r.title}</div>
+                        {r.statusLabel && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, whiteSpace: "nowrap" }}>
+                            {r.statusLabel}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 12, color: C.textSub, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
                         {r.client}
                         {r.noteCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "0px 5px", borderRadius: 8, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>{r.noteCount}n</span>}
