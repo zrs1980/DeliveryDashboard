@@ -296,20 +296,38 @@ export function TimeAnalysis() {
                                   </table>
                                 )}
 
-                                {/* Gap summary cards */}
+                                {/* Summary + gap cards */}
                                 {p.total > 0 && (
-                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 16 }}>
-                                    {[
-                                      { label: "Non-billable", hours: p.total - p.billable, gap: TARGETS.billable - p.billablePct, color: C.blue },
-                                      { label: "Non-utilized", hours: p.total - p.utilized, gap: TARGETS.utilized - p.utilizedPct, color: C.teal },
-                                      { label: "Non-productive", hours: p.total - p.productive, gap: TARGETS.productive - p.productivePct, color: C.purple },
-                                    ].map(g => (
-                                      <div key={g.label} style={{ background: g.gap > 0 ? C.redBg : C.greenBg, border: `1px solid ${g.gap > 0 ? C.redBd : C.greenBd}`, borderRadius: 8, padding: "10px 12px" }}>
-                                        <div style={{ fontSize: 10, fontWeight: 700, color: g.gap > 0 ? C.red : C.green, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{g.label}</div>
-                                        <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.gap > 0 ? C.red : C.green }}>{fmtH(g.hours)}</div>
-                                        <div style={{ fontSize: 10, color: g.gap > 0 ? C.red : C.green, opacity: 0.8 }}>{g.gap > 0 ? `${Math.round(g.gap * 100)}pp below target` : "On target"}</div>
-                                      </div>
-                                    ))}
+                                  <div style={{ marginTop: 16 }}>
+                                    {/* Positive: Billable & Utilized */}
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 8 }}>
+                                      {[
+                                        { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: TARGETS.billable,  color: C.blue,   bg: p.billablePct  >= TARGETS.billable  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= TARGETS.billable  ? C.greenBd : C.blueBd  },
+                                        { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: TARGETS.utilized,  color: C.teal,   bg: p.utilizedPct  >= TARGETS.utilized  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= TARGETS.utilized  ? C.greenBd : C.tealBd  },
+                                      ].map(g => (
+                                        <div key={g.label} style={{ background: g.bg, border: `1px solid ${g.bd}`, borderRadius: 8, padding: "10px 12px" }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: g.color, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>
+                                            {g.label} <span style={{ fontWeight: 400, opacity: 0.65 }}>target {fmtPct(g.target)}</span>
+                                          </div>
+                                          <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.color }}>{fmtH(g.hours)}</div>
+                                          <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of total</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {/* Negative: Non-billable, Non-utilized, Non-productive */}
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                                      {[
+                                        { label: "Non-billable",   hours: p.total - p.billable,   gap: TARGETS.billable   - p.billablePct   },
+                                        { label: "Non-utilized",   hours: p.total - p.utilized,   gap: TARGETS.utilized   - p.utilizedPct   },
+                                        { label: "Non-productive", hours: p.total - p.productive, gap: TARGETS.productive - p.productivePct },
+                                      ].map(g => (
+                                        <div key={g.label} style={{ background: g.gap > 0 ? C.redBg : C.greenBg, border: `1px solid ${g.gap > 0 ? C.redBd : C.greenBd}`, borderRadius: 8, padding: "10px 12px" }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: g.gap > 0 ? C.red : C.green, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{g.label}</div>
+                                          <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.gap > 0 ? C.red : C.green }}>{fmtH(g.hours)}</div>
+                                          <div style={{ fontSize: 10, color: g.gap > 0 ? C.red : C.green, opacity: 0.8 }}>{g.gap > 0 ? `${Math.round(g.gap * 100)}pp below target` : "On target"}</div>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                               </div>
