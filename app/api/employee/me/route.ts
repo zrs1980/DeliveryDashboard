@@ -105,15 +105,17 @@ export async function GET() {
     if (listMatch) {
       matchedId = listMatch.id;
     } else {
-      // List items don't include email — fetch each record in parallel to find match
-      const results = await Promise.allSettled(
-        list.map(e => fetchRecord<NsEmployeeRecord>("employee", e.id))
-      );
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        if (r.status === "fulfilled" && r.value.email?.toLowerCase() === email) {
-          matchedId = list[i].id;
-          break;
+      // List items don't include email — fetch records sequentially to avoid
+      // hitting the NS concurrency limit, stopping as soon as we find a match
+      for (const emp of list) {
+        try {
+          const rec = await fetchRecord<NsEmployeeRecord>("employee", emp.id);
+          if (rec.email?.toLowerCase() === email) {
+            matchedId = emp.id;
+            break;
+          }
+        } catch {
+          // Skip records we can't fetch and keep looking
         }
       }
     }
