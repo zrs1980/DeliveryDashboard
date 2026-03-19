@@ -12,7 +12,7 @@ export async function GET() {
       employee_id: string;
       project_id: string;
       project_name: string;
-      company_name: string | null;
+      entity_id: string | null;
       remaining_hours: string | null;
       budget_hours: string | null;
       startdate: string;
@@ -26,7 +26,7 @@ export async function GET() {
         ra.allocationResource                          AS employee_id,
         ra.project                                     AS project_id,
         BUILTIN.DF(ra.project)                         AS project_name,
-        BUILTIN.DF(j.entity)                           AS company_name,
+        j.entity                                       AS entity_id,
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         ra.startDate,
@@ -40,6 +40,20 @@ export async function GET() {
       ORDER BY ra.allocationResource, ra.startDate
     `);
 
+    // Look up client company names for all unique entity IDs
+    const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
+    const clientMap: Record<string, string> = {};
+    if (entityIds.length > 0) {
+      const custRows = await runSuiteQL<{ id: string; companyname: string }>(`
+        SELECT id, companyname FROM customer WHERE id IN (${entityIds.join(",")})
+      `);
+      if (Array.isArray(custRows)) {
+        for (const c of custRows as any[]) {
+          clientMap[String(c.id)] = c.companyname || "";
+        }
+      }
+    }
+
     const allocations: NSAllocation[] = rows.map(r => {
       const empId = parseInt(r.employee_id);
       return {
@@ -48,7 +62,7 @@ export async function GET() {
         employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
         projectId:      parseInt(r.project_id) || 0,
         projectName:    r.project_name || "—",
-        companyName:    r.company_name || "",
+        companyName:    r.entity_id ? (clientMap[String(r.entity_id)] || "") : "",
         startDate:      r.startdate,
         endDate:        r.enddate,
         allocationUnit: r.allocationunit ?? "H",
