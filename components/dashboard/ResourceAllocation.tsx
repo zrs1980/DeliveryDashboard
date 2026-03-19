@@ -519,8 +519,9 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
                   {isExp && emp.rows.map((a, ai) => (
                     <tr key={`${emp.name}-${a.id}`} style={{ background: ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8" }}>
-                      <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8" }} title={a.projectName}>
+                      <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8" }} title={a.companyName ? `${a.companyName} — ${a.projectName}` : a.projectName}>
                         <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                        {a.companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{a.companyName} —</span>}
                         {a.projectName}
                       </td>
                       {weeks.map((w, wi) => {
