@@ -608,10 +608,10 @@ export function ResourceAllocation({ allocations, error }: Props) {
                   <tr key={proj.projectId} style={{ background: rowBg, cursor: "pointer" }} onClick={() => toggleProject(String(proj.projectId))}>
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
-                      {proj.name}
                       {proj.companyName && (
-                        <span style={{ marginLeft: 8, fontWeight: 400, color: C.textSub, fontSize: 12 }}>— {proj.companyName}</span>
+                        <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{proj.companyName} —</span>
                       )}
+                      {proj.name}
                     </td>
 
                     {/* Orig. Budget */}
