@@ -31,10 +31,8 @@ export async function GET() {
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10,
-             BUILTIN.DF(j.entitystatus) AS status_label
+             o.custbody10
       FROM opportunity o
-      LEFT JOIN job j ON j.id = o.parent
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
     `);
@@ -96,7 +94,7 @@ export async function GET() {
         daysOpen:          parseInt(r.daysopen ?? "0"),
         assignedTo:        assignedToId ? (EMPLOYEES[assignedToId] ?? null) : null,
         assignedToId:      assignedToId,
-        statusLabel:       r.status_label ?? null,
+        statusLabel:       null,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
