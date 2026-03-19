@@ -127,12 +127,13 @@ export async function GET() {
     // Step 2: fetch full employee record for balance fields
     const record = await fetchRecord<NsEmployeeRecord>("employee", matchedId);
 
-    const ptoHours  = parseFloat(String((record as any).custentity_ceba_pto_hours  ?? "0")) || 0;
-    const sickHours = parseFloat(String((record as any).custentity_ceba_sick_hours ?? "0")) || 0;
+    const raw = record as any;
+    const ptoHours  = parseFloat(String(raw.custentity_ceba_pto_hours  ?? "0")) || 0;
+    const sickHours = parseFloat(String(raw.custentity_ceba_sick_hours ?? "0")) || 0;
 
     const balance: EmployeeBalance = {
       id:        matchedId,
-      name:      `${(record as any).firstname ?? ""} ${(record as any).lastname ?? ""}`.trim() || email,
+      name:      `${raw.firstName ?? raw.firstname ?? ""} ${raw.lastName ?? raw.lastname ?? ""}`.trim() || email,
       email,
       ptoHours,
       sickHours,
@@ -150,7 +151,18 @@ export async function GET() {
     `);
 
     if (!projectRows || projectRows.length === 0) {
-      return NextResponse.json({ balance, entries: [] });
+      return NextResponse.json({
+        balance,
+        entries: [],
+        _debug: {
+          matchedId,
+          recordKeys: Object.keys(record as any),
+          rawPtoField:  raw.custentity_ceba_pto_hours,
+          rawSickField: raw.custentity_ceba_sick_hours,
+          projectRows: [],
+          note: "No job rows found for entityids: " + allEntityIds.join(", "),
+        },
+      });
     }
 
     const projectNameMap: Record<number, { name: string; type: "pto" | "sick" }> = {};
@@ -188,7 +200,18 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ balance, entries, _debug: { recordKeys: Object.keys(record as any) } });
+    return NextResponse.json({
+      balance,
+      entries,
+      _debug: {
+        matchedId,
+        recordKeys: Object.keys(record as any),
+        rawPtoField:  raw.custentity_ceba_pto_hours,
+        rawSickField: raw.custentity_ceba_sick_hours,
+        projectRows,
+        timebillCount: timebillRows?.length ?? 0,
+      },
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
