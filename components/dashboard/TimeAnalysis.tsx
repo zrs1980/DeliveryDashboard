@@ -256,6 +256,29 @@ export function TimeAnalysis() {
                       <tr key={`detail-${emp.employeeId}`}>
                         <td colSpan={5} style={{ padding: 0, borderBottom: `1px solid ${C.border}` }}>
                           <div style={{ background: "#F8FAFC", borderTop: `1px solid ${C.border}`, padding: "20px 24px" }}>
+
+                            {/* Per-resource Billable + Utilized cards */}
+                            {p.total > 0 && (
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 20 }}>
+                                {[
+                                  { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: TARGETS.billable,  color: C.blue, bg: p.billablePct  >= TARGETS.billable  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= TARGETS.billable  ? C.greenBd : C.blueBd  },
+                                  { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: TARGETS.utilized,  color: C.teal, bg: p.utilizedPct  >= TARGETS.utilized  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= TARGETS.utilized  ? C.greenBd : C.tealBd  },
+                                ].map(g => (
+                                  <div key={g.label} style={{ background: g.bg, border: `1px solid ${g.bd}`, borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 16 }}>
+                                    <div>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: g.color, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
+                                        {g.label} <span style={{ fontWeight: 400, opacity: 0.65 }}>target {fmtPct(g.target)}</span>
+                                      </div>
+                                      <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 22, color: g.color, lineHeight: 1 }}>{fmtH(g.hours)}</div>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                      <PctBar value={g.pct} target={g.target} color={g.color} />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
 
                               {/* ── Left: Project breakdown ── */}
