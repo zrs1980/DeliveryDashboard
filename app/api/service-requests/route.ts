@@ -32,10 +32,9 @@ export async function GET() {
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10,
-             o.entitystatus                            AS entitystatus_id,
-             BUILTIN.DF(o.entitystatus)                AS status_label,
-             o.status                                  AS status_code
+             BUILTIN.DF(j.entitystatus) AS status_label
       FROM opportunity o
+      LEFT JOIN job j ON j.id = o.parent
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
     `);
@@ -105,15 +104,7 @@ export async function GET() {
       };
     });
 
-    // Debug: show first record's raw status fields to help identify correct field
-    const _debug = oppsResult[0] ? {
-      entitystatus_id: (oppsResult[0] as any).entitystatus_id,
-      status_label:    (oppsResult[0] as any).status_label,
-      status_code:     (oppsResult[0] as any).status_code,
-      allKeys:         Object.keys(oppsResult[0] as any),
-    } : null;
-
-    return NextResponse.json({ requests, total: requests.length, _debug });
+    return NextResponse.json({ requests, total: requests.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
