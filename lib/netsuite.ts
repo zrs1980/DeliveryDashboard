@@ -131,6 +131,30 @@ export async function fetchRecord<T = Record<string, unknown>>(
   return res.json() as Promise<T>;
 }
 
+export async function searchRecords<T = Record<string, unknown>>(
+  recordType: string,
+  query: string,
+  limit = 5,
+): Promise<T[]> {
+  const url    = `${BASE_URL}/services/rest/record/v1/${recordType}?q=${encodeURIComponent(query)}&limit=${limit}`;
+  const method = "GET";
+  const auth   = buildOAuthHeader(method, url);
+
+  const res = await fetch(url, {
+    method,
+    headers: { "Authorization": auth, "Content-Type": "application/json" },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NS search error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  // REST list responses wrap items in { items: [...] }
+  return (data.items ?? []) as T[];
+}
+
 export async function postRecord(
   recordType: string,
   fields: Record<string, unknown>,

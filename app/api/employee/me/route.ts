@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { fetchRecord, runSuiteQL } from "@/lib/netsuite";
+import { fetchRecord, searchRecords, runSuiteQL } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
 export interface EmployeeBalance {
@@ -38,21 +38,41 @@ export async function GET() {
   }
 
   try {
-    // Fetch all known employee records in parallel and match by email
-    const empIds = Object.keys(EMPLOYEES).map(Number);
-    const results = await Promise.allSettled(
-      empIds.map(id => fetchRecord<NsEmployeeRecord>("employee", id))
-    );
-
     let matchedId: number | null = null;
     let matchedRecord: NsEmployeeRecord | null = null;
 
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (r.status === "fulfilled" && r.value.email?.toLowerCase() === email) {
-        matchedId     = empIds[i];
-        matchedRecord = r.value;
-        break;
+    // Attempt 1: REST Record API search by email
+    try {
+      const hits = await searchRecords<NsEmployeeRecord & { id: number }>(
+        "employee",
+        `email IS "${email}"`,
+        1,
+      );
+      if (hits.length > 0) {
+        const hit = hits[0];
+        matchedId = hit.id ?? null;
+        // Fetch full record to get custom fields
+        if (matchedId) {
+          matchedRecord = await fetchRecord<NsEmployeeRecord>("employee", matchedId);
+        }
+      }
+    } catch {
+      // Fall through to secondary lookup
+    }
+
+    // Attempt 2: fetch each known employee record and match by email
+    if (!matchedId) {
+      const empIds = Object.keys(EMPLOYEES).map(Number);
+      const results = await Promise.allSettled(
+        empIds.map(id => fetchRecord<NsEmployeeRecord>("employee", id))
+      );
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === "fulfilled" && r.value.email?.toLowerCase() === email) {
+          matchedId     = empIds[i];
+          matchedRecord = r.value;
+          break;
+        }
       }
     }
 
