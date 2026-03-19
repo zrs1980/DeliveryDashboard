@@ -26,7 +26,7 @@ export async function GET() {
         ra.allocationResource                          AS employee_id,
         ra.project                                     AS project_id,
         BUILTIN.DF(ra.project)                         AS project_name,
-        j.entity                                       AS entity_id,
+        j.customer                                     AS entity_id,
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         ra.startDate,
@@ -40,17 +40,21 @@ export async function GET() {
       ORDER BY ra.allocationResource, ra.startDate
     `);
 
-    // Look up client company names for all unique entity IDs
+    // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
     const clientMap: Record<string, string> = {};
     if (entityIds.length > 0) {
-      const custRows = await runSuiteQL<{ id: string; companyname: string }>(`
-        SELECT id, companyname FROM customer WHERE id IN (${entityIds.join(",")})
-      `);
-      if (Array.isArray(custRows)) {
-        for (const c of custRows as any[]) {
-          clientMap[String(c.id)] = c.companyname || "";
+      try {
+        const custRows = await runSuiteQL<{ id: string; companyname: string }>(`
+          SELECT id, companyname FROM customer WHERE id IN (${entityIds.join(",")})
+        `);
+        if (Array.isArray(custRows)) {
+          for (const c of custRows as any[]) {
+            clientMap[String(c.id)] = c.companyname || "";
+          }
         }
+      } catch {
+        // Non-fatal — allocations still show without client name prefix
       }
     }
 
