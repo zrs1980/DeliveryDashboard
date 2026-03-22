@@ -73,6 +73,7 @@ export default function DashboardPage() {
         fetch("/api/reports/phase-rag"),
         fetch("/api/cases"),
         fetch("/api/resources"),
+        fetch("/api/employee/sync", { method: "POST" }), // sync hire dates from NS → Supabase
       ]);
       const [projData, phaseData, casesData, resData] = await Promise.all([
         projRes.json(),

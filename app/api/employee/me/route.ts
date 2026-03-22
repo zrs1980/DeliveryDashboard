@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSuiteQL } from "@/lib/netsuite";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { HIRE_DATES } from "@/lib/constants";
 
 export interface EmployeeBalance {
@@ -87,8 +88,20 @@ export async function GET() {
     const ptoHours  = parseFloat(empRow?.custentity_ceba_pto_hours  ?? "0") || 0;
     const sickHours = parseFloat(empRow?.custentity_ceba_sick_hours ?? "0") || 0;
 
-    // Hire date: prefer SuiteQL value, fall back to constants map, then Jan 1
-    const hireDateRaw = empRow?.hiredate ?? HIRE_DATES[email] ?? null;
+    // Hire date: Supabase (synced from NS) → NS SuiteQL → constants → Jan 1
+    let hireDateRaw: string | null = empRow?.hiredate ?? null;
+    if (!hireDateRaw) {
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase
+          .from("employee_hire_dates")
+          .select("hire_date")
+          .eq("email", email)
+          .single();
+        if (data?.hire_date) hireDateRaw = data.hire_date;
+      } catch { /* Supabase unavailable or table missing */ }
+    }
+    if (!hireDateRaw) hireDateRaw = HIRE_DATES[email] ?? null;
     const periodStart = hireDateRaw
       ? lastAnniversary(hireDateRaw)
       : new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
