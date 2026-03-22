@@ -15,6 +15,7 @@ import { CalendarView } from "@/components/dashboard/CalendarView";
 import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
+import { CustomersView } from "@/components/dashboard/CustomersView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -31,7 +32,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -44,6 +45,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
   { id: "service-requests", label: "Service Requests", icon: "💼" },
   { id: "employee",         label: "My Leave",         icon: "🌴" },
+  { id: "customers",        label: "Customers",        icon: "🏢" },
 ];
 
 interface DataState {
@@ -334,6 +336,13 @@ export default function DashboardPage() {
         {tab === "employee" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
             <EmployeeView />
+          </div>
+        )}
+
+        {/* Customers */}
+        {tab === "customers" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
+            <CustomersView />
           </div>
         )}
 
