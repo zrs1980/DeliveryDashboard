@@ -12,14 +12,27 @@ export interface EmployeeBalance {
   hireDate: string;      // ISO date — original hire date
 }
 
+/** Parses a date string in YYYY-MM-DD or MM/DD/YYYY format into a Date object. */
+function parseNsDate(s: string): Date {
+  // YYYY-MM-DD (possibly with time suffix)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    return new Date(s.slice(0, 10) + "T00:00:00");
+  }
+  // MM/DD/YYYY
+  const parts = s.split("/");
+  if (parts.length === 3) {
+    return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+  }
+  return new Date(s);
+}
+
 /** Returns the most recent anniversary of hireDate on or before today (YYYY-MM-DD). */
 function lastAnniversary(hireDate: string): string {
-  const hire  = new Date(hireDate + "T00:00:00");
+  const hire  = parseNsDate(hireDate);
+  if (isNaN(hire.getTime())) throw new Error(`Cannot parse hire date: "${hireDate}"`);
   const today = new Date();
-  let year = today.getFullYear();
-  // Try this year's anniversary; if it's in the future, use last year's
-  let ann = new Date(year, hire.getMonth(), hire.getDate());
-  if (ann > today) ann = new Date(year - 1, hire.getMonth(), hire.getDate());
+  let ann = new Date(today.getFullYear(), hire.getMonth(), hire.getDate());
+  if (ann > today) ann = new Date(today.getFullYear() - 1, hire.getMonth(), hire.getDate());
   return ann.toISOString().slice(0, 10);
 }
 
