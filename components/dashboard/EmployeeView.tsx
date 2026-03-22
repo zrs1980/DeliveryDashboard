@@ -75,6 +75,11 @@ export function EmployeeView() {
         {balance && (
           <div style={{ fontSize: 13, color: C.textSub, marginTop: 3 }}>
             {balance.name} · {balance.email}
+            {balance.periodStart && (
+              <span style={{ marginLeft: 10, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 6, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}>
+                Period from {fmtDate(balance.periodStart)}
+              </span>
+            )}
           </div>
         )}
       </div>

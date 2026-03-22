@@ -8,6 +8,19 @@ export interface EmployeeBalance {
   email: string;
   ptoHours: number;
   sickHours: number;
+  periodStart: string;   // ISO date — most recent hire anniversary
+  hireDate: string;      // ISO date — original hire date
+}
+
+/** Returns the most recent anniversary of hireDate on or before today (YYYY-MM-DD). */
+function lastAnniversary(hireDate: string): string {
+  const hire  = new Date(hireDate + "T00:00:00");
+  const today = new Date();
+  let year = today.getFullYear();
+  // Try this year's anniversary; if it's in the future, use last year's
+  let ann = new Date(year, hire.getMonth(), hire.getDate());
+  if (ann > today) ann = new Date(year - 1, hire.getMonth(), hire.getDate());
+  return ann.toISOString().slice(0, 10);
 }
 
 export interface TimeEntry {
@@ -49,16 +62,18 @@ export async function GET() {
       return NextResponse.json({ error: `No NetSuite employee found matching ${email}` }, { status: 404 });
     }
 
-    // Step 2: fetch balance fields + name via SuiteQL (avoids REST 400 on admin records)
+    // Step 2: fetch balance fields + name + hire date via SuiteQL
     const empRows = await runSuiteQL<{
-      firstname: string; lastname: string;
+      firstname: string; lastname: string; hiredate: string | null;
       custentity_ceba_pto_hours: string | null;
       custentity_ceba_sick_hours: string | null;
-    }>(`SELECT firstname, lastname, custentity_ceba_pto_hours, custentity_ceba_sick_hours FROM employee WHERE id = ${matchedId}`);
+    }>(`SELECT firstname, lastname, hiredate, custentity_ceba_pto_hours, custentity_ceba_sick_hours FROM employee WHERE id = ${matchedId}`);
 
-    const empRow   = empRows?.[0];
+    const empRow    = empRows?.[0];
     const ptoHours  = parseFloat(empRow?.custentity_ceba_pto_hours  ?? "0") || 0;
     const sickHours = parseFloat(empRow?.custentity_ceba_sick_hours ?? "0") || 0;
+    const hireDateRaw = empRow?.hiredate ?? null;
+    const periodStart = hireDateRaw ? lastAnniversary(hireDateRaw) : new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
 
     const balance: EmployeeBalance = {
       id:   matchedId,
@@ -66,6 +81,8 @@ export async function GET() {
       email,
       ptoHours,
       sickHours,
+      periodStart,
+      hireDate: hireDateRaw ?? "",
     };
 
     // Step 3: look up PTO/Sick projects by known entityids
@@ -102,7 +119,7 @@ export async function GET() {
 
     const allProjectIds = Object.keys(projectNameMap).map(Number);
 
-    // Step 4: fetch timebill entries for this employee on PTO/Sick projects
+    // Step 4: fetch timebill entries for this employee on PTO/Sick projects from period start
     const timebillRows = await runSuiteQL<{
       id: string; trandate: string; customer: string; hours: string; memo: string;
     }>(`
@@ -110,6 +127,7 @@ export async function GET() {
       FROM timebill tb
       WHERE tb.employee = ${matchedId}
         AND tb.customer IN (${allProjectIds.join(",")})
+        AND tb.trandate >= '${periodStart}'
       ORDER BY tb.trandate DESC
     `);
 
