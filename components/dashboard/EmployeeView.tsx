@@ -83,22 +83,22 @@ export function EmployeeView() {
       {balance && (
         <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
           <BalanceCard
-            label="PTO Available"
-            hours={balance.ptoHours}
+            label="PTO Remaining"
+            hours={Math.max(0, balance.ptoHours - ptoUsed)}
             icon="🌴"
             color={C.green}
             bg={C.greenBg}
             bd={C.greenBd}
-            sub={ptoUsed > 0 ? `${fmtH(ptoUsed)} used this period` : "No usage recorded"}
+            sub={`${fmtH(balance.ptoHours)} allocated · ${fmtH(ptoUsed)} used`}
           />
           <BalanceCard
-            label="Sick Leave Available"
-            hours={balance.sickHours}
+            label="Sick Leave Remaining"
+            hours={Math.max(0, balance.sickHours - sickUsed)}
             icon="🏥"
             color={C.blue}
             bg={C.blueBg}
             bd={C.blueBd}
-            sub={sickUsed > 0 ? `${fmtH(sickUsed)} used this period` : "No usage recorded"}
+            sub={`${fmtH(balance.sickHours)} allocated · ${fmtH(sickUsed)} used`}
           />
           <div style={{ flex: 1, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Total Time Off Logged</div>

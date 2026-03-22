@@ -97,32 +97,29 @@ export async function GET() {
   }
 
   try {
-    // Step 1: get employee list and find ID by email
-    const list = await fetchEmployeeList();
-
+    // Step 1: look up employee ID by email via SuiteQL (fast single query)
     let matchedId: number | null = null;
     let matchMethod = "";
 
-    // Try matching from list response first (email may be included)
-    const listMatch = list.find(e => e.email === email);
-    if (listMatch) {
-      matchedId = listMatch.id;
-      matchMethod = "list";
-    } else {
-      // List items don't include email — fetch records sequentially, skip inactive
-      for (const emp of list) {
-        try {
-          const rec = await fetchRecord<NsEmployeeRecord>("employee", emp.id);
-          const raw2 = rec as any;
-          if (raw2.isInactive === true) continue;
-          if (raw2.email?.toLowerCase() === email) {
-            matchedId = emp.id;
-            matchMethod = "sequential";
-            break;
-          }
-        } catch {
-          // Skip records we can't fetch and keep looking
-        }
+    try {
+      const suiteqlRows = await runSuiteQL<{ id: string }>(
+        `SELECT id FROM employee WHERE email = '${email.replace(/'/g, "''")}'`
+      );
+      if (suiteqlRows && suiteqlRows.length > 0) {
+        matchedId = parseInt(suiteqlRows[0].id);
+        matchMethod = "suiteql";
+      }
+    } catch {
+      // SuiteQL employee lookup failed — fall through to REST API
+    }
+
+    // Fallback: fetch employee list and match (list items may include email)
+    if (!matchedId) {
+      const list = await fetchEmployeeList();
+      const listMatch = list.find(e => e.email === email);
+      if (listMatch) {
+        matchedId = listMatch.id;
+        matchMethod = "list";
       }
     }
 
