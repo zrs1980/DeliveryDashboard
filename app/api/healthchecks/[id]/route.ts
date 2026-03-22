@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
   const body = await req.json();
-  const { id } = params;
+  const { id } = await params;
 
   const updates: Record<string, unknown> = { ...body, updated_at: new Date().toISOString() };
 
@@ -37,14 +37,15 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   return NextResponse.json({ healthcheck: data });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  const { id } = await params;
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("healthchecks").delete().eq("id", params.id);
+  const { error } = await supabase.from("healthchecks").delete().eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
