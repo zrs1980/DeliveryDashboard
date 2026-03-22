@@ -151,7 +151,7 @@ export async function GET() {
       FROM timebill tb
       WHERE tb.employee = ${matchedId}
         AND tb.customer IN (${allProjectIds.join(",")})
-        AND tb.trandate >= '${periodStart}'
+        AND tb.trandate >= TO_DATE('${periodStart}', 'YYYY-MM-DD')
       ORDER BY tb.trandate DESC
     `);
 
