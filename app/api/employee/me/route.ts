@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { fetchRecord, runSuiteQL } from "@/lib/netsuite";
+import { runSuiteQL } from "@/lib/netsuite";
 
 export interface EmployeeBalance {
   id: number;
@@ -20,74 +20,6 @@ export interface TimeEntry {
   memo: string | null;
 }
 
-interface NsEmployeeRecord {
-  id?: number | string;
-  email?: string;
-  firstname?: string;
-  lastname?: string;
-  custentity_ceba_pto_hours?: number | string | null;
-  custentity_ceba_sick_hours?: number | string | null;
-}
-
-const BASE_URL = `https://${process.env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com`;
-
-import crypto from "crypto";
-
-function pct(s: string) {
-  return encodeURIComponent(s)
-    .replace(/!/g, "%21").replace(/'/g, "%27")
-    .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/\*/g, "%2A");
-}
-
-function buildOAuth(method: string, fullUrl: string) {
-  const CONSUMER_KEY    = process.env.NETSUITE_CONSUMER_KEY!;
-  const CONSUMER_SECRET = process.env.NETSUITE_CONSUMER_SECRET!;
-  const TOKEN_ID        = process.env.NETSUITE_TOKEN_ID!;
-  const TOKEN_SECRET    = process.env.NETSUITE_TOKEN_SECRET!;
-  const ACCOUNT_ID      = process.env.NETSUITE_ACCOUNT_ID!;
-
-  const ts  = String(Math.floor(Date.now() / 1000));
-  const nc  = crypto.randomBytes(16).toString("hex");
-  const urlObj  = new URL(fullUrl);
-  const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-
-  const params: Array<[string, string]> = [];
-  urlObj.searchParams.forEach((v, k) => params.push([k, v]));
-  params.push(
-    ["oauth_consumer_key",     CONSUMER_KEY],
-    ["oauth_nonce",            nc],
-    ["oauth_signature_method", "HMAC-SHA256"],
-    ["oauth_timestamp",        ts],
-    ["oauth_token",            TOKEN_ID],
-    ["oauth_version",          "1.0"],
-  );
-  params.sort((a, b) => pct(a[0]) < pct(b[0]) ? -1 : pct(a[0]) > pct(b[0]) ? 1 : pct(a[1]) < pct(b[1]) ? -1 : 1);
-  const normalized = params.map(([k, v]) => `${pct(k)}=${pct(v)}`).join("&");
-  const base       = `${method}&${pct(baseUrl)}&${pct(normalized)}`;
-  const signingKey = `${pct(CONSUMER_SECRET)}&${pct(TOKEN_SECRET)}`;
-  const sig        = pct(crypto.createHmac("sha256", signingKey).update(base).digest("base64"));
-
-  return `OAuth realm="${ACCOUNT_ID}", oauth_consumer_key="${CONSUMER_KEY}", oauth_nonce="${nc}", oauth_signature="${sig}", oauth_signature_method="HMAC-SHA256", oauth_timestamp="${ts}", oauth_token="${TOKEN_ID}", oauth_version="1.0"`;
-}
-
-async function fetchEmployeeList(): Promise<{ id: number; email?: string }[]> {
-  // Fetch the employee list — items include id and basic fields
-  const url = `${BASE_URL}/services/rest/record/v1/employee?limit=200`;
-  const res = await fetch(url, {
-    headers: { "Authorization": buildOAuth("GET", url), "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`NS employee list error ${res.status}: ${text}`);
-  }
-  const data = await res.json();
-  return (data.items ?? [])
-    .filter((item: any) => item.isInactive !== true)
-    .map((item: any) => ({
-      id:    parseInt(String(item.id)),
-      email: item.email?.toLowerCase() ?? undefined,
-    }));
-}
 
 export async function GET() {
   const session = await auth();
@@ -113,30 +45,24 @@ export async function GET() {
       // SuiteQL employee lookup failed — fall through to REST API
     }
 
-    // Fallback: fetch employee list and match (list items may include email)
-    if (!matchedId) {
-      const list = await fetchEmployeeList();
-      const listMatch = list.find(e => e.email === email);
-      if (listMatch) {
-        matchedId = listMatch.id;
-        matchMethod = "list";
-      }
-    }
-
     if (!matchedId) {
       return NextResponse.json({ error: `No NetSuite employee found matching ${email}` }, { status: 404 });
     }
 
-    // Step 2: fetch full employee record for balance fields
-    const record = await fetchRecord<NsEmployeeRecord>("employee", matchedId);
+    // Step 2: fetch balance fields + name via SuiteQL (avoids REST 400 on admin records)
+    const empRows = await runSuiteQL<{
+      firstname: string; lastname: string;
+      custentity_ceba_pto_hours: string | null;
+      custentity_ceba_sick_hours: string | null;
+    }>(`SELECT firstname, lastname, custentity_ceba_pto_hours, custentity_ceba_sick_hours FROM employee WHERE id = ${matchedId}`);
 
-    const raw = record as any;
-    const ptoHours  = parseFloat(String(raw.custentity_ceba_pto_hours  ?? "0")) || 0;
-    const sickHours = parseFloat(String(raw.custentity_ceba_sick_hours ?? "0")) || 0;
+    const empRow   = empRows?.[0];
+    const ptoHours  = parseFloat(empRow?.custentity_ceba_pto_hours  ?? "0") || 0;
+    const sickHours = parseFloat(empRow?.custentity_ceba_sick_hours ?? "0") || 0;
 
     const balance: EmployeeBalance = {
-      id:        matchedId,
-      name:      `${raw.firstName ?? raw.firstname ?? ""} ${raw.lastName ?? raw.lastname ?? ""}`.trim() || email,
+      id:   matchedId,
+      name: `${empRow?.firstname ?? ""} ${empRow?.lastname ?? ""}`.trim() || email,
       email,
       ptoHours,
       sickHours,
@@ -207,11 +133,8 @@ export async function GET() {
       _debug: {
         matchedId,
         matchMethod,
-        recordName: `${raw.firstName} ${raw.lastName}`,
-        recordEmail: raw.email,
-        recordKeys: Object.keys(record as any),
-        rawPtoField:  raw.custentity_ceba_pto_hours,
-        rawSickField: raw.custentity_ceba_sick_hours,
+        rawPtoField:  empRow?.custentity_ceba_pto_hours,
+        rawSickField: empRow?.custentity_ceba_sick_hours,
         projectRows,
         timebillCount: timebillRows?.length ?? 0,
       },
