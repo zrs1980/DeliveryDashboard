@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSuiteQL } from "@/lib/netsuite";
+import { HIRE_DATES } from "@/lib/constants";
 
 export interface EmployeeBalance {
   id: number;
@@ -75,29 +76,22 @@ export async function GET() {
       return NextResponse.json({ error: `No NetSuite employee found matching ${email}` }, { status: 404 });
     }
 
-    // Step 2: fetch balance fields + name via SuiteQL
+    // Step 2: fetch balance fields + name + hiredate via SuiteQL
     const empRows = await runSuiteQL<{
-      firstname: string; lastname: string;
+      firstname: string; lastname: string; hiredate: string | null;
       custentity_ceba_pto_hours: string | null;
       custentity_ceba_sick_hours: string | null;
-    }>(`SELECT firstname, lastname, custentity_ceba_pto_hours, custentity_ceba_sick_hours FROM employee WHERE id = ${matchedId}`);
+    }>(`SELECT firstname, lastname, hiredate, custentity_ceba_pto_hours, custentity_ceba_sick_hours FROM employee WHERE id = ${matchedId}`);
 
     const empRow    = empRows?.[0];
     const ptoHours  = parseFloat(empRow?.custentity_ceba_pto_hours  ?? "0") || 0;
     const sickHours = parseFloat(empRow?.custentity_ceba_sick_hours ?? "0") || 0;
 
-    // Step 2b: fetch hiredate separately — not always exposed in SuiteQL, so isolate the failure
-    let hireDateRaw: string | null = null;
-    try {
-      const hireRows = await runSuiteQL<{ hiredate: string | null }>(
-        `SELECT hiredate FROM employee WHERE id = ${matchedId}`
-      );
-      hireDateRaw = hireRows?.[0]?.hiredate ?? null;
-    } catch {
-      // hiredate not exposed in this NS account — fall back to Jan 1 of current year
-    }
-
-    const periodStart = hireDateRaw ? lastAnniversary(hireDateRaw) : new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+    // Hire date: prefer SuiteQL value, fall back to constants map, then Jan 1
+    const hireDateRaw = empRow?.hiredate ?? HIRE_DATES[email] ?? null;
+    const periodStart = hireDateRaw
+      ? lastAnniversary(hireDateRaw)
+      : new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
 
     const balance: EmployeeBalance = {
       id:   matchedId,

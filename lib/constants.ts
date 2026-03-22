@@ -74,6 +74,11 @@ export const CLICKUP_LIST_OVERRIDES: Record<number, string> = {
   18403: "901317326846", // NS Implementation                → Salt & Stone
 };
 
+/** Hire dates by employee email — used as fallback when hiredate is not exposed in SuiteQL */
+export const HIRE_DATES: Record<string, string> = {
+  "zabe@cebasolutions.com": "2025-10-01",
+};
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {
