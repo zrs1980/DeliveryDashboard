@@ -24,6 +24,7 @@ export interface ServiceRequest {
   noteCount: number;
   nsUrl: string;
   salesNotes: string | null;
+  customerFolder: string | null;
 }
 
 export async function GET() {
@@ -46,14 +47,14 @@ export async function GET() {
     const entityIds = [...new Set(oppsResult.map((r: any) => r.entity).filter(Boolean))] as number[];
 
     // Customer names + emails
-    const clientMap: Record<number, { name: string; email: string | null }> = {};
+    const clientMap: Record<number, { name: string; email: string | null; customerFolder: string | null }> = {};
     if (entityIds.length > 0) {
       const custResult = await runSuiteQL(`
-        SELECT id, companyname, email FROM customer WHERE id IN (${entityIds.join(",")})
+        SELECT id, companyname, email, custentity_customer_folder FROM customer WHERE id IN (${entityIds.join(",")})
       `);
       if (Array.isArray(custResult)) {
         for (const c of custResult as any[]) {
-          clientMap[c.id] = { name: c.companyname ?? String(c.id), email: c.email ?? null };
+          clientMap[c.id] = { name: c.companyname ?? String(c.id), email: c.email ?? null, customerFolder: c.custentity_customer_folder ?? null };
         }
       }
     }
@@ -101,6 +102,7 @@ export async function GET() {
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
+        customerFolder:    cust?.customerFolder ?? null,
       };
     });
 

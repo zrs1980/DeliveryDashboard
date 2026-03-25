@@ -838,6 +838,9 @@ export function ServiceRequestsView() {
                         <button onClick={() => setSlackOpp(r)} title="Send Slack message" style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: "#F4F0FF", color: "#4A154B", border: "1px solid #C4B5FD" }}>💬</button>
                         <button onClick={() => setEmailOpp(r)} title="Draft email" style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}` }}>✉</button>
                         <a href={r.nsUrl} target="_blank" rel="noreferrer" style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, textDecoration: "none", background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>↗</a>
+                        {r.customerFolder && (
+                          <a href={r.customerFolder} target="_blank" rel="noreferrer" title="Customer Folder" style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, textDecoration: "none", background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}` }}>📁</a>
+                        )}
                       </div>
                     </td>
                   </tr>
