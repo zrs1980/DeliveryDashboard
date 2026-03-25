@@ -300,12 +300,17 @@ export function ConsultantView({ projects, cases }: Props) {
       .catch(() => {});
   }, []);
 
-  // Match ClickUp username → NS employee name (fuzzy: all name parts must appear in username)
+  // Match ClickUp username → NS employee name
+  // Split username into parts and check all parts appear in the NS name
+  // e.g. "Shai" → matches "Shai Aradais"; "shai.aradais" → also matches
   function resolveConsultantName(clickupUsername: string): string | null {
-    const normalized = clickupUsername.toLowerCase().replace(/[._\-\s]/g, "");
+    const userParts = clickupUsername.toLowerCase()
+      .replace(/[._\-]/g, " ").split(/\s+/).filter(Boolean);
     for (const name of Object.values(EMPLOYEES)) {
-      const parts = name.toLowerCase().split(" ");
-      if (parts.every(p => normalized.includes(p))) return name;
+      const nameParts = name.toLowerCase().split(" ");
+      if (userParts.every(u => nameParts.some(n => n.startsWith(u) || u.startsWith(n)))) {
+        return name;
+      }
     }
     return null;
   }
