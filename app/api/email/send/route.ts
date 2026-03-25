@@ -15,6 +15,7 @@ function buildMimeMessage(
   subject: string,
   body: string,
   attachments: Attachment[] = [],
+  bcc?: string,
 ): string {
   const boundary = `boundary_${Date.now().toString(36)}`;
   const nl = "\r\n";
@@ -25,6 +26,8 @@ function buildMimeMessage(
     `Subject: ${subject}`,
     `MIME-Version: 1.0`,
   ];
+
+  if (bcc) headers.push(`Bcc: ${bcc}`);
 
   if (attachments.length === 0) {
     headers.push(`Content-Type: text/plain; charset="UTF-8"`);
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const { to, subject, body, attachments = [] } = await req.json();
+  const { to, bcc, subject, body, attachments = [] } = await req.json();
   if (!to || !subject || !body) {
     return NextResponse.json({ error: "to, subject, and body are required" }, { status: 400 });
   }
@@ -75,7 +78,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const gmail  = google.gmail({ version: "v1", auth: oauth2 });
-    const raw    = buildMimeMessage(session.user.email, to, subject, body, attachments);
+    const raw    = buildMimeMessage(session.user.email, to, subject, body, attachments, bcc);
     const encoded = Buffer.from(raw).toString("base64url");
 
     const sent = await gmail.users.messages.send({

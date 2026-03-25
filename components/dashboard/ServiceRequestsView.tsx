@@ -180,8 +180,14 @@ function SlackModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
     }
   };
 
+  const slackBackdropMouseDownTarget = useRef<EventTarget | null>(null);
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      onMouseDown={e => { slackBackdropMouseDownTarget.current = e.target; }}
+      onClick={e => { if (e.target === e.currentTarget && slackBackdropMouseDownTarget.current === e.currentTarget) onClose(); }}
+    >
       <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 560, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "92vh" }}>
 
         {/* Header */}
@@ -263,6 +269,7 @@ function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
   const [subject, setSubject]         = useState("");
   const [body, setBody]               = useState("");
   const [toEmail, setToEmail]         = useState(opp.email ?? "");
+  const [bccEmail, setBccEmail]       = useState("");
   const [generating, setGenerating]   = useState(false);
   const [sending, setSending]         = useState(false);
   const [sent, setSent]               = useState(false);
@@ -312,7 +319,7 @@ function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
     try {
       const res  = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: toEmail, subject, body, attachments }),
+        body: JSON.stringify({ to: toEmail, bcc: bccEmail || undefined, subject, body, attachments }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Send failed");
@@ -362,8 +369,14 @@ function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
 
   const loading = generating || notesLoading;
 
+  const backdropMouseDownTarget = useRef<EventTarget | null>(null);
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      onMouseDown={e => { backdropMouseDownTarget.current = e.target; }}
+      onClick={e => { if (e.target === e.currentTarget && backdropMouseDownTarget.current === e.currentTarget) onClose(); }}
+    >
       <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 660, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "94vh" }}>
 
         {/* Header */}
@@ -409,6 +422,12 @@ function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>To</label>
             <input value={toEmail} onChange={e => setToEmail(e.target.value)} style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} />
+          </div>
+
+          {/* BCC */}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>BCC <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
+            <input value={bccEmail} onChange={e => setBccEmail(e.target.value)} placeholder="e.g. manager@example.com" style={{ width: "100%", padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: C.font, outline: "none", color: C.text }} />
           </div>
 
           {/* Subject */}
