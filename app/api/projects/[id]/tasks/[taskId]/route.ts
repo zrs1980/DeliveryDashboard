@@ -23,8 +23,8 @@ export async function PATCH(
   const fields: Record<string, unknown> = {};
 
   if (body.status !== undefined) {
-    // NS REST expects numeric status value as a number or string
-    fields.status = body.status;
+    // NS REST Record API requires select/list fields as a ref object { id: "..." }
+    fields.status = { id: body.status };
   }
   if (body.startDate !== undefined) {
     // NS REST Record API accepts YYYY-MM-DD ISO format for date fields
