@@ -12,19 +12,10 @@ export async function PATCH(
 
     const { date } = body as { date: string | null };
 
-    // NetSuite REST Record API accepts MM/DD/YYYY for date fields.
-    // If date is null/empty, we clear the field.
-    let nsDate: string | null = null;
-    if (date) {
-      const d = new Date(date + "T00:00:00"); // parse as local date
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      const yyyy = d.getFullYear();
-      nsDate = `${mm}/${dd}/${yyyy}`;
-    }
-
+    // NetSuite REST Record API expects ISO 8601 YYYY-MM-DD for LocalDate fields.
+    // The date input already provides this format; pass it through directly.
     await patchRecord("job", projectId, {
-      custentity_project_golive_date: nsDate,
+      custentity_project_golive_date: date ?? null,
     });
 
     return NextResponse.json({ goliveDate: date ?? null });

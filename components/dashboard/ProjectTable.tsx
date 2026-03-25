@@ -822,7 +822,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                           {p.goliveDate ? (
                             <>
                               <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                                {new Date(p.goliveDate + "T00:00:00").toLocaleDateString("en-AU", {
+                                {new Date(p.goliveDate.slice(0, 10) + "T00:00:00").toLocaleDateString("en-AU", {
                                   day: "numeric", month: "short", year: "2-digit",
                                 })}
                               </div>
