@@ -7,6 +7,17 @@ import type { Project, ProjectNote } from "@/lib/types";
 
 export const revalidate = 0; // always fresh
 
+// SuiteQL returns dates as "M/D/YYYY" — normalize to "YYYY-MM-DD"
+function normalizeNSDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const parts = raw.split("/");
+  if (parts.length === 3) {
+    const [m, d, y] = parts;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return raw; // already ISO or unknown — pass through
+}
+
 function parseNotes(raw: string | null): ProjectNote[] {
   if (!raw) return [];
   try {
@@ -88,7 +99,7 @@ export async function GET() {
         const budgetGap = burnRate - pct;
 
         // Go-live date & days left
-        const goliveDate = p.golive_date ?? null;
+        const goliveDate = normalizeNSDate(p.golive_date);
         let daysLeft: number | null = null;
         let isOverdue = false;
         if (goliveDate) {
