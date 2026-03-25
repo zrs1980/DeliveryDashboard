@@ -479,6 +479,9 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const [expandedMetrics, setExpandedMetrics] = useState<Set<number>>(new Set());
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [taskModal, setTaskModal]   = useState<{ tasks: CUTask[]; title: string } | null>(null);
+  const [editingGoLive, setEditingGoLive] = useState<number | null>(null);
+  const [goLiveDraft, setGoLiveDraft]     = useState<string>("");
+  const [goLiveSaving, setGoLiveSaving]   = useState<number | null>(null);
 
   function handleSort(col: SortKey) {
     if (col === sortKey) {
@@ -510,6 +513,46 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
     onProjectsChange(
       projects.map(p => p.id === projectId ? { ...p, notes: updated } : p)
     );
+  }
+
+  function startEditGoLive(p: Project) {
+    // Convert goliveDate (ISO string or "YYYY-MM-DD") to input[type=date] value
+    const val = p.goliveDate ? p.goliveDate.slice(0, 10) : "";
+    setGoLiveDraft(val);
+    setEditingGoLive(p.id);
+  }
+
+  async function saveGoLive(projectId: number) {
+    setGoLiveSaving(projectId);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/golive`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: goLiveDraft || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert("Failed to save go-live date: " + (data.error ?? res.statusText));
+        return;
+      }
+      // Update local state
+      const today    = new Date(); today.setHours(0, 0, 0, 0);
+      const newDate  = goLiveDraft || null;
+      const goLive   = newDate ? new Date(newDate + "T00:00:00") : null;
+      const daysLeft = goLive ? Math.round((goLive.getTime() - today.getTime()) / 86400000) : null;
+      const isOverdue = daysLeft !== null && daysLeft < 0;
+
+      onProjectsChange(
+        projects.map(p =>
+          p.id === projectId
+            ? { ...p, goliveDate: newDate, daysLeft, isOverdue }
+            : p
+        )
+      );
+      setEditingGoLive(null);
+    } finally {
+      setGoLiveSaving(null);
+    }
   }
 
   if (projects.length === 0) {
@@ -724,23 +767,91 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
 
                   {/* Go-Live */}
                   <td style={cellStyle({ whiteSpace: "nowrap" })}>
-                    {p.goliveDate ? (
-                      <>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                          {new Date(p.goliveDate).toLocaleDateString("en-AU", {
-                            day: "numeric", month: "short", year: "2-digit",
-                          })}
+                    {editingGoLive === p.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <input
+                          type="date"
+                          value={goLiveDraft}
+                          onChange={e => setGoLiveDraft(e.target.value)}
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === "Enter") saveGoLive(p.id);
+                            if (e.key === "Escape") setEditingGoLive(null);
+                          }}
+                          style={{
+                            fontSize: 12, fontFamily: C.font,
+                            border: `1px solid ${C.blue}`, borderRadius: 4,
+                            padding: "2px 6px", outline: "none",
+                            color: C.text, background: C.surface,
+                            width: 120,
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            onClick={() => saveGoLive(p.id)}
+                            disabled={goLiveSaving === p.id}
+                            style={{
+                              fontSize: 10, fontWeight: 700, padding: "2px 7px",
+                              borderRadius: 4, cursor: "pointer", fontFamily: C.font,
+                              background: C.blue, color: "#fff",
+                              border: `1px solid ${C.blue}`,
+                              opacity: goLiveSaving === p.id ? 0.6 : 1,
+                            }}
+                          >
+                            {goLiveSaving === p.id ? "…" : "Save"}
+                          </button>
+                          <button
+                            onClick={() => setEditingGoLive(null)}
+                            style={{
+                              fontSize: 10, fontWeight: 600, padding: "2px 7px",
+                              borderRadius: 4, cursor: "pointer", fontFamily: C.font,
+                              background: C.alt, color: C.textMid,
+                              border: `1px solid ${C.border}`,
+                            }}
+                          >
+                            Cancel
+                          </button>
                         </div>
-                        <div style={{
-                          fontSize: 11,
-                          color: p.isOverdue ? C.red : C.textSub,
-                          fontWeight: p.isOverdue ? 700 : 400,
-                        }}>
-                          {fmtD(p.daysLeft)}
-                        </div>
-                      </>
+                      </div>
                     ) : (
-                      <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>⚠ No date</span>
+                      <div
+                        style={{ display: "flex", alignItems: "flex-start", gap: 4 }}
+                        title="Click ✏ to edit go-live date"
+                      >
+                        <div>
+                          {p.goliveDate ? (
+                            <>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                                {new Date(p.goliveDate + "T00:00:00").toLocaleDateString("en-AU", {
+                                  day: "numeric", month: "short", year: "2-digit",
+                                })}
+                              </div>
+                              <div style={{
+                                fontSize: 11,
+                                color: p.isOverdue ? C.red : C.textSub,
+                                fontWeight: p.isOverdue ? 700 : 400,
+                              }}>
+                                {fmtD(p.daysLeft)}
+                              </div>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>⚠ No date</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => startEditGoLive(p)}
+                          title="Edit go-live date"
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            color: C.textSub, fontSize: 11, padding: "1px 2px",
+                            lineHeight: 1, marginTop: 1, opacity: 0.6,
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                          onMouseLeave={e => (e.currentTarget.style.opacity = "0.6")}
+                        >
+                          ✏
+                        </button>
+                      </div>
                     )}
                   </td>
 
