@@ -526,6 +526,36 @@ export function ServiceRequestsView() {
   const [noteAddOpen,  setNoteAddOpen]  = useState<Record<number, boolean>>({});
   const [noteSaving,   setNoteSaving]   = useState<Record<number, boolean>>({});
 
+  const [editingCloseDate, setEditingCloseDate] = useState<number | null>(null);
+  const [closeDateDraft,   setCloseDateDraft]   = useState("");
+  const [closeDateSaving,  setCloseDateSaving]  = useState(false);
+
+  const startEditCloseDate = (r: ServiceRequest) => {
+    setEditingCloseDate(r.id);
+    setCloseDateDraft(r.expectedCloseDate ? r.expectedCloseDate.slice(0, 10) : "");
+  };
+
+  const saveCloseDate = async (id: number) => {
+    setCloseDateSaving(true);
+    try {
+      const res = await fetch("/api/service-requests/close-date", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: id, date: closeDateDraft || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setRequests(prev => prev.map(r =>
+        r.id === id ? { ...r, expectedCloseDate: closeDateDraft || null } : r
+      ));
+      setEditingCloseDate(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setCloseDateSaving(false);
+    }
+  };
+
   const [filterClient, setFilterClient]     = useState("all");
   const [filterTier, setFilterTier]         = useState("all");
   const [filterAssignee, setFilterAssignee] = useState("all");
@@ -823,13 +853,43 @@ export function ServiceRequestsView() {
 
                     {/* Col 4: Close date + days open */}
                     <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                      <div style={{ fontSize: 13, fontFamily: C.mono, color: overdue ? C.red : C.text, fontWeight: overdue ? 700 : 400 }}>
-                        {fmtDateShort(r.expectedCloseDate)}
-                        {overdue && <span style={{ fontSize: 10, marginLeft: 5, background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, padding: "1px 5px", borderRadius: 4, fontWeight: 700 }}>Overdue</span>}
-                      </div>
-                      <div style={{ fontSize: 11, color: r.daysOpen > 60 ? C.red : r.daysOpen > 30 ? C.yellow : C.textSub, marginTop: 3, fontFamily: C.mono }}>
-                        {r.daysOpen}d open
-                      </div>
+                      {editingCloseDate === r.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <input
+                            type="date"
+                            value={closeDateDraft}
+                            onChange={e => setCloseDateDraft(e.target.value)}
+                            autoFocus
+                            style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.blueBd}`, fontSize: 12, fontFamily: C.mono, outline: "none", color: C.text }}
+                          />
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button
+                              onClick={() => saveCloseDate(r.id)}
+                              disabled={closeDateSaving}
+                              style={{ padding: "3px 10px", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: closeDateSaving ? "not-allowed" : "pointer", fontFamily: C.font, background: C.blue, color: "#fff", border: "none" }}
+                            >{closeDateSaving ? "…" : "Save"}</button>
+                            <button
+                              onClick={() => setEditingCloseDate(null)}
+                              style={{ padding: "3px 8px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}` }}
+                            >✕</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => startEditCloseDate(r)}
+                          title="Click to edit close date"
+                          style={{ cursor: "pointer" }}
+                        >
+                          <div style={{ fontSize: 13, fontFamily: C.mono, color: overdue ? C.red : C.text, fontWeight: overdue ? 700 : 400, display: "flex", alignItems: "center", gap: 5 }}>
+                            {fmtDateShort(r.expectedCloseDate)}
+                            {overdue && <span style={{ fontSize: 10, background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, padding: "1px 5px", borderRadius: 4, fontWeight: 700 }}>Overdue</span>}
+                            <span style={{ fontSize: 10, color: C.textSub, opacity: 0.6 }}>✏</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: r.daysOpen > 60 ? C.red : r.daysOpen > 30 ? C.yellow : C.textSub, marginTop: 3, fontFamily: C.mono }}>
+                            {r.daysOpen}d open
+                          </div>
+                        </div>
+                      )}
                     </td>
 
                     {/* Col 5: Actions */}
