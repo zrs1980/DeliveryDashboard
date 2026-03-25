@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useSession } from "next-auth/react";
 import { C } from "@/lib/constants";
 import type { ServiceRequest } from "@/app/api/service-requests/route";
 
@@ -103,8 +104,27 @@ const buildSlackTemplates = (r: ServiceRequest) => {
   ];
 };
 
+// ── Sales Notes parser ────────────────────────────────────────────────────────
+interface SalesNoteEntry {
+  header: string;
+  body: string;
+  icon: string;
+}
+
+function parseSalesNotes(raw: string | null): SalesNoteEntry[] {
+  if (!raw?.trim()) return [];
+  return raw.split("\n\n---\n\n").map(entry => {
+    const trimmed = entry.trim();
+    const firstNewline = trimmed.indexOf("\n");
+    const header = firstNewline > -1 ? trimmed.slice(0, firstNewline) : trimmed;
+    const body   = firstNewline > -1 ? trimmed.slice(firstNewline + 1).trim() : "";
+    const icon   = header.includes("💬") ? "💬" : header.includes("✉") ? "✉" : "📝";
+    return { header, body, icon };
+  });
+}
+
 // ── Slack modal ───────────────────────────────────────────────────────────────
-function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void }) {
+function SlackModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest; onClose: () => void; author: string; onNoteSaved?: (salesNotes: string) => void }) {
   const templates    = buildSlackTemplates(opp);
   const defaultTpl   = isOverdue(opp.expectedCloseDate) ? "urgent" : !opp.assignedTo ? "assign" : "checkin";
   const [tplId, setTplId]       = useState(defaultTpl);
@@ -138,15 +158,17 @@ function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            opportunityId: opp.id,
-            entityId:      opp.entityId,
-            title:         `Slack follow-up — ${channel}`,
-            noteType:      "note",
-            noteText:      `Slack follow-up sent to ${channel}:\n\n${message}`,
+            opportunityId:     opp.id,
+            noteText:          `Slack message sent to ${channel}:\n\n${message}`,
+            type:              "slack",
+            author,
+            channel,
+            currentSalesNotes: opp.salesNotes,
           }),
         });
         const noteData = await noteRes.json();
         if (!noteRes.ok) throw new Error(`Slack sent but NS note failed: ${noteData.error}`);
+        if (noteData.salesNotes) onNoteSaved?.(noteData.salesNotes);
       }
 
       setSent(true);
@@ -236,7 +258,7 @@ function SlackModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
 // ── Email modal ───────────────────────────────────────────────────────────────
 interface AttachmentFile { name: string; mimeType: string; data: string; size: number; }
 
-function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void }) {
+function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest; onClose: () => void; author: string; onNoteSaved?: (salesNotes: string) => void }) {
   const [tone, setTone]               = useState<Tone>("professional");
   const [subject, setSubject]         = useState("");
   const [body, setBody]               = useState("");
@@ -300,15 +322,16 @@ function EmailModal({ opp, onClose }: { opp: ServiceRequest; onClose: () => void
         const noteRes  = await fetch("/api/service-requests/note", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            opportunityId: opp.id,
-            entityId:      opp.entityId,
-            title:         `Email sent: ${subject}`,
-            noteType:      "email",
-            noteText:      `To: ${toEmail}\nSubject: ${subject}\n\n${body}`,
+            opportunityId:     opp.id,
+            noteText:          `To: ${toEmail}\nSubject: ${subject}\n\n${body}`,
+            type:              "email",
+            author,
+            currentSalesNotes: opp.salesNotes,
           }),
         });
         const noteData = await noteRes.json();
         if (!noteRes.ok) setNoteWarn(`Email sent, but NS note failed: ${noteData.error}`);
+        else if (noteData.salesNotes) onNoteSaved?.(noteData.salesNotes);
       } catch {
         setNoteWarn("Email sent, but could not save note to NetSuite.");
       }
@@ -468,6 +491,9 @@ interface AiBrief { loading: boolean; summary?: string; nextSteps?: string[]; er
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function ServiceRequestsView() {
+  const { data: session } = useSession();
+  const currentUser = session?.user?.name ?? "Dashboard User";
+
   const [requests, setRequests]   = useState<ServiceRequest[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -477,6 +503,9 @@ export function ServiceRequestsView() {
   const [briefs, setBriefs]         = useState<Record<number, AiBrief>>({});
   const [employees, setEmployees]   = useState<NsEmployee[]>([]);
   const [assigning, setAssigning]   = useState<Record<number, boolean>>({});
+  const [noteDraft,    setNoteDraft]    = useState<Record<number, string>>({});
+  const [noteAddOpen,  setNoteAddOpen]  = useState<Record<number, boolean>>({});
+  const [noteSaving,   setNoteSaving]   = useState<Record<number, boolean>>({});
 
   const [filterClient, setFilterClient]     = useState("all");
   const [filterTier, setFilterTier]         = useState("all");
@@ -548,6 +577,37 @@ export function ServiceRequestsView() {
     }
   };
 
+  const saveManualNote = async (r: ServiceRequest) => {
+    const text = noteDraft[r.id]?.trim();
+    if (!text) return;
+    setNoteSaving(prev => ({ ...prev, [r.id]: true }));
+    try {
+      const res = await fetch("/api/service-requests/note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId:     r.id,
+          noteText:          text,
+          type:              "manual",
+          author:            currentUser,
+          currentSalesNotes: r.salesNotes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      // Update local state
+      setRequests(prev => prev.map(req =>
+        req.id === r.id ? { ...req, salesNotes: data.salesNotes } : req
+      ));
+      setNoteDraft(prev => ({ ...prev, [r.id]: "" }));
+      setNoteAddOpen(prev => ({ ...prev, [r.id]: false }));
+    } catch (e) {
+      alert("Failed to save note: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setNoteSaving(prev => ({ ...prev, [r.id]: false }));
+    }
+  };
+
   const clients   = useMemo(() => ["all", ...Array.from(new Set(requests.map(r => r.client))).sort()], [requests]);
   const assignees = useMemo(() => ["all", ...Array.from(new Set(requests.map(r => r.assignedTo).filter(Boolean) as string[])).sort()], [requests]);
 
@@ -597,8 +657,8 @@ export function ServiceRequestsView() {
 
   return (
     <div style={{ fontFamily: C.font }}>
-      {emailOpp && <EmailModal opp={emailOpp} onClose={() => setEmailOpp(null)} />}
-      {slackOpp && <SlackModal opp={slackOpp} onClose={() => setSlackOpp(null)} />}
+      {emailOpp && <EmailModal opp={emailOpp} onClose={() => setEmailOpp(null)} author={currentUser} onNoteSaved={salesNotes => setRequests(prev => prev.map(r => r.id === emailOpp!.id ? { ...r, salesNotes } : r))} />}
+      {slackOpp && <SlackModal opp={slackOpp} onClose={() => setSlackOpp(null)} author={currentUser} onNoteSaved={salesNotes => setRequests(prev => prev.map(r => r.id === slackOpp!.id ? { ...r, salesNotes } : r))} />}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
@@ -767,43 +827,112 @@ export function ServiceRequestsView() {
                   {isOpen && (
                     <tr key={`${r.id}-brief`} style={{ background: "#F0F7FF", borderBottom: `1px solid ${C.border}` }}>
                       <td colSpan={6} style={{ padding: "10px 14px 14px 50px" }}>
-                        {!brief ? (
-                          /* Not yet run — show prompt button */
-                          <button
-                            onClick={() => runBrief(r)}
-                            style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}
-                          >
-                            ✨ Run Claude Analysis
-                          </button>
-                        ) : brief.loading ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.textSub, fontSize: 12 }}>
-                            <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                            Analysing notes with Claude…
-                          </div>
-                        ) : brief.error ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ color: C.red, fontSize: 12 }}>⚠ {brief.error}</span>
-                            <button onClick={() => runBrief(r)} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>↺ Retry</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                <span>✨ Notes Summary</span>
-                                <button onClick={() => runBrief(r)} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}`, textTransform: "none", letterSpacing: 0 }}>↺ Re-run</button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                          {/* ── Sales Notes ─────────────────────────────────── */}
+                          <div style={{ background: C.surface, borderRadius: 8, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                            {/* Header */}
+                            <div style={{ padding: "8px 14px", background: C.alt, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>📝 Sales Notes</span>
+                              <button
+                                onClick={() => setNoteAddOpen(prev => ({ ...prev, [r.id]: !prev[r.id] }))}
+                                style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 5, cursor: "pointer", fontFamily: C.font, background: noteAddOpen[r.id] ? C.alt : C.blueBg, color: noteAddOpen[r.id] ? C.textMid : C.blue, border: `1px solid ${noteAddOpen[r.id] ? C.border : C.blueBd}` }}
+                              >
+                                {noteAddOpen[r.id] ? "✕ Cancel" : "+ Add Note"}
+                              </button>
+                            </div>
+
+                            {/* Add note form */}
+                            {noteAddOpen[r.id] && (
+                              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: "#FAFBFF" }}>
+                                <textarea
+                                  value={noteDraft[r.id] ?? ""}
+                                  onChange={e => setNoteDraft(prev => ({ ...prev, [r.id]: e.target.value }))}
+                                  placeholder="Enter note..."
+                                  rows={3}
+                                  style={{ width: "100%", fontSize: 13, fontFamily: C.font, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, resize: "vertical", boxSizing: "border-box", color: C.text }}
+                                />
+                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6, gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: C.textSub, alignSelf: "center" }}>as {currentUser}</span>
+                                  <button
+                                    onClick={() => saveManualNote(r)}
+                                    disabled={noteSaving[r.id] || !noteDraft[r.id]?.trim()}
+                                    style={{ fontSize: 12, fontWeight: 700, padding: "5px 14px", borderRadius: 6, cursor: "pointer", fontFamily: C.font, background: C.blue, color: "#fff", border: `1px solid ${C.blue}`, opacity: (noteSaving[r.id] || !noteDraft[r.id]?.trim()) ? 0.5 : 1 }}
+                                  >
+                                    {noteSaving[r.id] ? "Saving…" : "Save Note"}
+                                  </button>
+                                </div>
                               </div>
-                              <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>{brief.summary}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>→ Recommended Next Steps</div>
-                              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
-                                {(brief.nextSteps ?? []).map((step, si) => (
-                                  <li key={si} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.5 }}>{step}</li>
-                                ))}
-                              </ol>
-                            </div>
+                            )}
+
+                            {/* Notes list */}
+                            {(() => {
+                              const entries = parseSalesNotes(r.salesNotes);
+                              if (entries.length === 0) {
+                                return (
+                                  <div style={{ padding: "12px 14px", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                                    No notes yet. Add the first note or send a Slack/Email message.
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                                  {entries.map((entry, ei) => (
+                                    <div key={ei} style={{ padding: "10px 14px", borderBottom: ei < entries.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textSub, marginBottom: 4, fontFamily: C.mono }}>
+                                        {entry.header.replace(/^\[/, "").replace(/\]$/, "")}
+                                      </div>
+                                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                        {entry.body}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
-                        )}
+
+                          {/* ── Claude Analysis ─────────────────────────────── */}
+                          <div>
+                            {!brief ? (
+                              <button
+                                onClick={() => runBrief(r)}
+                                style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}
+                              >
+                                ✨ Run Claude Analysis
+                              </button>
+                            ) : brief.loading ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.textSub, fontSize: 12 }}>
+                                <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                                Analysing notes with Claude…
+                              </div>
+                            ) : brief.error ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ color: C.red, fontSize: 12 }}>⚠ {brief.error}</span>
+                                <button onClick={() => runBrief(r)} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: C.font, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>↺ Retry</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                    <span>✨ Notes Summary</span>
+                                    <button onClick={() => runBrief(r)} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, cursor: "pointer", fontFamily: C.font, background: "none", color: C.textSub, border: `1px solid ${C.border}`, textTransform: "none" as const, letterSpacing: 0 }}>↺ Re-run</button>
+                                  </div>
+                                  <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>{brief.summary}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>→ Recommended Next Steps</div>
+                                  <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+                                    {(brief.nextSteps ?? []).map((step, si) => (
+                                      <li key={si} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.5 }}>{step}</li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                        </div>
                       </td>
                     </tr>
                   )}

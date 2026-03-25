@@ -23,6 +23,7 @@ export interface ServiceRequest {
   actionItem: string | null;
   noteCount: number;
   nsUrl: string;
+  salesNotes: string | null;
 }
 
 export async function GET() {
@@ -31,7 +32,7 @@ export async function GET() {
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10
+             o.custbody10, o.custbody9
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -99,6 +100,7 @@ export async function GET() {
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
+        salesNotes:        r.custbody9 ?? null,
       };
     });
 
