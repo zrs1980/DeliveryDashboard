@@ -1,12 +1,13 @@
 "use client";
-import { useState } from "react";
-import { C, STATUS_STYLES, nsProjectUrl } from "@/lib/constants";
+import { useState, useEffect } from "react";
+import { C, STATUS_STYLES, nsProjectUrl, EMPLOYEES } from "@/lib/constants";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket } from "@/lib/clickup";
 import { fmtH, fmtD, fmtPct } from "@/lib/health";
 import { HealthBadge } from "@/components/health/HealthBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import type { Project, CUTask } from "@/lib/types";
+import type { Healthcheck } from "@/app/api/healthchecks/route";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -289,6 +290,25 @@ export function ConsultantView({ projects, cases }: Props) {
   const [insightText,   setInsightText]   = useState<string>("");
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError,  setInsightError]  = useState<string>("");
+  const [healthchecks,  setHealthchecks]  = useState<Healthcheck[]>([]);
+
+  // Fetch scheduled health checks once on mount
+  useEffect(() => {
+    fetch("/api/healthchecks")
+      .then(r => r.ok ? r.json() : { healthchecks: [] })
+      .then(d => setHealthchecks(d.healthchecks ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Match ClickUp username → NS employee name (fuzzy: all name parts must appear in username)
+  function resolveConsultantName(clickupUsername: string): string | null {
+    const normalized = clickupUsername.toLowerCase().replace(/[._\-\s]/g, "");
+    for (const name of Object.values(EMPLOYEES)) {
+      const parts = name.toLowerCase().split(" ");
+      if (parts.every(p => normalized.includes(p))) return name;
+    }
+    return null;
+  }
 
   // Collect all unique assignee usernames across all projects
   const allConsultants = Array.from(
@@ -401,6 +421,21 @@ export function ConsultantView({ projects, cases }: Props) {
   const myCases: NSCase[] = (cases ?? []).filter(
     c => !CLOSED.some(s => c.status.toLowerCase().includes(s))
   );
+
+  // Health checks assigned to this consultant (scheduled or overdue), sorted by date
+  const myNSName = consultant ? resolveConsultantName(consultant) : null;
+  const myHealthchecks: Healthcheck[] = myNSName
+    ? healthchecks
+        .filter(h =>
+          h.consultant_name === myNSName &&
+          (h.status === "scheduled" || h.status === "overdue")
+        )
+        .sort((a, b) => {
+          const da = a.scheduled_date ?? "";
+          const db = b.scheduled_date ?? "";
+          return da.localeCompare(db);
+        })
+    : [];
 
   // ── Project card helpers ─────────────────────────────────────────────────────
 
@@ -1090,6 +1125,117 @@ export function ConsultantView({ projects, cases }: Props) {
                                   year: "2-digit",
                                 })
                               : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ── Health Checks ──────────────────────────────────────────────── */}
+          <div style={{
+            background: C.surface,
+            borderRadius: 8,
+            border: `1px solid ${C.border}`,
+            boxShadow: C.sh,
+            overflow: "hidden",
+          }}>
+            <div style={{
+              padding: "12px 16px",
+              borderBottom: `1px solid ${C.border}`,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              <span style={{ fontSize: 15 }}>🩺</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                Health Checks
+              </span>
+              {myHealthchecks.length > 0 && (
+                <span style={{
+                  marginLeft: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "1px 7px",
+                  borderRadius: 10,
+                  background: C.tealBg,
+                  color: C.teal,
+                  border: `1px solid ${C.tealBd}`,
+                }}>
+                  {myHealthchecks.length}
+                </span>
+              )}
+            </div>
+
+            {!myNSName ? (
+              <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+                Select a consultant to see their scheduled health checks.
+              </div>
+            ) : myHealthchecks.length === 0 ? (
+              <div style={{ padding: "20px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>
+                No scheduled health checks for {myNSName}.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
+                  <thead>
+                    <tr>
+                      {[["Customer", ""], ["Quarter", ""], ["Date", ""], ["Status", ""], ["Topics", ""]].map(([label]) => (
+                        <th key={label} style={{
+                          padding: "8px 12px",
+                          textAlign: "left" as const,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: C.textSub,
+                          textTransform: "uppercase" as const,
+                          letterSpacing: "0.05em",
+                          borderBottom: `1px solid ${C.border}`,
+                          background: C.alt,
+                          whiteSpace: "nowrap" as const,
+                        }}>
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myHealthchecks.map((hc, i) => {
+                      const isOverdue = hc.status === "overdue";
+                      const rowBg = isOverdue ? C.redBg : i % 2 === 0 ? C.surface : C.alt;
+                      const dateStr = hc.scheduled_date
+                        ? new Date(hc.scheduled_date + "T00:00:00").toLocaleDateString("en-AU", {
+                            day: "numeric", month: "short", year: "2-digit",
+                          })
+                        : "—";
+                      return (
+                        <tr key={hc.id} style={{ background: rowBg }}>
+                          <td style={{ padding: "8px 12px", fontSize: 13, fontWeight: 600, color: C.text, borderBottom: `1px solid ${C.border}` }}>
+                            {hc.customer_name}
+                          </td>
+                          <td style={{ padding: "8px 12px", fontSize: 12, fontFamily: C.mono, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" as const }}>
+                            {hc.quarter}
+                          </td>
+                          <td style={{ padding: "8px 12px", fontSize: 12, fontFamily: C.mono, color: isOverdue ? C.red : C.text, fontWeight: isOverdue ? 700 : 400, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" as const }}>
+                            {dateStr}
+                            {isOverdue && <span style={{ marginLeft: 6, fontSize: 10 }}>⚠ Overdue</span>}
+                          </td>
+                          <td style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}` }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700, borderRadius: 4, padding: "2px 7px",
+                              background: isOverdue ? C.redBg : C.blueBg,
+                              color: isOverdue ? C.red : C.blue,
+                              border: `1px solid ${isOverdue ? C.redBd : C.blueBd}`,
+                            }}>
+                              {isOverdue ? "⚠ Overdue" : "📅 Scheduled"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "8px 12px", fontSize: 12, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 240 }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={hc.topics ?? ""}>
+                              {hc.topics || <span style={{ color: C.mid }}>—</span>}
+                            </div>
                           </td>
                         </tr>
                       );
