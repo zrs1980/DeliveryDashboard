@@ -87,11 +87,13 @@ export async function GET(
     return NextResponse.json({ tasks: [] });
   }
 
-  // 2. Fetch start/end dates in parallel, batched in groups of 10
-  const BATCH = 10;
+  // 2. Fetch start/end dates sequentially in small batches to avoid NS concurrency limits
+  const BATCH = 3;
+  const DELAY = 300; // ms between batches
   const dateMap = new Map<number, { startDate: string | null; endDate: string | null }>();
 
   for (let i = 0; i < rows.length; i += BATCH) {
+    if (i > 0) await new Promise(r => setTimeout(r, DELAY));
     const batch = rows.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       batch.map(r => fetchTaskDates(parseInt(r.id, 10)))
