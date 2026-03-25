@@ -20,6 +20,7 @@ export async function GET() {
       SELECT id, entityid, companyname, email, phone
       FROM customer
       WHERE isinactive = 'F'
+        AND entitystatus = 13
       ORDER BY companyname ASC
     `);
 
