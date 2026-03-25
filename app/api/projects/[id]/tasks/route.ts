@@ -7,7 +7,9 @@ export interface NSTask {
   budgetedHours: number;
   actualHours: number;
   remainingHours: number;
-  status: string;
+  status: string;        // SuiteQL raw status ID
+  statusLabel: string;   // display name from REST record refName
+  statusRestId: string;  // ID as returned by REST record (use this for PATCH)
   parentId: number | null;
   startDate: string | null;
   endDate: string | null;
@@ -23,17 +25,27 @@ function parseDate(val: unknown): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchTaskDates(
+async function fetchTaskDetails(
   taskId: number
-): Promise<{ startDate: string | null; endDate: string | null }> {
+): Promise<{ startDate: string | null; endDate: string | null; statusRestId: string; statusLabel: string }> {
   try {
     const rec = await fetchRecord<Record<string, unknown>>("projecttask", taskId);
+    // status comes back as { id: "...", refName: "..." } from REST
+    const statusObj = rec.status as Record<string, string> | string | null | undefined;
+    const statusRestId = typeof statusObj === "object" && statusObj !== null
+      ? (statusObj.id ?? "")
+      : String(statusObj ?? "");
+    const statusLabel = typeof statusObj === "object" && statusObj !== null
+      ? (statusObj.refName ?? statusRestId)
+      : statusRestId;
     return {
-      startDate: parseDate(rec.startdate ?? rec.startDate),
-      endDate:   parseDate(rec.enddate   ?? rec.endDate),
+      startDate:   parseDate(rec.startdate ?? rec.startDate),
+      endDate:     parseDate(rec.enddate   ?? rec.endDate),
+      statusRestId,
+      statusLabel,
     };
   } catch {
-    return { startDate: null, endDate: null };
+    return { startDate: null, endDate: null, statusRestId: "", statusLabel: "" };
   }
 }
 
@@ -90,20 +102,20 @@ export async function GET(
   // 2. Fetch start/end dates sequentially in small batches to avoid NS concurrency limits
   const BATCH = 3;
   const DELAY = 300; // ms between batches
-  const dateMap = new Map<number, { startDate: string | null; endDate: string | null }>();
+  const detailMap = new Map<number, { startDate: string | null; endDate: string | null; statusRestId: string; statusLabel: string }>();
 
   for (let i = 0; i < rows.length; i += BATCH) {
     if (i > 0) await new Promise(r => setTimeout(r, DELAY));
     const batch = rows.slice(i, i + BATCH);
     const results = await Promise.allSettled(
-      batch.map(r => fetchTaskDates(parseInt(r.id, 10)))
+      batch.map(r => fetchTaskDetails(parseInt(r.id, 10)))
     );
     results.forEach((result, idx) => {
       const taskId = parseInt(batch[idx].id, 10);
       if (result.status === "fulfilled") {
-        dateMap.set(taskId, result.value);
+        detailMap.set(taskId, result.value);
       } else {
-        dateMap.set(taskId, { startDate: null, endDate: null });
+        detailMap.set(taskId, { startDate: null, endDate: null, statusRestId: "", statusLabel: "" });
       }
     });
   }
@@ -113,7 +125,7 @@ export async function GET(
     const taskId = parseInt(r.id, 10);
     const budgetedHours = parseFloat(r.estimatedwork ?? "0") || 0;
     const actualHours   = parseFloat(r.actualwork    ?? "0") || 0;
-    const dates = dateMap.get(taskId) ?? { startDate: null, endDate: null };
+    const details = detailMap.get(taskId) ?? { startDate: null, endDate: null, statusRestId: r.status ?? "", statusLabel: "" };
 
     let parentId: number | null = null;
     if (hasParent && r.parent) {
@@ -127,10 +139,12 @@ export async function GET(
       budgetedHours,
       actualHours,
       remainingHours: budgetedHours - actualHours,
-      status:         r.status ?? "1",
+      status:         r.status ?? "",
+      statusRestId:   details.statusRestId || r.status || "",
+      statusLabel:    details.statusLabel  || r.status || "",
       parentId,
-      startDate:      dates.startDate,
-      endDate:        dates.endDate,
+      startDate:      details.startDate,
+      endDate:        details.endDate,
     };
   });
 

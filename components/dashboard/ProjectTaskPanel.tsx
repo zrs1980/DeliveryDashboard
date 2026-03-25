@@ -12,6 +12,8 @@ export interface NSTask {
   actualHours: number;
   remainingHours: number;
   status: string;
+  statusLabel: string;   // display name from NS REST refName
+  statusRestId: string;  // ID used for PATCH (from NS REST record)
   parentId: number | null;
   startDate: string | null;
   endDate: string | null;
@@ -24,20 +26,18 @@ interface TreeNode {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TASK_STATUSES = [
-  { value: "1", label: "Not Started" },
-  { value: "2", label: "In Progress" },
-  { value: "3", label: "Completed" },
-  { value: "4", label: "On Hold" },
-];
+// Status options are derived at runtime from the loaded tasks (statusRestId + statusLabel from NS REST)
+// so we never hardcode potentially wrong IDs.
 
-function statusStyle(val: string): { bg: string; color: string; bd: string; label: string } {
-  switch (val) {
-    case "3": return { bg: C.greenBg,  color: C.green,  bd: C.greenBd,  label: "Completed"   };
-    case "2": return { bg: C.blueBg,   color: C.blue,   bd: C.blueBd,   label: "In Progress" };
-    case "4": return { bg: C.redBg,    color: C.red,    bd: C.redBd,    label: "On Hold"     };
-    default:  return { bg: C.alt,      color: C.textSub, bd: C.border,   label: "Not Started" };
-  }
+function statusStyle(label: string): { bg: string; color: string; bd: string } {
+  const l = label.toLowerCase();
+  if (l.includes("complet") || l.includes("done"))
+    return { bg: C.greenBg,  color: C.green,  bd: C.greenBd  };
+  if (l.includes("progress") || l.includes("active"))
+    return { bg: C.blueBg,   color: C.blue,   bd: C.blueBd   };
+  if (l.includes("hold") || l.includes("block") || l.includes("cancel"))
+    return { bg: C.redBg,    color: C.red,    bd: C.redBd    };
+  return { bg: C.alt, color: C.textSub, bd: C.border };
 }
 
 // ─── Tree builder ─────────────────────────────────────────────────────────────
@@ -101,24 +101,27 @@ function fmtDate(s: string | null): string {
 
 // ─── Task row component ───────────────────────────────────────────────────────
 
+interface StatusOption { id: string; label: string; }
+
 interface TaskRowProps {
   task: NSTask;
   isPhase: boolean;
   depth: number;
   projectId: number;
+  statusOptions: StatusOption[];
   onUpdate: (taskId: number, updated: Partial<NSTask>) => void;
 }
 
-function TaskRow({ task, isPhase, depth, projectId, onUpdate }: TaskRowProps) {
+function TaskRow({ task, isPhase, depth, projectId, statusOptions, onUpdate }: TaskRowProps) {
   const [editing, setEditing] = useState<"status" | "startDate" | "endDate" | null>(null);
   const [draft, setDraft] = useState<{ status: string; startDate: string; endDate: string }>({
-    status:    task.status,
+    status:    task.statusRestId,
     startDate: task.startDate ?? "",
     endDate:   task.endDate   ?? "",
   });
   const [saving, setSaving] = useState(false);
 
-  const st = statusStyle(task.status);
+  const st = statusStyle(task.statusLabel);
   const noBudget = task.budgetedHours === 0;
 
   async function save(field: "status" | "startDate" | "endDate") {
@@ -143,7 +146,11 @@ function TaskRow({ task, isPhase, depth, projectId, onUpdate }: TaskRowProps) {
 
       // Update local state via parent callback
       const updated: Partial<NSTask> = {};
-      if (field === "status")    updated.status    = draft.status;
+      if (field === "status") {
+        updated.statusRestId = draft.status;
+        updated.statusLabel  = statusOptions.find(s => s.id === draft.status)?.label ?? draft.status;
+        updated.status       = draft.status;
+      }
       if (field === "startDate") updated.startDate = draft.startDate || null;
       if (field === "endDate")   updated.endDate   = draft.endDate   || null;
       onUpdate(task.id, updated);
@@ -187,8 +194,8 @@ function TaskRow({ task, isPhase, depth, projectId, onUpdate }: TaskRowProps) {
               padding: "2px 4px", outline: "none", background: C.surface, color: C.text,
             }}
           >
-            {TASK_STATUSES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
+            {statusOptions.map(s => (
+              <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
           <button
@@ -205,7 +212,7 @@ function TaskRow({ task, isPhase, depth, projectId, onUpdate }: TaskRowProps) {
     return (
       <span
         onClick={() => {
-          setDraft(d => ({ ...d, status: task.status }));
+          setDraft(d => ({ ...d, status: task.statusRestId }));
           setEditing("status");
         }}
         title="Click to edit status"
@@ -215,7 +222,7 @@ function TaskRow({ task, isPhase, depth, projectId, onUpdate }: TaskRowProps) {
           cursor: "pointer", whiteSpace: "nowrap", display: "inline-block",
         }}
       >
-        {st.label}
+        {task.statusLabel || task.status}
       </span>
     );
   }
@@ -342,11 +349,12 @@ interface PhaseRowProps {
   task: NSTask;
   projectId: number;
   expanded: boolean;
+  statusOptions: StatusOption[];
   onToggle: () => void;
   onUpdate: (taskId: number, updated: Partial<NSTask>) => void;
 }
 
-function PhaseRow({ task, projectId, expanded, onToggle, onUpdate }: PhaseRowProps) {
+function PhaseRow({ task, projectId, expanded, statusOptions, onToggle, onUpdate }: PhaseRowProps) {
   return (
     <>
       <tr style={{ background: "#F0F4F8" }}>
@@ -381,6 +389,7 @@ function PhaseRow({ task, projectId, expanded, onToggle, onUpdate }: PhaseRowPro
                 isPhase={true}
                 depth={0}
                 projectId={projectId}
+                statusOptions={statusOptions}
                 onUpdate={onUpdate}
               />
             </tbody>
@@ -484,6 +493,15 @@ export function ProjectTaskPanel({ projectId }: Props) {
     );
   }
 
+  // ── Build status options from loaded tasks (real NS REST IDs) ──
+  const statusOptions: StatusOption[] = Array.from(
+    new Map(
+      tasks
+        .filter(t => t.statusRestId)
+        .map(t => [t.statusRestId, { id: t.statusRestId, label: t.statusLabel || t.statusRestId }])
+    ).values()
+  ).sort((a, b) => a.label.localeCompare(b.label));
+
   // ── Build tree and render ──
   const tree = buildTree(tasks);
 
@@ -564,6 +582,7 @@ export function ProjectTaskPanel({ projectId }: Props) {
                     isPhase={false}
                     depth={0}
                     projectId={projectId}
+                    statusOptions={statusOptions}
                     onUpdate={handleUpdate}
                   />
                 );
@@ -575,6 +594,7 @@ export function ProjectTaskPanel({ projectId }: Props) {
                   node={node}
                   projectId={projectId}
                   collapsed={isCollapsed}
+                  statusOptions={statusOptions}
                   onToggle={() => toggleCollapse(phase.id)}
                   onUpdate={handleUpdate}
                 />
@@ -593,14 +613,15 @@ interface PhaseBlockProps {
   node: TreeNode;
   projectId: number;
   collapsed: boolean;
+  statusOptions: StatusOption[];
   onToggle: () => void;
   onUpdate: (taskId: number, updated: Partial<NSTask>) => void;
 }
 
-function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlockProps) {
+function PhaseBlock({ node, projectId, collapsed, statusOptions, onToggle, onUpdate }: PhaseBlockProps) {
   const { task: phase, children } = node;
 
-  const st = statusStyle(phase.status);
+  const st = statusStyle(phase.statusLabel);
 
   const thSt: React.CSSProperties = {
     padding: "6px 10px",
@@ -617,7 +638,7 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
 
   const [editingField, setEditingField] = useState<"status" | "startDate" | "endDate" | null>(null);
   const [draft, setDraft] = useState({
-    status:    phase.status,
+    status:    phase.statusRestId,
     startDate: phase.startDate ?? "",
     endDate:   phase.endDate   ?? "",
   });
@@ -644,7 +665,11 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
       }
 
       const updated: Partial<NSTask> = {};
-      if (field === "status")    updated.status    = draft.status;
+      if (field === "status") {
+        updated.statusRestId = draft.status;
+        updated.statusLabel  = statusOptions.find(s => s.id === draft.status)?.label ?? draft.status;
+        updated.status       = draft.status;
+      }
       if (field === "startDate") updated.startDate = draft.startDate || null;
       if (field === "endDate")   updated.endDate   = draft.endDate   || null;
       onUpdate(phase.id, updated);
@@ -658,7 +683,7 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
   const noBudget = phase.budgetedHours === 0;
 
   function StatusCell() {
-    const currentSt = statusStyle(phase.status);
+    const currentSt = statusStyle(phase.statusLabel);
     if (editingField === "status") {
       return (
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -672,8 +697,8 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
               padding: "2px 4px", outline: "none", background: C.surface, color: C.text,
             }}
           >
-            {TASK_STATUSES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
+            {statusOptions.map(s => (
+              <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
           <button onClick={() => save("status")} disabled={saving} style={saveBtnSt}>
@@ -685,7 +710,7 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
     }
     return (
       <span
-        onClick={() => { setDraft(d => ({ ...d, status: phase.status })); setEditingField("status"); }}
+        onClick={() => { setDraft(d => ({ ...d, status: phase.statusRestId })); setEditingField("status"); }}
         title="Click to edit status"
         style={{
           fontSize: 11, fontWeight: 600, borderRadius: 4, padding: "2px 7px",
@@ -693,7 +718,7 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
           cursor: "pointer", whiteSpace: "nowrap", display: "inline-block",
         }}
       >
-        {currentSt.label}
+        {phase.statusLabel || phase.status}
       </span>
     );
   }
@@ -819,6 +844,7 @@ function PhaseBlock({ node, projectId, collapsed, onToggle, onUpdate }: PhaseBlo
           isPhase={false}
           depth={1}
           projectId={projectId}
+          statusOptions={statusOptions}
           onUpdate={onUpdate}
         />
       ))}

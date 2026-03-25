@@ -24,7 +24,8 @@ export async function PATCH(
 
   if (body.status !== undefined) {
     // NS REST Record API requires select/list fields as a ref object { id: "..." }
-    fields.status = { id: body.status };
+    // body.status must be the statusRestId sourced directly from a GET of the same record
+    fields.status = { id: String(body.status) };
   }
   if (body.startDate !== undefined) {
     // NS REST Record API accepts YYYY-MM-DD ISO format for date fields
