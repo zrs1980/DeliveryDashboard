@@ -204,29 +204,6 @@ export async function patchRecord(
   }
 }
 
-// GET a record sublist — returns the items array
-export async function getSublist<T = Record<string, unknown>>(
-  recordType: string,
-  id: number,
-  sublist: string
-): Promise<T[]> {
-  const url    = `${BASE_URL}/services/rest/record/v1/${recordType}/${id}/${sublist}`;
-  const method = "GET";
-  const auth   = buildOAuthHeader(method, url);
-
-  const res = await fetch(url, {
-    method,
-    headers: { "Authorization": auth, "Content-Type": "application/json" },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`NS GET sublist error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  return (data.items ?? []) as T[];
-}
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 

@@ -1,36 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSublist, patchRecord } from "@/lib/netsuite";
+import { fetchRecord, patchRecord } from "@/lib/netsuite";
 
 export async function POST(req: NextRequest) {
   try {
-    const { opportunityId, entityId, noteText, title, noteType } = await req.json();
+    const { opportunityId, noteText, title } = await req.json();
     if (!opportunityId || !noteText) {
       return NextResponse.json({ error: "opportunityId and noteText are required" }, { status: 400 });
     }
 
-    const oppId      = parseInt(opportunityId);
-    const noteTypeId = noteType === "email" ? "2" : "4";
-    const noteTitle  = title ?? "Dashboard Follow-up";
+    const oppId = parseInt(opportunityId);
 
-    // Fetch existing userNote sublist items so we don't overwrite them
-    const existing = await getSublist("opportunity", oppId, "userNote");
+    // Fetch the current memo so we can prepend rather than overwrite
+    const record = await fetchRecord<{ memo?: string }>("opportunity", oppId);
+    const existing = record.memo ? String(record.memo).trim() : "";
 
-    // Append the new note
-    const newNote: Record<string, unknown> = {
-      note:     noteText,
-      title:    noteTitle,
-      noteType: { id: noteTypeId },
-    };
-    if (entityId) newNote.entity = { id: String(entityId) };
-
-    // PATCH the opportunity with the full updated sublist
-    await patchRecord("opportunity", oppId, {
-      userNote: {
-        items: [...existing, newNote],
-      },
+    const timestamp = new Date().toLocaleDateString("en-AU", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
     });
+    const heading  = title ?? "Dashboard Follow-up";
+    const newEntry = `[${timestamp}] ${heading}\n${noteText}`;
+    const combined = existing ? `${newEntry}\n\n---\n\n${existing}` : newEntry;
 
-    return NextResponse.json({ ok: true, method: "patch-sublist" });
+    await patchRecord("opportunity", oppId, { memo: combined });
+
+    return NextResponse.json({ ok: true, method: "memo" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
