@@ -10,6 +10,7 @@ import { fmtH, fmtPct, fmtD } from "@/lib/health";
 import { isDone, isBlocked } from "@/lib/clickup";
 import { STATUS_STYLES } from "@/lib/constants";
 import type { Project, ProjectNote, ProjectPhase, CUTask } from "@/lib/types";
+import { ProjectTaskPanel } from "@/components/dashboard/ProjectTaskPanel";
 
 interface Props {
   projects: Project[];
@@ -477,6 +478,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const [sortDir, setSortDir]       = useState<SortDir>("asc");
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [expandedMetrics, setExpandedMetrics] = useState<Set<number>>(new Set());
+  const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set());
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [taskModal, setTaskModal]   = useState<{ tasks: CUTask[]; title: string } | null>(null);
   const [editingGoLive, setEditingGoLive] = useState<number | null>(null);
@@ -503,6 +505,14 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
 
   function toggleMetrics(id: number) {
     setExpandedMetrics(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleTasks(id: number) {
+    setExpandedTasks(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -621,8 +631,9 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
               : i % 2 === 0 ? C.surface : C.alt;
             const notesOpen   = expandedNotes.has(p.id);
             const metricsOpen = expandedMetrics.has(p.id);
+            const tasksOpen   = expandedTasks.has(p.id);
             const noteCount   = p.notes.length;
-            const anyExpanded = notesOpen || metricsOpen;
+            const anyExpanded = notesOpen || metricsOpen || tasksOpen;
 
             const activePhase   = getActivePhase(phases, p.id);
             const phaseName     = activePhase
@@ -650,30 +661,51 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{ height: 44 }}
                 >
-                  {/* Expand / collapse metrics */}
+                  {/* Expand / collapse buttons (metrics + tasks) */}
                   <td style={{
                     ...cellStyle(),
-                    padding: "0 4px 0 12px",
-                    width: 28,
+                    padding: "0 4px 0 8px",
+                    width: 52,
                     textAlign: "center",
                   }}>
-                    <button
-                      onClick={() => toggleMetrics(p.id)}
-                      title={metricsOpen ? "Collapse metrics" : "Expand metrics"}
-                      style={{
-                        background: "none",
-                        border: `1px solid ${metricsOpen ? C.blue : C.border}`,
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        color: metricsOpen ? C.blue : C.textSub,
-                        fontSize: 9,
-                        padding: "2px 4px",
-                        lineHeight: 1,
-                        fontFamily: C.font,
-                      }}
-                    >
-                      {metricsOpen ? "▲" : "▼"}
-                    </button>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
+                      <button
+                        onClick={() => toggleMetrics(p.id)}
+                        title={metricsOpen ? "Collapse metrics" : "Expand metrics"}
+                        style={{
+                          background: metricsOpen ? C.blueBg : "none",
+                          border: `1px solid ${metricsOpen ? C.blue : C.border}`,
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          color: metricsOpen ? C.blue : C.textSub,
+                          fontSize: 9,
+                          padding: "2px 4px",
+                          lineHeight: 1,
+                          fontFamily: C.font,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {metricsOpen ? "▲" : "▼"}
+                      </button>
+                      <button
+                        onClick={() => toggleTasks(p.id)}
+                        title={tasksOpen ? "Collapse NS tasks" : "Show NS tasks"}
+                        style={{
+                          background: tasksOpen ? C.purpleBg : "none",
+                          border: `1px solid ${tasksOpen ? C.purple : C.border}`,
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          color: tasksOpen ? C.purple : C.textSub,
+                          fontSize: 8,
+                          padding: "2px 3px",
+                          lineHeight: 1,
+                          fontFamily: C.font,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        ☰
+                      </button>
+                    </div>
                   </td>
 
                   {/* Project / Client */}
@@ -903,13 +935,25 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                   <tr key={`notes-${p.id}`}>
                     <td
                       colSpan={12}
-                      style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}
+                      style={{ borderBottom: tasksOpen ? "none" : `1px solid ${C.border}`, padding: 0 }}
                     >
                       <NotesPanel
                         projectId={p.id}
                         notes={p.notes}
                         onNotesChange={updated => handleNotesChange(p.id, updated)}
                       />
+                    </td>
+                  </tr>
+                )}
+
+                {/* ── NS Tasks expansion row ── */}
+                {tasksOpen && (
+                  <tr key={`tasks-${p.id}`}>
+                    <td
+                      colSpan={12}
+                      style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}
+                    >
+                      <ProjectTaskPanel projectId={p.id} />
                     </td>
                   </tr>
                 )}
