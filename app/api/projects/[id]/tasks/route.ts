@@ -96,7 +96,23 @@ export async function GET(
   }
 
   if (rows.length === 0) {
-    return NextResponse.json({ tasks: [] });
+    return NextResponse.json({ tasks: [], allStatuses: [] });
+  }
+
+  // Fetch all distinct status values from NS so the dropdown always has every option
+  // (not just statuses that happen to appear in the current project's tasks)
+  let allStatuses: { id: string; label: string }[] = [];
+  try {
+    const statusRows = await runSuiteQL<{ status: string; status_label: string }>(`
+      SELECT DISTINCT pt.status, BUILTIN.DF(pt.status) AS status_label
+      FROM projecttask pt
+      ORDER BY pt.status ASC
+    `);
+    allStatuses = statusRows
+      .filter(r => r.status)
+      .map(r => ({ id: r.status, label: r.status_label || r.status }));
+  } catch {
+    // Non-fatal — fall back to per-task statuses in the component
   }
 
   // 2. Fetch start/end dates sequentially in small batches to avoid NS concurrency limits
@@ -148,5 +164,5 @@ export async function GET(
     };
   });
 
-  return NextResponse.json({ tasks });
+  return NextResponse.json({ tasks, allStatuses });
 }

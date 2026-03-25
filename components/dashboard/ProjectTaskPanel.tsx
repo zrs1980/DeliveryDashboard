@@ -407,10 +407,11 @@ interface Props {
 }
 
 export function ProjectTaskPanel({ projectId }: Props) {
-  const [tasks,   setTasks]   = useState<NSTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [tasks,      setTasks]      = useState<NSTask[]>([]);
+  const [allStatuses, setAllStatuses] = useState<StatusOption[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+  const [collapsed,  setCollapsed]  = useState<Set<number>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -420,6 +421,7 @@ export function ProjectTaskPanel({ projectId }: Props) {
       .then(data => {
         if (data.error) throw new Error(data.error);
         setTasks(data.tasks ?? []);
+        if (data.allStatuses?.length) setAllStatuses(data.allStatuses);
       })
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -493,14 +495,16 @@ export function ProjectTaskPanel({ projectId }: Props) {
     );
   }
 
-  // ── Build status options from loaded tasks (real NS REST IDs) ──
-  const statusOptions: StatusOption[] = Array.from(
-    new Map(
-      tasks
-        .filter(t => t.statusRestId)
-        .map(t => [t.statusRestId, { id: t.statusRestId, label: t.statusLabel || t.statusRestId }])
-    ).values()
-  ).sort((a, b) => a.label.localeCompare(b.label));
+  // ── Build status options: prefer full list from API, fall back to per-task values ──
+  const statusOptions: StatusOption[] = allStatuses.length > 0
+    ? allStatuses
+    : Array.from(
+        new Map(
+          tasks
+            .filter(t => t.statusRestId)
+            .map(t => [t.statusRestId, { id: t.statusRestId, label: t.statusLabel || t.statusRestId }])
+        ).values()
+      ).sort((a, b) => a.label.localeCompare(b.label));
 
   // ── Build tree and render ──
   const tree = buildTree(tasks);
