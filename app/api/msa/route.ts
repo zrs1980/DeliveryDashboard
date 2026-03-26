@@ -6,8 +6,8 @@ export const revalidate = 0;
 export interface MSAProject {
   id: number;
   projectNumber: string;
-  companyname: string;
-  customerId: number | null;
+  projectName: string;
+  customerName: string;
   jobtypeName: string;
   msaHours: number;          // custentity9 — contracted monthly MSA hours
   mtdHours: number;          // timebill hours logged this calendar month
@@ -29,12 +29,12 @@ function normalizeDate(raw: string | null): string | null {
 
 export async function GET() {
   try {
-    // 1. Fetch all active projects — filter by jobtype display name containing "Managed"
+    // 1. Fetch In Progress MSA projects with customer name
     const projectRows = await runSuiteQL<{
       id: string;
       entityid: string;
       companyname: string | null;
-      customer: string | null;
+      customer_name: string | null;
       jobtype_name: string | null;
       msa_hours: string | null;
       startdate: string | null;
@@ -44,7 +44,7 @@ export async function GET() {
         id,
         entityid,
         companyname,
-        customer,
+        BUILTIN.DF(customer)                 AS customer_name,
         BUILTIN.DF(jobtype)                  AS jobtype_name,
         custentity9                          AS msa_hours,
         startdate,
@@ -52,7 +52,7 @@ export async function GET() {
       FROM job
       WHERE entitystatus = 2
         AND LOWER(BUILTIN.DF(jobtype)) LIKE '%managed%'
-      ORDER BY companyname ASC
+      ORDER BY customer_name ASC
     `);
 
     if (projectRows.length === 0) {
@@ -79,20 +79,20 @@ export async function GET() {
 
     // 3. Build response
     const projects: MSAProject[] = projectRows.map(r => {
-      const id        = parseInt(r.id, 10);
-      const msaHours  = parseFloat(r.msa_hours ?? "0") || 0;
-      const mtdHours  = mtdMap[id] ?? 0;
+      const id       = parseInt(r.id, 10);
+      const msaHours = parseFloat(r.msa_hours ?? "0") || 0;
+      const mtdHours = mtdMap[id] ?? 0;
       return {
         id,
-        projectNumber:    r.entityid ?? "",
-        companyname:      r.companyname || r.entityid || String(id),
-        customerId:       r.customer ? parseInt(r.customer, 10) : null,
-        jobtypeName:      r.jobtype_name ?? "",
+        projectNumber: r.entityid ?? "",
+        projectName:   r.companyname || r.entityid || String(id),
+        customerName:  r.customer_name || r.companyname || "",
+        jobtypeName:   r.jobtype_name ?? "",
         msaHours,
-        mtdHours:         Math.round(mtdHours * 100) / 100,
-        remainingHours:   Math.round((msaHours - mtdHours) * 100) / 100,
-        startDate:        normalizeDate(r.startdate),
-        goLiveDate:       normalizeDate(r.golive_date),
+        mtdHours:      Math.round(mtdHours * 100) / 100,
+        remainingHours: Math.round((msaHours - mtdHours) * 100) / 100,
+        startDate:     normalizeDate(r.startdate),
+        goLiveDate:    normalizeDate(r.golive_date),
       };
     });
 

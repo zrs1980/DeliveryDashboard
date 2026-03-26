@@ -285,7 +285,7 @@ function MSAView() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 20, color: C.text }}>Managed Services Agreements</div>
-          <div style={{ fontSize: 13, color: C.textSub, marginTop: 2 }}>{month} · {projects.length} active MSA project{projects.length !== 1 ? "s" : ""}</div>
+          <div style={{ fontSize: 13, color: C.textSub, marginTop: 2 }}>{month} · {projects.length} In Progress MSA project{projects.length !== 1 ? "s" : ""}</div>
         </div>
         <button onClick={load} style={{ background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
           ↻ Refresh
@@ -343,8 +343,9 @@ function MSAView() {
                 return (
                   <tr key={p.id} style={{ background: i % 2 === 0 ? C.surface : C.alt, borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: "12px 16px" }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{p.companyname}</div>
-                      <div style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>#{p.projectNumber}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{p.customerName}</div>
+                      <div style={{ fontSize: 11, color: C.textSub }}>{p.projectName}</div>
+                      <div style={{ fontSize: 10, color: C.textSub, fontFamily: C.mono }}>#{p.projectNumber}</div>
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>
