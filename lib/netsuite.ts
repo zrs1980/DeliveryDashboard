@@ -105,6 +105,37 @@ export async function runSuiteQL<T = Record<string, string>>(
   return (data.items ?? []) as T[];
 }
 
+// ─── NetSuite REST metadata catalog ───────────────────────────────────────────
+
+export async function fetchFieldSelectOptions(
+  recordType: string,
+  fieldId: string,
+): Promise<{ id: string; label: string }[]> {
+  const url    = `${BASE_URL}/services/rest/record/v1/metadata-catalog/${recordType}`;
+  const method = "GET";
+  const auth   = buildOAuthHeader(method, url);
+
+  const res = await fetch(url, {
+    method,
+    headers: { "Authorization": auth, "Content-Type": "application/json" },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NS metadata error ${res.status}: ${text}`);
+  }
+
+  const meta = await res.json();
+  const fields: Record<string, unknown>[] = meta?.properties ?? [];
+  const field = fields.find((f: any) => f.name === fieldId || f.id === fieldId) as any;
+  if (!field?.enum) return [];
+
+  return (field.enum as string[]).map((val: string, i: number) => ({
+    id:    val,
+    label: (field.enumNames?.[i] as string) ?? val,
+  }));
+}
+
 // ─── NetSuite REST Record API (for projecttask dates) ─────────────────────────
 
 export async function fetchRecord<T = Record<string, unknown>>(

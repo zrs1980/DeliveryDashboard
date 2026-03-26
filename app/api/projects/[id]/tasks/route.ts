@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, fetchRecord } from "@/lib/netsuite";
+import { runSuiteQL, fetchRecord, fetchFieldSelectOptions } from "@/lib/netsuite";
 
 export interface NSTask {
   id: number;
@@ -99,20 +99,13 @@ export async function GET(
     return NextResponse.json({ tasks: [], allStatuses: [] });
   }
 
-  // Fetch all distinct status values from NS so the dropdown always has every option
-  // (not just statuses that happen to appear in the current project's tasks)
+  // Fetch ALL possible status options from the NS metadata catalog
+  // (not just statuses currently used — ensures Completed etc. always appear)
   let allStatuses: { id: string; label: string }[] = [];
   try {
-    const statusRows = await runSuiteQL<{ status: string; status_label: string }>(`
-      SELECT DISTINCT pt.status, BUILTIN.DF(pt.status) AS status_label
-      FROM projecttask pt
-      ORDER BY pt.status ASC
-    `);
-    allStatuses = statusRows
-      .filter(r => r.status)
-      .map(r => ({ id: r.status, label: r.status_label || r.status }));
+    allStatuses = await fetchFieldSelectOptions("projecttask", "status");
   } catch {
-    // Non-fatal — fall back to per-task statuses in the component
+    // Non-fatal — fall back to per-task statuses derived from REST records in the component
   }
 
   // 2. Fetch start/end dates sequentially in small batches to avoid NS concurrency limits
