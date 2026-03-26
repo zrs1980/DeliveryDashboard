@@ -46,7 +46,7 @@ export async function GET() {
         companyname,
         BUILTIN.DF(customer)                 AS customer_name,
         BUILTIN.DF(jobtype)                  AS jobtype_name,
-        custentity9                          AS msa_hours,
+        BUILTIN.DF(custentity9)              AS msa_hours,
         startdate,
         custentity_project_golive_date       AS golive_date
       FROM job
@@ -80,7 +80,8 @@ export async function GET() {
     // 3. Build response
     const projects: MSAProject[] = projectRows.map(r => {
       const id       = parseInt(r.id, 10);
-      const msaHours = parseFloat(r.msa_hours ?? "0") || 0;
+      // custentity9 is a list field — BUILTIN.DF returns the display label (e.g. "40" or "40 hours")
+      const msaHours = parseFloat((r.msa_hours ?? "").replace(/[^0-9.]/g, "")) || 0;
       const mtdHours = mtdMap[id] ?? 0;
       return {
         id,
