@@ -63,14 +63,13 @@ export async function GET() {
 
   const sb = getSupabaseAdmin();
 
-  // Zabe sees all pending requests; everyone else sees their own
   const isApprover = session.user.email.toLowerCase() === "zabe@cebasolutions.com";
 
-  const query = isApprover
-    ? sb.from("pto_requests").select("*").order("submitted_at", { ascending: false })
-    : sb.from("pto_requests").select("*").eq("employee_email", session.user.email).order("submitted_at", { ascending: false });
+  // Approver sees all requests; employees see only their own
+  const { data, error } = isApprover
+    ? await sb.from("pto_requests").select("*").order("submitted_at", { ascending: false })
+    : await sb.from("pto_requests").select("*").eq("employee_email", session.user.email).order("submitted_at", { ascending: false });
 
-  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ requests: data ?? [], isApprover });

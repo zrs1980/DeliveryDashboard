@@ -264,7 +264,7 @@ export function EmployeeView() {
   const filtered   = typeFilter === "all" ? entries : entries.filter(e => e.type === typeFilter);
   const ptoUsed    = entries.filter(e => e.type === "pto").reduce((s, e) => s + e.hours, 0);
   const sickUsed   = entries.filter(e => e.type === "sick").reduce((s, e) => s + e.hours, 0);
-  const myRequests = isApprover ? [] : requests;
+  const myRequests       = requests.filter(r => r.employee_email === session?.user?.email);
   const pendingApprovals = isApprover ? requests.filter(r => r.status === "pending") : [];
   const allApprovals     = isApprover ? requests : [];
 
@@ -303,19 +303,17 @@ export function EmployeeView() {
             </div>
           )}
         </div>
-        {!isApprover && (
-          <button
-            onClick={() => setShowForm(true)}
-            style={{
-              padding: "9px 20px", borderRadius: 9, fontSize: 13, fontWeight: 700,
-              background: C.blue, color: "#fff", border: "none", cursor: "pointer",
-              fontFamily: C.font, flexShrink: 0,
-              boxShadow: "0 2px 8px rgba(26,86,219,0.35)",
-            }}
-          >
-            + Request Time Off
-          </button>
-        )}
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            padding: "9px 20px", borderRadius: 9, fontSize: 13, fontWeight: 700,
+            background: C.blue, color: "#fff", border: "none", cursor: "pointer",
+            fontFamily: C.font, flexShrink: 0,
+            boxShadow: "0 2px 8px rgba(26,86,219,0.35)",
+          }}
+        >
+          + Request Time Off
+        </button>
       </div>
 
       {/* Balance cards */}
