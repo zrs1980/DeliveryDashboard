@@ -41,17 +41,18 @@ export async function GET() {
       golive_date: string | null;
     }>(`
       SELECT
-        id,
-        entityid,
-        companyname,
-        BUILTIN.DF(customer)                 AS customer_name,
-        BUILTIN.DF(jobtype)                  AS jobtype_name,
-        custentity9                          AS msa_hours,
-        startdate,
-        custentity_project_golive_date       AS golive_date
-      FROM job
-      WHERE entitystatus = 2
-        AND LOWER(BUILTIN.DF(jobtype)) LIKE '%managed%'
+        j.id,
+        j.entityid,
+        j.companyname,
+        BUILTIN.DF(j.customer)               AS customer_name,
+        BUILTIN.DF(j.jobtype)                AS jobtype_name,
+        c.custentity9                        AS msa_hours,
+        j.startdate,
+        j.custentity_project_golive_date     AS golive_date
+      FROM job j
+      JOIN customer c ON c.id = j.customer
+      WHERE j.entitystatus = 2
+        AND LOWER(BUILTIN.DF(j.jobtype)) LIKE '%managed%'
       ORDER BY customer_name ASC
     `);
 
