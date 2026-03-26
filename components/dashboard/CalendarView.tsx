@@ -162,10 +162,11 @@ export function CalendarView({ projects, cases }: Props) {
   const dragRef = useRef<DragItem | null>(null);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
-  const [filterScheduled, setFilterScheduled] = useState<"all" | "scheduled" | "unscheduled">("all");
-  const [filterDue,       setFilterDue]       = useState<"all" | "overdue" | "today" | "week" | "none">("all");
-  const [filterProject,   setFilterProject]   = useState<string>("all");
-  const [filterMine,      setFilterMine]      = useState(false);
+  const [filterScheduled,  setFilterScheduled]  = useState<"all" | "scheduled" | "unscheduled">("all");
+  const [filterDue,        setFilterDue]        = useState<"all" | "overdue" | "today" | "week" | "none">("all");
+  const [filterProject,    setFilterProject]    = useState<string>("all");
+  const [filterMine,       setFilterMine]       = useState(false);
+  const [filterMineCases,  setFilterMineCases]  = useState(false);
   const [scheduledIds,    setScheduledIds]     = useState<Set<string>>(new Set());
   // event_id → task_id (for in-app delete + sync awareness)
   const [eventToTaskId,   setEventToTaskId]   = useState<Map<string, string>>(new Map());
@@ -457,7 +458,15 @@ export function CalendarView({ projects, cases }: Props) {
     return true;
   });
 
-  const openCases = cases.filter(c => c.status !== "Closed" && c.status !== "closed");
+  const openCases = cases.filter(c => {
+    if (c.status === "Closed" || c.status === "closed") return false;
+    if (filterMineCases) {
+      const a = (c.assigned ?? "").toLowerCase();
+      if (!a) return false;
+      if (!a.includes(myFirstName) && !a.includes(myFullName)) return false;
+    }
+    return true;
+  });
 
   // ── Derived ───────────────────────────────────────────────────────────────────
   const weekEnd = addDays(weekStart, 6);
@@ -639,7 +648,7 @@ export function CalendarView({ projects, cases }: Props) {
                   cursor: "pointer", fontFamily: C.font, textTransform: "capitalize",
                 }}
               >
-                {st === "tasks" ? `Tasks (${openTasks.length})` : `Cases (${openCases.length})`}
+                {st === "tasks" ? `Tasks (${openTasks.length})` : `Cases (${openCases.length})${filterMineCases ? " 👤" : ""}`}
               </button>
             ))}
           </div>
@@ -699,9 +708,26 @@ export function CalendarView({ projects, cases }: Props) {
           )}
 
           {sidebarTab === "cases" && (
-            openCases.length === 0
-              ? <div style={{ fontSize: 11, color: C.textSub, fontStyle: "italic", padding: "8px 4px" }}>No open cases</div>
-              : openCases.map(c => (
+            <>
+              {/* Mine toggle */}
+              <div style={{ marginBottom: 8 }}>
+                <button
+                  onClick={() => setFilterMineCases(f => !f)}
+                  style={{
+                    width: "100%", padding: "5px 10px", fontSize: 11, fontWeight: 700,
+                    borderRadius: 6, cursor: "pointer", fontFamily: C.font,
+                    border: `1px solid ${filterMineCases ? C.blue : C.border}`,
+                    background: filterMineCases ? C.blue : "#fff",
+                    color: filterMineCases ? "#fff" : C.textMid,
+                    textAlign: "left",
+                  }}
+                >
+                  👤 {filterMineCases ? "My Cases only" : "Show all assignees"}
+                </button>
+              </div>
+              {openCases.length === 0
+                ? <div style={{ fontSize: 11, color: C.textSub, fontStyle: "italic", padding: "8px 4px" }}>No open cases</div>
+                : openCases.map(c => (
                   <div
                     key={c.id}
                     draggable
@@ -741,6 +767,8 @@ export function CalendarView({ projects, cases }: Props) {
                     )}
                   </div>
                 ))
+              }
+            </>
           )}
         </div>
       </div>
