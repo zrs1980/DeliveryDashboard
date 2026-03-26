@@ -62,7 +62,19 @@ function sumPeriod(rows: DayRow[], from: Date, to: Date) {
 
 export async function GET() {
   try {
-    const employeeIds = Object.keys(EMPLOYEES).map(Number);
+    const allEmployeeIds = Object.keys(EMPLOYEES).map(Number);
+
+    // Filter to only active employees
+    const activeRows = await runSuiteQL<{ id: string }>(`
+      SELECT id FROM employee
+      WHERE id IN (${allEmployeeIds.join(", ")})
+        AND isinactive = 'F'
+    `);
+    const employeeIds = activeRows.map(r => parseInt(r.id, 10));
+
+    if (employeeIds.length === 0) {
+      return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
+    }
 
     // Run both queries in parallel
     const [rows, projectRows] = await Promise.all([
