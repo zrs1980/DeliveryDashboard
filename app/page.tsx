@@ -205,6 +205,23 @@ export default function DashboardPage() {
               </>
             ) : "↻ Refresh Data"}
           </button>
+          <a
+            href="https://3550424.app.netsuite.com/app/accounting/transactions/time/weeklytimebill.nl"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+              background: "rgba(255,255,255,0.08)", color: "#F1F5F9",
+              border: "1px solid rgba(255,255,255,0.15)",
+              textDecoration: "none", whiteSpace: "nowrap",
+              display: "flex", alignItems: "center", gap: 6,
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.14)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+          >
+            ⏱ Enter Time
+          </a>
         </div>
 
         {/* Tab nav bar */}
