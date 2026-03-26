@@ -4,6 +4,7 @@ import { C } from "@/lib/constants";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSCustomer } from "@/app/api/customers/route";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
+import type { MSAProject } from "@/app/api/msa/route";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -236,9 +237,158 @@ function HistoryModal({ customer, hcs, onClose }: { customer: NSCustomer; hcs: H
   );
 }
 
+// ─── MSA View ─────────────────────────────────────────────────────────────────
+
+function MSAView() {
+  const [projects, setProjects] = useState<MSAProject[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true); setError(null);
+    try {
+      const res  = await fetch("/api/msa");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setProjects(data.projects ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const now   = new Date();
+  const month = now.toLocaleString("en-AU", { month: "long", year: "numeric" });
+
+  // Summary metrics
+  const totalMsa       = projects.reduce((s, p) => s + p.msaHours, 0);
+  const totalMtd       = projects.reduce((s, p) => s + p.mtdHours, 0);
+  const totalRemaining = projects.reduce((s, p) => s + p.remainingHours, 0);
+
+  if (loading) return (
+    <div style={{ padding: "60px 24px", textAlign: "center", color: C.textSub, fontFamily: C.font }}>
+      <div style={{ fontSize: 22, marginBottom: 10 }}>⏳</div>Loading MSA projects…
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 10, padding: "14px 18px", color: C.red, fontSize: 13, fontFamily: C.font }}>⚠ {error}</div>
+  );
+
+  return (
+    <div style={{ fontFamily: C.font }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: C.text }}>Managed Services Agreements</div>
+          <div style={{ fontSize: 13, color: C.textSub, marginTop: 2 }}>{month} · {projects.length} active MSA project{projects.length !== 1 ? "s" : ""}</div>
+        </div>
+        <button onClick={load} style={{ background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+        <div style={{ background: C.purpleBg, border: `1px solid ${C.purpleBd}`, borderRadius: 12, padding: "16px 20px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Total MSA Hours</div>
+          <div style={{ fontSize: 32, fontWeight: 800, color: C.purple, fontFamily: C.mono, lineHeight: 1 }}>{totalMsa.toFixed(1)}<span style={{ fontSize: 15, fontWeight: 600, marginLeft: 3 }}>h</span></div>
+          <div style={{ fontSize: 11, color: C.purple, opacity: 0.7, marginTop: 4 }}>contracted this month</div>
+        </div>
+        <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 12, padding: "16px 20px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>MTD Hours Booked</div>
+          <div style={{ fontSize: 32, fontWeight: 800, color: C.blue, fontFamily: C.mono, lineHeight: 1 }}>{totalMtd.toFixed(1)}<span style={{ fontSize: 15, fontWeight: 600, marginLeft: 3 }}>h</span></div>
+          <div style={{ fontSize: 11, color: C.blue, opacity: 0.7, marginTop: 4 }}>logged so far this month</div>
+        </div>
+        <div style={{ background: totalRemaining < 0 ? C.redBg : C.greenBg, border: `1px solid ${totalRemaining < 0 ? C.redBd : C.greenBd}`, borderRadius: 12, padding: "16px 20px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: totalRemaining < 0 ? C.red : C.green, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+            {totalRemaining < 0 ? "Hours Over" : "Hours Remaining"}
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 800, color: totalRemaining < 0 ? C.red : C.green, fontFamily: C.mono, lineHeight: 1 }}>
+            {Math.abs(totalRemaining).toFixed(1)}<span style={{ fontSize: 15, fontWeight: 600, marginLeft: 3 }}>h</span>
+          </div>
+          <div style={{ fontSize: 11, color: totalRemaining < 0 ? C.red : C.green, opacity: 0.7, marginTop: 4 }}>
+            {totalRemaining < 0 ? "over contracted hours" : "left this month"}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      {projects.length === 0 ? (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: C.textSub, fontSize: 14 }}>
+          No active Managed Services Agreement projects found.
+        </div>
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", boxShadow: C.sh }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Project", "Type", "MSA Hours", "MTD Booked", "Remaining", "Usage"].map(h => (
+                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", background: C.alt, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((p, i) => {
+                const pct        = p.msaHours > 0 ? Math.min(p.mtdHours / p.msaHours, 1) : 0;
+                const pctDisplay = p.msaHours > 0 ? Math.round((p.mtdHours / p.msaHours) * 100) : 0;
+                const isOver     = p.remainingHours < 0;
+                const barColor   = isOver ? C.red : pct > 0.85 ? C.yellow : C.green;
+                const remColor   = isOver ? C.red : p.remainingHours < p.msaHours * 0.15 ? C.yellow : C.green;
+
+                return (
+                  <tr key={p.id} style={{ background: i % 2 === 0 ? C.surface : C.alt, borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{p.companyname}</div>
+                      <div style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>#{p.projectNumber}</div>
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>
+                        {p.jobtypeName}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontFamily: C.mono, fontSize: 13, fontWeight: 700, color: C.text }}>
+                      {p.msaHours > 0 ? `${p.msaHours.toFixed(1)}h` : <span style={{ color: C.textSub }}>—</span>}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontFamily: C.mono, fontSize: 13, fontWeight: 700, color: C.blue }}>
+                      {p.mtdHours.toFixed(1)}h
+                    </td>
+                    <td style={{ padding: "12px 16px", fontFamily: C.mono, fontSize: 13, fontWeight: 700, color: remColor }}>
+                      {isOver ? `+${Math.abs(p.remainingHours).toFixed(1)}h over` : `${p.remainingHours.toFixed(1)}h`}
+                    </td>
+                    <td style={{ padding: "12px 16px", minWidth: 140 }}>
+                      {p.msaHours > 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 8, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${Math.min(pct * 100, 100)}%`, height: "100%", background: barColor, borderRadius: 4, transition: "width 0.3s" }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, fontFamily: C.mono, color: barColor, minWidth: 34, textAlign: "right" }}>
+                            {pctDisplay}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ color: C.textSub, fontSize: 12 }}>No MSA hours set</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function CustomersView() {
+  const [activeTab, setActiveTab]     = useState<"healthchecks" | "msa">("healthchecks");
   const [customers, setCustomers]     = useState<NSCustomer[]>([]);
   const [healthchecks, setHealthchecks] = useState<Healthcheck[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -323,6 +473,35 @@ export function CustomersView() {
 
   return (
     <div style={{ fontFamily: C.font }}>
+
+      {/* ── Sub-tab switcher ─────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${C.border}`, marginBottom: 24 }}>
+        {([
+          { id: "healthchecks" as const, label: "🏥 Health Checks" },
+          { id: "msa"          as const, label: "📋 MSA"           },
+        ]).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: "8px 20px", fontSize: 13, fontWeight: 700,
+              background: "none", border: "none",
+              borderBottom: activeTab === tab.id ? `2px solid ${C.blue}` : "2px solid transparent",
+              marginBottom: -2,
+              color: activeTab === tab.id ? C.blue : C.textSub,
+              cursor: "pointer", fontFamily: C.font,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── MSA tab ──────────────────────────────────────────────────────────── */}
+      {activeTab === "msa" && <MSAView />}
+
+      {/* ── Health Checks tab ────────────────────────────────────────────────── */}
+      {activeTab === "healthchecks" && <>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -503,6 +682,8 @@ export function CustomersView() {
           onClose={() => setHistoryFor(null)}
         />
       )}
+
+      </> /* end healthchecks tab */}
     </div>
   );
 }
