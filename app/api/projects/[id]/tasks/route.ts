@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, fetchRecord, fetchFieldSelectOptions } from "@/lib/netsuite";
+import { runSuiteQL, fetchRecord } from "@/lib/netsuite";
 
 export interface NSTask {
   id: number;
@@ -99,13 +99,25 @@ export async function GET(
     return NextResponse.json({ tasks: [], allStatuses: [] });
   }
 
-  // Fetch ALL possible status options from the NS metadata catalog
-  // (not just statuses currently used — ensures Completed etc. always appear)
+  // Fetch all possible status values via SuiteQL DISTINCT + BUILTIN.DF for labels
+  // NS status IDs are strings: "COMPLETE", "PROGRESS", "NOTSTART", etc.
   let allStatuses: { id: string; label: string }[] = [];
   try {
-    allStatuses = await fetchFieldSelectOptions("projecttask", "status");
+    const statusRows = await runSuiteQL<{ status: string; status_label: string }>(`
+      SELECT DISTINCT pt.status, BUILTIN.DF(pt.status) AS status_label
+      FROM projecttask pt
+      ORDER BY pt.status ASC
+    `);
+    allStatuses = statusRows
+      .filter(r => r.status)
+      .map(r => ({ id: r.status, label: r.status_label || r.status }));
   } catch {
-    // Non-fatal — fall back to per-task statuses derived from REST records in the component
+    // Fallback: hardcode known NS projecttask status IDs
+    allStatuses = [
+      { id: "COMPLETE", label: "Completed"    },
+      { id: "PROGRESS", label: "In Progress"  },
+      { id: "NOTSTART", label: "Not Started"  },
+    ];
   }
 
   // 2. Fetch start/end dates sequentially in small batches to avoid NS concurrency limits
