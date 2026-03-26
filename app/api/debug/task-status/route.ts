@@ -2,24 +2,37 @@ import { NextResponse } from "next/server";
 import { runSuiteQL, fetchRecord } from "@/lib/netsuite";
 
 export async function GET() {
-  // Get task IDs with their SuiteQL status values
-  const rows = await runSuiteQL<{ id: string; status: string; status_label: string }>(`
-    SELECT pt.id, pt.status, BUILTIN.DF(pt.status) AS status_label
-    FROM projecttask pt
-    ORDER BY pt.id ASC
-  `).catch(() => [] as { id: string; status: string; status_label: string }[]);
+  // Try plain query first (no BUILTIN.DF)
+  let rows: { id: string; status: string }[] = [];
+  let queryError: string | null = null;
+  try {
+    rows = await runSuiteQL<{ id: string; status: string }>(`
+      SELECT pt.id, pt.status FROM projecttask pt ORDER BY pt.id ASC
+    `);
+  } catch (e) {
+    queryError = e instanceof Error ? e.message : String(e);
+  }
 
-  // Show unique SuiteQL statuses
-  const uniqueSuiteQL = Array.from(
-    new Map(rows.map(r => [r.status, { id: r.status, label: r.status_label }])).values()
-  );
+  const uniqueSuiteQL = Array.from(new Map(rows.map(r => [r.status, r.status])).values());
 
-  // Fetch first task via REST to see raw status shape
-  const firstTask = rows[0] ? await fetchRecord<Record<string, unknown>>("projecttask", parseInt(rows[0].id)).catch(() => null) : null;
+  // Try fetching first task via REST
+  let firstTaskStatus: unknown = null;
+  let restError: string | null = null;
+  if (rows[0]) {
+    try {
+      const rec = await fetchRecord<Record<string, unknown>>("projecttask", parseInt(rows[0].id));
+      firstTaskStatus = rec.status;
+    } catch (e) {
+      restError = e instanceof Error ? e.message : String(e);
+    }
+  }
 
   return NextResponse.json({
+    rowCount: rows.length,
+    queryError,
     uniqueSuiteQLStatuses: uniqueSuiteQL,
-    firstTaskRestStatus: firstTask?.status ?? null,
-    firstTaskRestStatusRaw: JSON.stringify(firstTask?.status),
+    firstTaskId: rows[0]?.id ?? null,
+    firstTaskRestStatus: firstTaskStatus,
+    restError,
   });
 }
