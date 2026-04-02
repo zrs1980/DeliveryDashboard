@@ -61,6 +61,7 @@ export default function DashboardPage() {
   const [tab, setTab] = useState<Tab>("projects");
   const [taskSubTab, setTaskSubTab] = useState<"overdue" | "blocked">("overdue");
   const [splitPct, setSplitPct] = useState(42); // % width for ConsultantView panel
+  const [showCalendar, setShowCalendar] = useState(false);
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], updatedAt: null });
@@ -328,46 +329,72 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* My Work — split view: task list (left) + calendar (right) */}
+        {/* My Work — task list with optional calendar split */}
         {hasLoaded && tab === "consultant" && (
           <div
             ref={splitContainerRef}
-            style={{ display: "flex", gap: 0, height: "calc(100vh - 148px)", minHeight: 500, userSelect: splitDragging.current ? "none" : undefined }}
-            onMouseMove={e => {
-              if (!splitDragging.current || !splitContainerRef.current) return;
-              const rect = splitContainerRef.current.getBoundingClientRect();
-              const pct = Math.min(70, Math.max(25, ((e.clientX - rect.left) / rect.width) * 100));
-              setSplitPct(pct);
-            }}
-            onMouseUp={() => { splitDragging.current = false; }}
-            onMouseLeave={() => { splitDragging.current = false; }}
+            style={{ display: "flex", flexDirection: "column", gap: 0, height: "calc(100vh - 148px)", minHeight: 500 }}
           >
-            {/* Left: My Work */}
-            <div style={{ width: `${splitPct}%`, overflowY: "auto", background: C.bg, paddingRight: 2 }}>
-              <ConsultantView projects={projects} cases={cases} />
+            {/* Toggle bar */}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, flexShrink: 0 }}>
+              <button
+                onClick={() => setShowCalendar(v => !v)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  background: showCalendar ? C.blue : C.surface,
+                  color: showCalendar ? "#fff" : C.textMid,
+                  border: `1px solid ${showCalendar ? C.blue : C.border}`,
+                  borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                  cursor: "pointer", fontFamily: C.font, transition: "all 0.15s",
+                }}
+              >
+                📅 {showCalendar ? "Hide Calendar" : "Show Calendar"}
+              </button>
             </div>
 
-            {/* Resize divider */}
+            {/* Content row */}
             <div
-              onMouseDown={() => { splitDragging.current = true; }}
-              style={{
-                width: 6, flexShrink: 0, cursor: "col-resize",
-                background: C.border, transition: "background 0.15s",
-                display: "flex", alignItems: "center", justifyContent: "center",
+              style={{ display: "flex", flex: 1, overflow: "hidden", userSelect: splitDragging.current ? "none" : undefined }}
+              onMouseMove={e => {
+                if (!splitDragging.current || !splitContainerRef.current) return;
+                const rect = splitContainerRef.current.getBoundingClientRect();
+                const pct = Math.min(70, Math.max(25, ((e.clientX - rect.left) / rect.width) * 100));
+                setSplitPct(pct);
               }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = C.blue; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = C.border; }}
-              title="Drag to resize"
+              onMouseUp={() => { splitDragging.current = false; }}
+              onMouseLeave={() => { splitDragging.current = false; }}
             >
-              <div style={{ width: 2, height: 32, borderRadius: 2, background: "currentColor", opacity: 0.4 }} />
-            </div>
-
-            {/* Right: Calendar */}
-            <div style={{ flex: 1, overflow: "hidden", background: "#fff", borderRadius: "0 12px 12px 0", border: `1px solid ${C.border}`, borderLeft: "none" }}>
-              <div style={{ padding: "10px 18px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textSub }}>
-                📅 <strong style={{ color: C.text }}>Calendar</strong> — drag tasks from the left panel onto a time slot to schedule them
+              {/* Left: My Work */}
+              <div style={{ width: showCalendar ? `${splitPct}%` : "100%", overflowY: "auto", background: C.bg, paddingRight: showCalendar ? 2 : 0, transition: "width 0.2s" }}>
+                <ConsultantView projects={projects} cases={cases} />
               </div>
-              <CalendarView projects={projects} cases={cases} hideSidebar />
+
+              {showCalendar && (
+                <>
+                  {/* Resize divider */}
+                  <div
+                    onMouseDown={() => { splitDragging.current = true; }}
+                    style={{
+                      width: 6, flexShrink: 0, cursor: "col-resize",
+                      background: C.border, transition: "background 0.15s",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = C.blue; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = C.border; }}
+                    title="Drag to resize"
+                  >
+                    <div style={{ width: 2, height: 32, borderRadius: 2, background: "currentColor", opacity: 0.4 }} />
+                  </div>
+
+                  {/* Right: Calendar */}
+                  <div style={{ flex: 1, overflow: "hidden", background: "#fff", borderRadius: "0 12px 12px 0", border: `1px solid ${C.border}`, borderLeft: "none" }}>
+                    <div style={{ padding: "10px 18px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textSub }}>
+                      📅 <strong style={{ color: C.text }}>Calendar</strong> — drag tasks from the left panel onto a time slot to schedule them
+                    </div>
+                    <CalendarView projects={projects} cases={cases} hideSidebar />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
