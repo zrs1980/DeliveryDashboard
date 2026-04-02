@@ -362,11 +362,8 @@ export function ConsultantView({ projects, cases }: Props) {
     ? allMyTasks.filter(({ project }) => project.id.toString() === projectFilter)
     : allMyTasks;
 
-  // Only open, non-scheduled tasks for most tabs
-  const openFilteredTasks = filteredTasks.filter(({ task }) => {
-    const st = task.status.status.toLowerCase();
-    return !isDone(task) && st !== "scheduled";
-  });
+  // Only open tasks (not done) for most tabs
+  const openFilteredTasks = filteredTasks.filter(({ task }) => !isDone(task));
 
   // ── Tab bucket helpers ──────────────────────────────────────────────────────
 
