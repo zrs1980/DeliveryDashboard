@@ -914,8 +914,15 @@ export function CalendarView({ projects, cases }: Props) {
                               onDrop={e => {
                                 e.preventDefault();
                                 setDropTarget(null);
-                                const item = dragRef.current;
+                                let item: DragItem | null = dragRef.current;
                                 dragRef.current = null;
+                                // Fallback: read from dataTransfer for cross-component drags (e.g. My Work split view)
+                                if (!item) {
+                                  try {
+                                    const raw = e.dataTransfer.getData("application/ceba-task");
+                                    if (raw) item = JSON.parse(raw) as DragItem;
+                                  } catch {}
+                                }
                                 if (!item) return;
                                 if (item.type === "event") {
                                   rescheduleEvent(item.event.id, dayIndex, hour, min);

@@ -143,6 +143,7 @@ function TaskTable({
       <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
         <thead>
           <tr>
+            <th style={{ ...thBase, width: 20 }} title="Drag to calendar">⠿</th>
             <th style={{ ...thBase, width: 28, textAlign: "center" as const }}>!</th>
             <th style={thBase}>Task Name</th>
             <th style={thBase}>Project</th>
@@ -166,7 +167,22 @@ function TaskTable({
               : "—";
 
             return (
-              <tr key={task.id} style={{ background: rowBg, opacity: muted ? 0.65 : 1 }}>
+              <tr
+                key={task.id}
+                draggable
+                onDragStart={e => {
+                  e.dataTransfer.setData("application/ceba-task", JSON.stringify({
+                    type: "task",
+                    task,
+                    projectLabel: project.label,
+                  }));
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                style={{ background: rowBg, opacity: muted ? 0.65 : 1, cursor: "grab" }}
+              >
+                {/* Drag handle */}
+                <td style={{ ...tdBase, width: 20, textAlign: "center" as const, color: C.textSub, fontSize: 14, userSelect: "none" }}>⠿</td>
+
                 {/* Priority flag */}
                 <td style={{ ...tdBase, textAlign: "center" as const, width: 28 }}>
                   <PriorityFlag task={task} />
