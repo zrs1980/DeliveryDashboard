@@ -62,19 +62,10 @@ function sumPeriod(rows: DayRow[], from: Date, to: Date) {
 
 export async function GET() {
   try {
-    const allEmployeeIds = Object.keys(EMPLOYEES).map(Number);
-
-    // Filter to only active employees
-    const activeRows = await runSuiteQL<{ id: string }>(`
-      SELECT id FROM employee
-      WHERE id IN (${allEmployeeIds.join(", ")})
-        AND isinactive = 'F'
-    `);
-    const employeeIds = activeRows.map(r => parseInt(r.id, 10));
-
-    if (employeeIds.length === 0) {
-      return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
-    }
+    // Use all known employees — no need to query the employee table since
+    // it is not accessible via SuiteQL. Employees with no timebill records
+    // in the window are filtered out naturally at the result-building step.
+    const employeeIds = Object.keys(EMPLOYEES).map(Number);
 
     // Run both queries in parallel
     const [rows, projectRows] = await Promise.all([
