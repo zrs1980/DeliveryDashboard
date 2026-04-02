@@ -33,6 +33,7 @@ type DragItem =
 interface Props {
   projects: Project[];
   cases: NSCase[];
+  hideSidebar?: boolean;
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -149,7 +150,7 @@ function EventChip({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CalendarView({ projects, cases }: Props) {
+export function CalendarView({ projects, cases, hideSidebar = false }: Props) {
   const { data: session } = useSession();
   const [weekStart, setWeekStart]         = useState<Date>(() => getMondayOf(new Date()));
   const [events, setEvents]               = useState<CalEvent[]>([]);
@@ -538,7 +539,7 @@ export function CalendarView({ projects, cases }: Props) {
       )}
 
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
-      <div style={{
+      {!hideSidebar && <div style={{
         width: 268, flexShrink: 0,
         borderRight: `1px solid ${C.border}`,
         background: C.alt,
@@ -771,7 +772,7 @@ export function CalendarView({ projects, cases }: Props) {
             </>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── Calendar ─────────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#fff" }}>

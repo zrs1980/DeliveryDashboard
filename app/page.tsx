@@ -367,7 +367,7 @@ export default function DashboardPage() {
               <div style={{ padding: "10px 18px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textSub }}>
                 📅 <strong style={{ color: C.text }}>Calendar</strong> — drag tasks from the left panel onto a time slot to schedule them
               </div>
-              <CalendarView projects={projects} cases={cases} />
+              <CalendarView projects={projects} cases={cases} hideSidebar />
             </div>
           </div>
         )}
