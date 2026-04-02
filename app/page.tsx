@@ -59,6 +59,7 @@ interface DataState {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
+  const [taskSubTab, setTaskSubTab] = useState<"overdue" | "blocked">("overdue");
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], updatedAt: null });
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -142,14 +143,14 @@ export default function DashboardPage() {
           {/* Alert badges */}
           <div style={{ display: "flex", gap: 8, flex: 1, alignItems: "center" }}>
             {hasLoaded && totalOverdue > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 700, background: "rgba(192,57,43,0.15)", color: "#F87171", border: "1px solid rgba(192,57,43,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+              <button onClick={() => { setTaskSubTab("overdue"); setTab("tasks"); }} style={{ fontSize: 11, fontWeight: 700, background: "rgba(192,57,43,0.15)", color: "#F87171", border: "1px solid rgba(192,57,43,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap", cursor: "pointer", fontFamily: C.font }}>
                 ⚠ {totalOverdue} overdue
-              </span>
+              </button>
             )}
             {hasLoaded && totalBlocked > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 700, background: "rgba(180,83,9,0.15)", color: "#FB923C", border: "1px solid rgba(180,83,9,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+              <button onClick={() => { setTaskSubTab("blocked"); setTab("tasks"); }} style={{ fontSize: 11, fontWeight: 700, background: "rgba(180,83,9,0.15)", color: "#FB923C", border: "1px solid rgba(180,83,9,0.3)", borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap", cursor: "pointer", fontFamily: C.font }}>
                 🚫 {totalBlocked} blocked
-              </span>
+              </button>
             )}
             {hasLoaded && (
               <span style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginLeft: 4, whiteSpace: "nowrap" }}>
@@ -310,6 +311,7 @@ export default function DashboardPage() {
             <TaskCommandCenter
               projects={projects}
               onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
+              initialTab={taskSubTab}
             />
           </div>
         )}

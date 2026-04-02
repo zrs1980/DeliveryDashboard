@@ -15,6 +15,7 @@ type TabId = "overdue" | "this_week" | "next_week" | "upcoming" | "milestones" |
 interface Props {
   projects: Project[];
   onProjectsChange: (updated: Project[]) => void;
+  initialTab?: TabId;
 }
 
 interface TaskRow {
@@ -394,9 +395,13 @@ function TaskTable({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function TaskCommandCenter({ projects, onProjectsChange }: Props) {
+export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Props) {
   const { data: session } = useSession();
-  const [tab, setTab]                       = useState<TabId>("overdue");
+  const [tab, setTab]                       = useState<TabId>(initialTab ?? "overdue");
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
