@@ -711,8 +711,15 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
 
     return (
       <div>
-        {/* Breadcrumb */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, marginBottom: 20, flexWrap: "wrap" }}>
+        {/* Back button + Breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setView("home")}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, flexShrink: 0 }}
+          >
+            ← Back
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, flexWrap: "wrap" }}>
           <button onClick={() => setView("home")} style={{ background: "none", border: "none", color: C.blue, cursor: "pointer", fontFamily: C.font, fontSize: 12, padding: 0 }}>
             Home
           </button>
@@ -729,6 +736,7 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
           )}
           <span>/</span>
           <span style={{ color: C.text, fontWeight: 600 }}>{selectedPage.title}</span>
+          </div>
         </div>
 
         {/* Page header */}
@@ -828,9 +836,9 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
           </div>
           <button
             onClick={() => { setView(selectedPage ? "page" : "home"); setError(null); }}
-            style={{ background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}
+            style={{ display: "flex", alignItems: "center", gap: 5, background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}
           >
-            Cancel
+            ← Back
           </button>
         </div>
 
