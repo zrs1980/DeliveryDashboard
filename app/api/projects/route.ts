@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
-import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES } from "@/lib/constants";
+import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
 import type { Project, ProjectNote } from "@/lib/types";
 
 export const revalidate = 0; // always fresh
@@ -159,7 +159,52 @@ export async function GET() {
       })
     );
 
-    return NextResponse.json({ projects, updatedAt: new Date().toISOString() });
+    // Fetch standalone internal ClickUp lists (no NS project backing)
+    const standaloneProjects: Project[] = await Promise.all(
+      STANDALONE_CLICKUP_LISTS.map(async ({ listId, label }, idx) => {
+        let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
+        let clickupError: string | null = null;
+        try {
+          tasks = await fetchListTasks(listId);
+        } catch (e) {
+          clickupError = e instanceof Error ? e.message : String(e);
+        }
+        const pct = computePct(tasks);
+        return {
+          id:            -(idx + 1),
+          entityid:      "INTERNAL",
+          label,
+          client:        "CEBA Internal",
+          projectType:   "Service" as const,
+          pm:            "—",
+          goliveDate:    null,
+          daysLeft:      null,
+          isOverdue:     false,
+          budget_hours:  0,
+          actual:        0,
+          rem:           0,
+          pct,
+          burnRate:      0,
+          spi:           1,
+          budgetGap:     0,
+          score:         100,
+          health:        "green" as const,
+          nsUrl:         "",
+          clickupUrl:    `https://app.clickup.com/42022327/v/l/li/${listId}`,
+          clickupListId: listId,
+          tasks,
+          blocked:       tasks.filter(isBlocked),
+          clientPending: tasks.filter(t => isClientPending(t) && !isDone(t)),
+          milestones:    tasks.filter(isMilestone),
+          timebillWarning: false,
+          notes:         [],
+          clickupError,
+          isInternal:    true,
+        } satisfies Project;
+      })
+    );
+
+    return NextResponse.json({ projects: [...projects, ...standaloneProjects], updatedAt: new Date().toISOString() });
   } catch (err) {
     console.error("[/api/projects]", err);
     return NextResponse.json(

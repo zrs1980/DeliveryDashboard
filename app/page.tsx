@@ -283,22 +283,22 @@ export default function DashboardPage() {
         {/* Projects */}
         {hasLoaded && tab === "projects" && (
           <>
-            <KpiCards projects={projects} />
-            <AiInsights projects={projects} />
+            <KpiCards projects={projects.filter(p => !p.isInternal)} />
+            <AiInsights projects={projects.filter(p => !p.isInternal)} />
             <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
               <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Active Projects</div>
-                <div style={{ fontSize: 12, color: C.textSub }}>{projects.length} projects</div>
+                <div style={{ fontSize: 12, color: C.textSub }}>{projects.filter(p => !p.isInternal).length} projects</div>
               </div>
               <ProjectTable
-                projects={projects}
+                projects={projects.filter(p => !p.isInternal)}
                 phases={phases}
                 onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
               />
             </div>
             {phases.length > 0 && (
               <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-                <PhaseHeatmap phases={phases} projects={projects.map(p => ({ id: p.id, client: p.client, entityid: p.entityid }))} />
+                <PhaseHeatmap phases={phases} projects={projects.filter(p => !p.isInternal).map(p => ({ id: p.id, client: p.client, entityid: p.entityid }))} />
               </div>
             )}
           </>

@@ -73,6 +73,15 @@ export const CLICKUP_LIST_OVERRIDES: Record<number, string> = {
   18403: "901317326846", // NS Implementation                → Salt & Stone
 };
 
+// ─── Standalone internal ClickUp lists ───────────────────────────────────────
+// Lists that have no corresponding NetSuite project (internal team tasks).
+// These are fetched and shown in the Task Command Center only — excluded from
+// Portfolio Overview and Resource Allocation views.
+// Add new internal lists here as needed.
+export const STANDALONE_CLICKUP_LISTS: Array<{ listId: string; label: string }> = [
+  { listId: "901326539501", label: "Internal Tasks" },
+];
+
 /** Hire dates by employee email — used as fallback when hiredate is not exposed in SuiteQL */
 export const HIRE_DATES: Record<string, string> = {
   "zabe@cebasolutions.com": "2025-10-01",

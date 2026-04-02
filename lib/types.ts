@@ -68,6 +68,7 @@ export interface Project {
   timebillWarning: boolean;   // remaining_hours drift flag
   notes: ProjectNote[];
   clickupError: string | null;
+  isInternal?: boolean;        // true for standalone ClickUp lists with no NS project
 }
 
 // ─── Phase (projecttask) ─────────────────────────────────────────────────────
