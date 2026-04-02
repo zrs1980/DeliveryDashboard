@@ -43,7 +43,7 @@ const TIER_STYLES = {
   cold: { bg: "#F7F9FC", color: "#4A5568", bd: "#C9CDD4", label: "Cold" },
 };
 
-type SortKey = "title" | "client" | "assignedTo" | "probability" | "projectedTotal" | "expectedCloseDate" | "lastActivityDate" | "daysOpen";
+type SortKey = "title" | "client" | "assignedTo" | "probability" | "projectedTotal" | "expectedCloseDate" | "lastActivityDate" | "daysOpen" | "statusLabel";
 type SortDir = "asc" | "desc";
 type Tone    = "professional" | "formal" | "friendly" | "urgent";
 
@@ -771,6 +771,7 @@ export function ServiceRequestsView() {
               <tr>
                 <th style={{ ...thStyle(), width: 28 }}></th>
                 <th onClick={() => handleSort("title")}   style={thStyle("title")}>Opportunity {SA("title")}</th>
+                <th onClick={() => handleSort("statusLabel")} style={thStyle("statusLabel")}>Status {SA("statusLabel")}</th>
                 <th onClick={() => handleSort("assignedTo")} style={thStyle("assignedTo")}>Owner · Activity {SA("assignedTo")}</th>
                 <th onClick={() => handleSort("probability")} style={thStyle("probability")}>Deal {SA("probability")}</th>
                 <th onClick={() => handleSort("expectedCloseDate")} style={thStyle("expectedCloseDate")}>Timeline {SA("expectedCloseDate")}</th>
@@ -796,16 +797,9 @@ export function ServiceRequestsView() {
                       <button onClick={() => toggleExpand(r)} title="AI notes summary" style={{ background: "none", border: "none", cursor: "pointer", color: isOpen ? C.blue : C.textSub, fontSize: 13, padding: 0, lineHeight: 1, transition: "transform 0.15s", display: "block", transform: isOpen ? "rotate(90deg)" : "none" }}>▶</button>
                     </td>
 
-                    {/* Col 1: Opportunity + Client + Status */}
+                    {/* Col 1: Opportunity + Client */}
                     <td style={{ padding: "10px 14px", minWidth: 220 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{r.title}</div>
-                        {r.statusLabel && (
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, whiteSpace: "nowrap" }}>
-                            {r.statusLabel}
-                          </span>
-                        )}
-                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{r.title}</div>
                       <div style={{ fontSize: 12, color: C.textSub, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
                         {r.client}
                         {r.noteCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "0px 5px", borderRadius: 8, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>{r.noteCount}n</span>}
@@ -813,7 +807,15 @@ export function ServiceRequestsView() {
                       {r.actionItem && <div style={{ fontSize: 11, color: C.orange, marginTop: 2, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>→ {r.actionItem}</div>}
                     </td>
 
-                    {/* Col 2: Owner + Last Activity */}
+                    {/* Col 2: Status */}
+                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                      {r.statusLabel
+                        ? <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}` }}>{r.statusLabel}</span>
+                        : <span style={{ fontSize: 12, color: C.textSub }}>—</span>
+                      }
+                    </td>
+
+                    {/* Col 3: Owner + Last Activity */}
                     <td style={{ padding: "10px 14px", minWidth: 160 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {r.assignedTo && Avatar({ name: r.assignedTo, size: 22 })}

@@ -33,7 +33,8 @@ export async function GET() {
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10, o.custbody9
+             o.custbody10, o.custbody9,
+             BUILTIN.DF(o.entitystatus) AS entitystatus_label
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -96,7 +97,7 @@ export async function GET() {
         daysOpen:          parseInt(r.daysopen ?? "0"),
         assignedTo:        assignedToId ? (EMPLOYEES[assignedToId] ?? null) : null,
         assignedToId:      assignedToId,
-        statusLabel:       null,
+        statusLabel:       r.entitystatus_label ?? null,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,
