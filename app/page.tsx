@@ -297,11 +297,6 @@ export default function DashboardPage() {
                 onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
               />
             </div>
-            {phases.length > 0 && (
-              <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-                <PhaseHeatmap phases={phases} projects={projects.filter(p => !p.isInternal).map(p => ({ id: p.id, client: p.client, entityid: p.entityid }))} />
-              </div>
-            )}
           </>
         )}
 
