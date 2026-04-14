@@ -26,6 +26,9 @@ interface DayRow {
   employee: string;
   trandate: string;
   total_hours: string;
+  billable_hours: string;
+  utilized_hours: string;
+  productive_hours: string;
 }
 
 interface ProjectRow {
@@ -33,6 +36,7 @@ interface ProjectRow {
   project_id: string | null;
   trandate: string;
   total_hours: string;
+  billable_hours: string;
 }
 
 interface JobRow {
@@ -42,22 +46,23 @@ interface JobRow {
 }
 
 function sumPeriod(rows: DayRow[], from: Date, to: Date) {
-  let total = 0;
+  let total = 0, billable = 0, utilized = 0, productive = 0;
   for (const r of rows) {
     const d = parseNSDate(r.trandate);
     if (!d || d < from || d > to) continue;
-    total += parseFloat(r.total_hours) || 0;
+    total      += parseFloat(r.total_hours)      || 0;
+    billable   += parseFloat(r.billable_hours)   || 0;
+    utilized   += parseFloat(r.utilized_hours)   || 0;
+    productive += parseFloat(r.productive_hours) || 0;
   }
-  // billable/utilized/productive are not exposed in SuiteQL timebill —
-  // default to total so the frontend doesn't render empty metrics.
   return {
     total,
-    billable:      total,
-    utilized:      total,
-    productive:    total,
-    billablePct:   1,
-    utilizedPct:   1,
-    productivePct: 1,
+    billable,
+    utilized,
+    productive,
+    billablePct:   total > 0 ? billable   / total : 0,
+    utilizedPct:   total > 0 ? utilized   / total : 0,
+    productivePct: total > 0 ? productive / total : 0,
   };
 }
 
@@ -73,7 +78,13 @@ export async function GET() {
     // Fetch job names separately and cross-reference by ID in code.
     const [rows, projectRows, jobRows] = await Promise.all([
       runSuiteQLAll<DayRow>(`
-        SELECT tb.employee, tb.trandate, SUM(tb.hours) AS total_hours
+        SELECT
+          tb.employee,
+          tb.trandate,
+          SUM(tb.hours)                                                    AS total_hours,
+          SUM(CASE WHEN tb.isbillable   = 'T' THEN tb.hours ELSE 0 END)   AS billable_hours,
+          SUM(CASE WHEN tb.isutilized   = 'T' THEN tb.hours ELSE 0 END)   AS utilized_hours,
+          SUM(CASE WHEN tb.isproductive = 'T' THEN tb.hours ELSE 0 END)   AS productive_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
@@ -81,7 +92,12 @@ export async function GET() {
         ORDER BY tb.employee, tb.trandate
       `),
       runSuiteQLAll<ProjectRow>(`
-        SELECT tb.employee, tb.customer AS project_id, tb.trandate, SUM(tb.hours) AS total_hours
+        SELECT
+          tb.employee,
+          tb.customer AS project_id,
+          tb.trandate,
+          SUM(tb.hours)                                                    AS total_hours,
+          SUM(CASE WHEN tb.isbillable   = 'T' THEN tb.hours ELSE 0 END)   AS billable_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
@@ -162,7 +178,7 @@ export async function GET() {
 
       const projectBreakdown = Object.fromEntries(
         (Object.entries(periods2) as [string, readonly [Date, Date]][]).map(([key, [from, to]]) => {
-          const byProj: Record<string, { projectId: number | null; companyName: string; projectNumber: string | null; total: number }> = {};
+          const byProj: Record<string, { projectId: number | null; companyName: string; projectNumber: string | null; total: number; billable: number }> = {};
           for (const r of empProjRows) {
             const d = parseNSDate(r.trandate);
             if (!d || d < from || d > to) continue;
@@ -173,10 +189,11 @@ export async function GET() {
                 projectId:     r.project_id ? parseInt(r.project_id) : null,
                 companyName:   job?.companyname ?? "Internal / Admin",
                 projectNumber: job?.entityid ?? null,
-                total: 0,
+                total: 0, billable: 0,
               };
             }
-            byProj[key2].total += parseFloat(r.total_hours) || 0;
+            byProj[key2].total    += parseFloat(r.total_hours)    || 0;
+            byProj[key2].billable += parseFloat(r.billable_hours) || 0;
           }
           const list = Object.values(byProj)
             .filter(p => p.total > 0)
@@ -188,10 +205,10 @@ export async function GET() {
                 : p.companyName,
               companyName:  p.companyName,
               total:        Math.round(p.total * 100) / 100,
-              billable:     Math.round(p.total * 100) / 100,
-              utilized:     Math.round(p.total * 100) / 100,
-              productive:   Math.round(p.total * 100) / 100,
-              billablePct:  1,
+              billable:     Math.round(p.billable * 100) / 100,
+              utilized:     Math.round(p.billable * 100) / 100,
+              productive:   Math.round(p.billable * 100) / 100,
+              billablePct:  p.total > 0 ? p.billable / p.total : 0,
             }));
           return [key, list];
         })
