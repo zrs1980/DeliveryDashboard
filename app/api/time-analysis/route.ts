@@ -21,10 +21,6 @@ function parseNSDate(dateStr: string): Date | null {
   return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
 }
 
-// Format a Date as "M/D/YYYY" for NetSuite SuiteQL date literals
-function toNSDateLiteral(d: Date): string {
-  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-}
 
 interface DayRow {
   employee: string;
@@ -69,14 +65,7 @@ export async function GET() {
   try {
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
 
-    // Compute the cutoff date (3 months ago) in JS to avoid relying on
-    // ADD_MONTHS / SYSDATE which may not be supported in SuiteQL.
     const now = new Date();
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() - 3);
-    const cutoffStr = toNSDateLiteral(cutoff);
-    const todayStr  = toNSDateLiteral(now);
-
     const empList = employeeIds.join(", ");
 
     // Run all three queries in parallel.
@@ -87,8 +76,6 @@ export async function GET() {
         SELECT tb.employee, tb.trandate, SUM(tb.hours) AS total_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
-          AND tb.trandate >= '${cutoffStr}'
-          AND tb.trandate <= '${todayStr}'
         GROUP BY tb.employee, tb.trandate
         ORDER BY tb.employee, tb.trandate
       `),
@@ -96,8 +83,6 @@ export async function GET() {
         SELECT tb.employee, tb.customer AS project_id, tb.trandate, SUM(tb.hours) AS total_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
-          AND tb.trandate >= '${cutoffStr}'
-          AND tb.trandate <= '${todayStr}'
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
