@@ -92,7 +92,6 @@ export async function GET() {
       runSuiteQL<JobRow>(`
         SELECT id, companyname, entityid
         FROM job
-        WHERE entitystatus = 2
         ORDER BY id ASC
       `),
     ]);
@@ -177,7 +176,7 @@ export async function GET() {
                 const job = r.project_id ? jobMap[r.project_id] : undefined;
                 byProj[key2] = {
                   projectId:     r.project_id ? parseInt(r.project_id) : null,
-                  companyName:   job?.companyname ?? "Internal / Admin",
+                  companyName:   job?.companyname ?? (r.project_id ? `Unknown (#${r.project_id})` : "Internal / Admin"),
                   projectNumber: job?.entityid ?? null,
                   total: 0, billable: 0, utilized: 0, productive: 0,
                 };
