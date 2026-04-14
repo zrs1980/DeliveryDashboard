@@ -105,6 +105,58 @@ export async function runSuiteQL<T = Record<string, string>>(
   return (data.items ?? []) as T[];
 }
 
+// Paginating variant — fetches all pages (use for queries that may exceed 1000 rows)
+export async function runSuiteQLAll<T = Record<string, string>>(
+  query: string,
+  params: (string | number)[] = []
+): Promise<T[]> {
+  const PAGE = 1000;
+  const all: T[] = [];
+  let offset = 0;
+
+  while (true) {
+    let q = query;
+    for (const p of params) {
+      const safe = typeof p === "number" ? String(p) : `'${String(p).replace(/'/g, "''")}'`;
+      q = q.replace("?", safe);
+    }
+
+    const method  = "POST";
+    const fullUrl = `${SUITEQL_URL}?limit=${PAGE}&offset=${offset}`;
+    const auth    = buildOAuthHeader(method, fullUrl);
+
+    let res: Response;
+    try {
+      res = await fetch(fullUrl, {
+        method,
+        headers: {
+          "Authorization": auth,
+          "Content-Type":  "application/json",
+          "Prefer":        "transient",
+        },
+        body: JSON.stringify({ q }),
+      });
+    } catch (err: unknown) {
+      const cause = err instanceof Error ? err.cause : err;
+      throw new Error(`SuiteQL fetch failed (network): ${String(err)} | cause: ${JSON.stringify(cause)}`);
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`SuiteQL error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    const items = (data.items ?? []) as T[];
+    all.push(...items);
+
+    if (items.length < PAGE) break;
+    offset += PAGE;
+  }
+
+  return all;
+}
+
 // ─── NetSuite REST metadata catalog ───────────────────────────────────────────
 
 export async function fetchFieldSelectOptions(

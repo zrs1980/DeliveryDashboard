@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runSuiteQL } from "@/lib/netsuite";
+import { runSuiteQL, runSuiteQLAll } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
 export const revalidate = 0;
@@ -72,17 +72,19 @@ export async function GET() {
     // NOTE: Cannot JOIN job table from timebill in SuiteQL (same restriction as employee).
     // Fetch job names separately and cross-reference by ID in code.
     const [rows, projectRows, jobRows] = await Promise.all([
-      runSuiteQL<DayRow>(`
+      runSuiteQLAll<DayRow>(`
         SELECT tb.employee, tb.trandate, SUM(tb.hours) AS total_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
+          AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
         GROUP BY tb.employee, tb.trandate
         ORDER BY tb.employee, tb.trandate
       `),
-      runSuiteQL<ProjectRow>(`
+      runSuiteQLAll<ProjectRow>(`
         SELECT tb.employee, tb.customer AS project_id, tb.trandate, SUM(tb.hours) AS total_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
+          AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
