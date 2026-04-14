@@ -86,6 +86,7 @@ export async function GET() {
         FROM timebill tb
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
+          AND tb.trandate <= SYSDATE
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
@@ -124,26 +125,10 @@ export async function GET() {
       weeks.push(w);
     }
 
-    console.log("[time-analysis] thisMonday:", thisMonday.toISOString(), "today:", today.toISOString());
-
     const result = employeeIds
       .filter(id => EMPLOYEES[id] && projectsByEmployee[String(id)])
       .map(empId => {
         const empProjRows = projectsByEmployee[String(empId)] ?? [];
-
-        // Debug: log Piero's raw data
-        if (empId === 17191) {
-          const weekDates = empProjRows
-            .map(r => r.trandate)
-            .filter((d, i, a) => a.indexOf(d) === i)
-            .sort();
-          console.log(`[time-analysis] Piero rows: ${empProjRows.length}, unique dates:`, weekDates);
-          const thisWeekRows = empProjRows.filter(r => {
-            const d = parseNSDate(r.trandate);
-            return d && d >= thisMonday && d <= today;
-          });
-          console.log(`[time-analysis] Piero this-week rows: ${thisWeekRows.length}`, thisWeekRows.map(r => `${r.trandate}=${r.total_hours}`));
-        }
 
         // Derive daily totals from project rows — single source of truth
         const byDate = new Map<string, DayTotals>();
