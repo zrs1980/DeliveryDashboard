@@ -131,8 +131,11 @@ export async function GET() {
         const empProjRows = projectsByEmployee[String(empId)] ?? [];
 
         // Derive daily totals from project rows — single source of truth
+        // Skip any future-dated entries (belt-and-suspenders beyond the SQL upper bound)
         const byDate = new Map<string, DayTotals>();
         for (const r of empProjRows) {
+          const rd = parseNSDate(r.trandate);
+          if (!rd || rd > today) continue;          // exclude future dates
           const existing = byDate.get(r.trandate);
           const t = parseFloat(r.total_hours)      || 0;
           const b = parseFloat(r.billable_hours)   || 0;
@@ -146,6 +149,18 @@ export async function GET() {
           } else {
             byDate.set(r.trandate, { total: t, billable: b, utilized: u, productive: p });
           }
+        }
+
+        // Debug: log what's contributing to Piero's this-week total
+        if (empId === 17191) {
+          const thisWeekEntries: string[] = [];
+          for (const [dateStr, v] of byDate) {
+            const d = parseNSDate(dateStr);
+            if (d && d >= thisMonday && d <= today) {
+              thisWeekEntries.push(`${dateStr}=${v.total}h`);
+            }
+          }
+          console.log(`[time-analysis] Piero this-week entries (${thisWeekEntries.length}):`, thisWeekEntries.join(", ") || "none");
         }
 
         const weeklyTrend = weeks.map(weekStart => {
