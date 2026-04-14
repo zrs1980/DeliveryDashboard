@@ -87,6 +87,7 @@ export async function GET() {
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
           AND tb.trandate <= SYSDATE
+          AND tb.type = 'A'
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
@@ -149,18 +150,6 @@ export async function GET() {
           } else {
             byDate.set(r.trandate, { total: t, billable: b, utilized: u, productive: p });
           }
-        }
-
-        // Debug: log what's contributing to Piero's this-week total
-        if (empId === 17191) {
-          const thisWeekEntries: string[] = [];
-          for (const [dateStr, v] of byDate) {
-            const d = parseNSDate(dateStr);
-            if (d && d >= thisMonday && d <= today) {
-              thisWeekEntries.push(`${dateStr}=${v.total}h`);
-            }
-          }
-          console.log(`[time-analysis] Piero this-week entries (${thisWeekEntries.length}):`, thisWeekEntries.join(", ") || "none");
         }
 
         const weeklyTrend = weeks.map(weekStart => {
