@@ -85,7 +85,7 @@ export async function GET() {
           SUM(CASE WHEN tb.isproductive = 'T' THEN tb.hours ELSE 0 END)       AS productive_hours
         FROM timebill tb
         WHERE tb.employee IN (${empList})
-          AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
+          AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
           AND tb.trandate <= SYSDATE
           AND tb.approvalstatus = 2
         GROUP BY tb.employee, tb.customer, tb.trandate
@@ -118,6 +118,11 @@ export async function GET() {
     const firstOfMonth  = new Date(now.getFullYear(), now.getMonth(), 1);
     const firstOfLastMonth  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastDayLastMonth  = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    const currentQuarter      = Math.floor(now.getMonth() / 3);
+    const firstOfThisQuarter  = new Date(now.getFullYear(), currentQuarter * 3, 1);
+    const firstOfLastQuarter  = new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1);
+    const lastDayLastQuarter  = new Date(now.getFullYear(), currentQuarter * 3, 0, 23, 59, 59, 999);
 
     const weeks: Date[] = [];
     for (let i = 11; i >= 0; i--) {
@@ -160,10 +165,12 @@ export async function GET() {
         });
 
         const periods2 = {
-          thisWeek:  [thisMonday,       today],
-          lastWeek:  [lastMonday,       lastSunday],
-          thisMonth: [firstOfMonth,     today],
-          lastMonth: [firstOfLastMonth, lastDayLastMonth],
+          thisWeek:     [thisMonday,          today],
+          lastWeek:     [lastMonday,          lastSunday],
+          thisMonth:    [firstOfMonth,        today],
+          lastMonth:    [firstOfLastMonth,    lastDayLastMonth],
+          thisQuarter:  [firstOfThisQuarter,  today],
+          lastQuarter:  [firstOfLastQuarter,  lastDayLastQuarter],
         } as const;
 
         const projectBreakdown = Object.fromEntries(
@@ -213,10 +220,12 @@ export async function GET() {
           employeeId:   empId,
           employeeName: EMPLOYEES[empId],
           periods: {
-            thisWeek:  sumPeriod(byDate, thisMonday,       today),
-            lastWeek:  sumPeriod(byDate, lastMonday,       lastSunday),
-            thisMonth: sumPeriod(byDate, firstOfMonth,     today),
-            lastMonth: sumPeriod(byDate, firstOfLastMonth, lastDayLastMonth),
+            thisWeek:    sumPeriod(byDate, thisMonday,         today),
+            lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday),
+            thisMonth:   sumPeriod(byDate, firstOfMonth,       today),
+            lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth),
+            thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today),
+            lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter),
           },
           weeklyTrend,
           projectBreakdown,

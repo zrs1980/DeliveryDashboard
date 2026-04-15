@@ -6,7 +6,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-type PeriodKey = "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth";
+type PeriodKey = "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter";
 
 interface PeriodMetrics {
   total: number;
@@ -44,6 +44,7 @@ interface AiState { loading: boolean; text: string | null; error: string | null;
 const PERIOD_LABELS: Record<PeriodKey, string> = {
   thisWeek: "This Week", lastWeek: "Last Week",
   thisMonth: "This Month", lastMonth: "Last Month",
+  thisQuarter: "This Quarter", lastQuarter: "Last Quarter",
 };
 const TARGETS = { billable: 0.65, utilized: 0.75, productive: 0.85 };
 
