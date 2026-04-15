@@ -87,7 +87,7 @@ export async function GET() {
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= ADD_MONTHS(SYSDATE, -3)
           AND tb.trandate <= SYSDATE
-          AND tb.type = 'A'
+          AND tb.approvalstatus = 2
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
