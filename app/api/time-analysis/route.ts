@@ -73,6 +73,18 @@ export async function GET() {
 
     // Single timebill query: grouped by employee + project + date.
     // Summary totals are DERIVED from this same data so they always match the breakdown.
+    // Diagnostic: find distinct approvalstatus values for Piero to identify planned vs actual
+    const pieroStatusRows = await runSuiteQL<{ approvalstatus: string; cnt: string; sample_date: string; sample_hours: string }>(`
+      SELECT tb.approvalstatus, COUNT(*) AS cnt, MIN(tb.trandate) AS sample_date, MIN(tb.hours) AS sample_hours
+      FROM timebill tb
+      WHERE tb.employee = 17191
+        AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
+        AND tb.trandate <= SYSDATE
+      GROUP BY tb.approvalstatus
+      ORDER BY tb.approvalstatus
+    `);
+    console.log("[time-analysis] Piero approvalstatus distribution:", JSON.stringify(pieroStatusRows));
+
     const [projectRows, jobRows] = await Promise.all([
       runSuiteQLAll<ProjectRow>(`
         SELECT
