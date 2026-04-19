@@ -4,7 +4,6 @@ export const EMPLOYEES: Record<number, string> = {
   15735: "Sam Balido",
   15849: "Jason Tutanes",
   17191: "Piero Loza Palma",
-  18376: "Carlos Roman",
 };
 
 export const PMS: Record<number, string> = {

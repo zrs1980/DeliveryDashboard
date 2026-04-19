@@ -67,8 +67,7 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
 
 export async function GET() {
   try {
-    const EXCLUDED_FROM_TIME_ANALYSIS = new Set([18376]); // Carlos Roman
-    const employeeIds = Object.keys(EMPLOYEES).map(Number).filter(id => !EXCLUDED_FROM_TIME_ANALYSIS.has(id));
+    const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const now = new Date();
     const empList = employeeIds.join(", ");
 
