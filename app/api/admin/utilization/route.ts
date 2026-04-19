@@ -134,6 +134,7 @@ export async function GET() {
         ra.endDate,
         ra.numberHours
       FROM resourceallocation ra
+      JOIN job j ON j.id = ra.project AND j.entitystatus = 2
       WHERE ra.allocationResource IN (${empList})
         AND ra.endDate >= ADD_MONTHS(SYSDATE, -6)
       ORDER BY ra.allocationResource, ra.startDate
