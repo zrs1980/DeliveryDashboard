@@ -67,9 +67,9 @@ interface AllocRow {
   employee_id: string;
   project_id: string;
   project_name: string;
-  startDate: string;
-  endDate: string;
-  numberHours: string;
+  startdate: string;
+  enddate: string;
+  numberhours: string;
 }
 
 interface PeriodBounds {
@@ -81,14 +81,14 @@ function calcAllocatedHours(allocs: AllocRow[], projectId: string, period: Perio
   let total = 0;
   for (const a of allocs) {
     if (a.project_id !== projectId) continue;
-    const aStart = parseNSDate(a.startDate);
-    const aEnd   = parseNSDate(a.endDate);
+    const aStart = parseNSDate(a.startdate);
+    const aEnd   = parseNSDate(a.enddate);
     if (!aStart || !aEnd) continue;
     const overlapStart = clampDate(aStart, period.from, period.to);
     const overlapEnd   = clampDate(aEnd,   period.from, period.to);
     if (overlapStart > overlapEnd) continue;
     const days = countBusinessDays(overlapStart, overlapEnd);
-    total += days * parseFloat(a.numberHours || "0");
+    total += days * parseFloat(a.numberhours || "0");
   }
   return total;
 }
