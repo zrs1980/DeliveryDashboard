@@ -67,9 +67,12 @@ interface AllocRow {
   employee_id: string;
   project_id: string;
   project_name: string;
+  customer_name: string;
   startdate: string;
   enddate: string;
   numberhours: string;
+  allocationunit: string;
+  percentoftime: string;
 }
 
 interface PeriodBounds {
@@ -88,7 +91,11 @@ function calcAllocatedHours(allocs: AllocRow[], projectId: string, period: Perio
     const overlapEnd   = clampDate(aEnd,   period.from, period.to);
     if (overlapStart > overlapEnd) continue;
     const days = countBusinessDays(overlapStart, overlapEnd);
-    total += days * parseFloat(a.numberhours || "0");
+    const isPercent = (a.allocationunit ?? "H") === "P";
+    const hoursPerDay = isPercent
+      ? (parseFloat(a.percentoftime || "0") / 100) * 8
+      : parseFloat(a.numberhours || "0");
+    total += days * hoursPerDay;
   }
   return total;
 }
@@ -127,12 +134,15 @@ export async function GET() {
     `),
     runSuiteQLAll<AllocRow>(`
       SELECT
-        ra.allocationResource AS employee_id,
-        ra.project            AS project_id,
+        ra.allocationResource  AS employee_id,
+        ra.project             AS project_id,
         BUILTIN.DF(ra.project) AS project_name,
+        j.companyname          AS customer_name,
         ra.startDate,
         ra.endDate,
-        ra.numberHours
+        ra.numberHours,
+        ra.allocationUnit,
+        ra.percentOfTime
       FROM resourceallocation ra
       JOIN job j ON j.id = ra.project AND j.entitystatus = 2
       WHERE ra.allocationResource IN (${empList})
@@ -239,13 +249,13 @@ export async function GET() {
         ]);
 
         const projectList = Array.from(allAllocPks).map(pk => {
-          const actual     = byProject[pk];
-          const job        = pk !== "__internal__" ? jobMap[pk] : undefined;
-          const companyName = actual?.companyName
-            ?? job?.companyname
-            ?? (pk !== "__internal__" ? `Unknown (#${pk})` : "Internal / Admin");
-          const projectNumber = actual?.projectNumber ?? job?.entityid ?? null;
-          const projectName = projectNumber ? `${companyName} — #${projectNumber}` : companyName;
+          const actual      = byProject[pk];
+          const job         = pk !== "__internal__" ? jobMap[pk] : undefined;
+          // Prefer allocation's customer_name (from job join), fall back to job map, then actual
+          const allocForPk  = pk !== "__internal__" ? empAllocs.find(a => a.project_id === pk) : undefined;
+          const customerName = allocForPk?.customer_name || job?.companyname || actual?.companyName || "";
+          const displayName  = allocForPk?.project_name || job?.entityid || pk;
+          const projectName  = customerName ? `${customerName} — ${displayName}` : displayName;
 
           const tot  = Math.round((actual?.total    ?? 0) * 100) / 100;
           const bill = Math.round((actual?.billable ?? 0) * 100) / 100;
@@ -261,7 +271,7 @@ export async function GET() {
           return {
             projectId:          actual?.projectId ?? (pk !== "__internal__" ? parseInt(pk) : null),
             projectName,
-            companyName,
+            companyName:        customerName,
             billable:           bill,
             utilizedNonBillable: utilNonBill,
             nonUtilized:        nonUtil,
