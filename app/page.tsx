@@ -16,6 +16,7 @@ import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import { CustomersView } from "@/components/dashboard/CustomersView";
+import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -32,7 +33,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers";
+type Tab = "projects" | "tasks" | "resources" | "time" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -46,6 +47,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "service-requests", label: "Service Requests", icon: "💼" },
   { id: "employee",         label: "My Leave",         icon: "🌴" },
   { id: "customers",        label: "Customers",        icon: "🏢" },
+  { id: "utilization",      label: "Utilization",      icon: "📈" },
 ];
 
 interface DataState {
@@ -231,7 +233,7 @@ export default function DashboardPage() {
 
         {/* Tab nav bar */}
         <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", display: "flex", gap: 2, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          {TABS.map(t => (
+          {TABS.filter(t => t.id !== "utilization" || session?.user?.email === "zabe@cebasolutions.com").map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -426,6 +428,13 @@ export default function DashboardPage() {
         {tab === "customers" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
             <CustomersView />
+          </div>
+        )}
+
+        {/* Utilization (admin only) */}
+        {hasLoaded && tab === "utilization" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <AdminUtilizationView />
           </div>
         )}
 
