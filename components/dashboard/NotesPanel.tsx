@@ -72,6 +72,48 @@ export function NotesPanel({ projectId, notes, onNotesChange }: Props) {
         📝 Notes {notes.length > 0 && <span style={{ color: C.textSub }}>({notes.length})</span>}
       </div>
 
+      {/* Add note form — always visible */}
+      <div style={{
+        background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "12px",
+        marginBottom: sorted.length > 0 ? 12 : 0,
+      }}>
+        <input
+          value={author}
+          onChange={e => setAuthor(e.target.value)}
+          placeholder="Your name"
+          style={{
+            width: "100%", marginBottom: 8, padding: "6px 10px", fontSize: 12,
+            border: `1px solid ${C.border}`, borderRadius: 5, fontFamily: C.font,
+            background: C.surface, color: C.text, boxSizing: "border-box",
+          }}
+        />
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder={notes.length === 0 ? "Add the first note…" : "Add a note…"}
+          rows={3}
+          style={{
+            width: "100%", padding: "6px 10px", fontSize: 12, resize: "vertical",
+            border: `1px solid ${C.border}`, borderRadius: 5, fontFamily: C.font,
+            background: C.surface, color: C.text, marginBottom: 8, boxSizing: "border-box",
+          }}
+        />
+        {error && <div style={{ color: C.red, fontSize: 11, marginBottom: 6 }}>{error}</div>}
+        <button
+          onClick={addNote}
+          disabled={saving || !text.trim()}
+          style={{
+            background: saving || !text.trim() ? C.border : C.blue,
+            color: saving || !text.trim() ? C.textSub : "#fff",
+            border: "none", borderRadius: 5, padding: "5px 14px",
+            fontSize: 12, fontWeight: 700, cursor: saving || !text.trim() ? "not-allowed" : "pointer",
+            fontFamily: C.font,
+          }}
+        >
+          {saving ? "Saving…" : "Save Note"}
+        </button>
+      </div>
+
       {/* Existing notes */}
       {sorted.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
@@ -115,46 +157,6 @@ export function NotesPanel({ projectId, notes, onNotesChange }: Props) {
         </div>
       )}
 
-      {/* Add note form — always visible */}
-      <div style={{
-        background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "12px",
-      }}>
-        <input
-          value={author}
-          onChange={e => setAuthor(e.target.value)}
-          placeholder="Your name"
-          style={{
-            width: "100%", marginBottom: 8, padding: "6px 10px", fontSize: 12,
-            border: `1px solid ${C.border}`, borderRadius: 5, fontFamily: C.font,
-            background: C.surface, color: C.text, boxSizing: "border-box",
-          }}
-        />
-        <textarea
-          value={text}
-          onChange={e => setText(e.target.value)}
-          placeholder={notes.length === 0 ? "Add the first note…" : "Add a note…"}
-          rows={3}
-          style={{
-            width: "100%", padding: "6px 10px", fontSize: 12, resize: "vertical",
-            border: `1px solid ${C.border}`, borderRadius: 5, fontFamily: C.font,
-            background: C.surface, color: C.text, marginBottom: 8, boxSizing: "border-box",
-          }}
-        />
-        {error && <div style={{ color: C.red, fontSize: 11, marginBottom: 6 }}>{error}</div>}
-        <button
-          onClick={addNote}
-          disabled={saving || !text.trim()}
-          style={{
-            background: saving || !text.trim() ? C.border : C.blue,
-            color: saving || !text.trim() ? C.textSub : "#fff",
-            border: "none", borderRadius: 5, padding: "5px 14px",
-            fontSize: 12, fontWeight: 700, cursor: saving || !text.trim() ? "not-allowed" : "pointer",
-            fontFamily: C.font,
-          }}
-        >
-          {saving ? "Saving…" : "Save Note"}
-        </button>
-      </div>
     </div>
   );
 }
