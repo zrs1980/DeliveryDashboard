@@ -87,13 +87,15 @@ function calcAllocatedHours(allocs: AllocRow[], projectId: string, period: Perio
     const aStart = parseNSDate(a.startdate);
     const aEnd   = parseNSDate(a.enddate);
     if (!aStart || !aEnd) continue;
-    const overlapStart = clampDate(aStart, period.from, period.to);
-    const overlapEnd   = clampDate(aEnd,   period.from, period.to);
-    if (overlapStart > overlapEnd) continue;
+    // Skip allocations that don't overlap the period at all
+    if (aEnd < period.from || aStart > period.to) continue;
+    const overlapStart = aStart > period.from ? aStart : period.from;
+    const overlapEnd   = aEnd   < period.to   ? aEnd   : period.to;
     const days = countBusinessDays(overlapStart, overlapEnd);
-    const isPercent = (a.allocationunit ?? "H") === "P";
-    const hoursPerDay = isPercent
-      ? (parseFloat(a.percentoftime || "0") / 100) * 8
+    // Match ResourceAllocation component: use percentoftime if set, else hoursPerDay
+    const pct = parseFloat(a.percentoftime || "0");
+    const hoursPerDay = pct > 0
+      ? (pct / 100) * 8
       : parseFloat(a.numberhours || "0");
     total += days * hoursPerDay;
   }
