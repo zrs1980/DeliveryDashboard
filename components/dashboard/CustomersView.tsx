@@ -386,10 +386,200 @@ function MSAView() {
   );
 }
 
+// ─── Projects Tab ─────────────────────────────────────────────────────────────
+
+interface NSProject { id: string; entityid: string; companyname: string; golive_date: string | null; budget_hours: string | null; remaining_hours: string | null; jobtype: string; }
+interface PortalAccessRow { id: string; customer_ns_id: string; project_ns_id: string; project_name: string; invited_by: string; invited_at: string; customer_portal_users?: { email: string; display_name: string | null } | null; }
+
+function CustomerProjectsView({ customers }: { customers: NSCustomer[] }) {
+  const [projects,  setProjects]  = useState<NSProject[]>([]);
+  const [access,    setAccess]    = useState<PortalAccessRow[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [inviting,  setInviting]  = useState<{ project: NSProject; email: string; custId: string } | null>(null);
+  const [email,     setEmail]     = useState("");
+  const [selCust,   setSelCust]   = useState("");
+  const [saving,    setSaving]    = useState(false);
+  const [invErr,    setInvErr]    = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const [pRes, aRes] = await Promise.all([
+          fetch("/api/projects"),
+          // fetch all project_portal_access rows for display
+          fetch("/api/pm/portal-access?projectId=all").catch(() => ({ json: () => ({ access: [] }) })),
+        ]);
+        const pData = await pRes.json();
+        // Flatten all projects from the projects API
+        const projs: NSProject[] = (pData.projects ?? [])
+          .filter((p: { isInternal?: boolean }) => !p.isInternal)
+          .map((p: { id: number; entityid: string; client: string; goliveDate: string | null; budget_hours: number; rem: number; jobtype?: number; projectType?: string }) => ({
+            id:              String(p.id),
+            entityid:        p.entityid,
+            companyname:     p.client,
+            golive_date:     p.goliveDate,
+            budget_hours:    String(p.budget_hours),
+            remaining_hours: String(p.rem),
+            jobtype:         p.projectType === "Implementation" ? "1" : "2",
+          }));
+        setProjects(projs);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  // Load access for each project individually when needed
+  async function loadAccess(projectId: string) {
+    const res = await fetch(`/api/pm/portal-access?projectId=${projectId}`);
+    const data = await res.json();
+    setAccess(prev => {
+      const filtered = prev.filter(a => a.project_ns_id !== projectId);
+      return [...filtered, ...(data.access ?? [])];
+    });
+  }
+
+  async function sendInvite() {
+    if (!inviting || !email || !selCust) return;
+    setSaving(true); setInvErr(null);
+    try {
+      const cust = customers.find(c => String(c.id) === selCust);
+      const res = await fetch("/api/portal/auth/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          customerNsId:  selCust,
+          customerName:  cust?.companyname ?? "",
+          projectNsIds:  [inviting.project.id],
+          projectNames:  { [inviting.project.id]: inviting.project.companyname },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      await loadAccess(inviting.project.id);
+      setInviting(null); setEmail(""); setSelCust("");
+    } catch (e) {
+      setInvErr(e instanceof Error ? e.message : "Failed to send invite");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function revokeAccess(customerNsId: string, projectNsId: string) {
+    await fetch(`/api/pm/portal-access?customerNsId=${customerNsId}&projectNsId=${projectNsId}`, { method: "DELETE" });
+    setAccess(prev => prev.filter(a => !(a.customer_ns_id === customerNsId && a.project_ns_id === projectNsId)));
+  }
+
+  function fmtDate(s: string | null) {
+    if (!s) return "—";
+    return new Date(s).toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  if (loading) return <div style={{ padding: "40px 0", textAlign: "center", color: C.textSub, fontSize: 13 }}>Loading projects…</div>;
+
+  return (
+    <div>
+      <div style={{ fontWeight: 800, fontSize: 18, color: C.text, marginBottom: 6 }}>Projects</div>
+      <div style={{ fontSize: 12, color: C.textSub, marginBottom: 20 }}>{projects.length} active projects — manage customer portal access below</div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {projects.map(p => {
+          const projAccess = access.filter(a => a.project_ns_id === p.id);
+          const budgetH    = parseFloat(p.budget_hours ?? "0") || 0;
+          const remH       = parseFloat(p.remaining_hours ?? "0") || 0;
+          const usedH      = budgetH - remH;
+          const burnPct    = budgetH > 0 ? Math.round((usedH / budgetH) * 100) : 0;
+
+          return (
+            <div key={p.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", boxShadow: C.sh }}>
+              {/* Project header */}
+              <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.companyname}</div>
+                  <div style={{ fontSize: 11, color: C.textSub, marginTop: 1 }}>
+                    #{p.entityid} · {p.jobtype === "1" ? "Implementation" : "Service"} · Go-live: {fmtDate(p.golive_date)}
+                    · {usedH.toFixed(0)}h / {budgetH.toFixed(0)}h ({burnPct}%)
+                  </div>
+                </div>
+                <button
+                  onClick={() => { loadAccess(p.id); setInviting({ project: p, email: "", custId: "" }); setEmail(""); setSelCust(""); setInvErr(null); }}
+                  style={{ padding: "5px 13px", fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font }}
+                >
+                  + Invite to Portal
+                </button>
+              </div>
+
+              {/* Access rows */}
+              {projAccess.length > 0 && (
+                <div style={{ borderTop: `1px solid ${C.border}`, background: C.alt }}>
+                  <div style={{ padding: "6px 18px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Portal Access</div>
+                  {projAccess.map(a => (
+                    <div key={a.id} style={{ padding: "7px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
+                      <div>
+                        <span style={{ fontWeight: 600, color: C.text }}>{a.customer_portal_users?.email ?? a.customer_ns_id}</span>
+                        {a.customer_portal_users?.display_name && (
+                          <span style={{ color: C.textSub, marginLeft: 6 }}>({a.customer_portal_users.display_name})</span>
+                        )}
+                        <span style={{ color: C.textSub, marginLeft: 8 }}>Invited by {a.invited_by} · {fmtDate(a.invited_at)}</span>
+                      </div>
+                      <button
+                        onClick={() => revokeAccess(a.customer_ns_id, a.project_ns_id)}
+                        style={{ padding: "2px 8px", fontSize: 10, fontWeight: 700, borderRadius: 6, cursor: "pointer", background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, fontFamily: C.font }}
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Invite modal */}
+      {inviting && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={e => e.target === e.currentTarget && setInviting(null)}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: "28px 32px", width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>Invite Customer to Portal</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 20 }}>Grant portal access to: <strong>{inviting.project.companyname}</strong></div>
+            {invErr && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 7, padding: "8px 12px", color: C.red, fontSize: 12, marginBottom: 12 }}>{invErr}</div>}
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Customer Account</label>
+              <select value={selCust} onChange={e => setSelCust(e.target.value)} style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: C.font, color: C.text, background: "#fff", outline: "none" }}>
+                <option value="">Select customer…</option>
+                {customers.map(c => <option key={c.id} value={String(c.id)}>{c.companyname}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Contact Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="contact@client.com"
+                style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: C.font, color: C.text, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ fontSize: 11, color: C.textSub, marginTop: 4 }}>A magic-link invite will be emailed to this address.</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setInviting(null)} style={{ padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: C.font }}>Cancel</button>
+              <button onClick={sendInvite} disabled={!selCust || !email || saving}
+                style={{ padding: "7px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: (!selCust || !email || saving) ? "not-allowed" : "pointer", background: C.blue, color: "#fff", border: "none", fontFamily: C.font, opacity: (!selCust || !email || saving) ? 0.6 : 1 }}>
+                {saving ? "Sending…" : "Send Invite"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function CustomersView() {
-  const [activeTab, setActiveTab]     = useState<"healthchecks" | "msa">("healthchecks");
+  const [activeTab, setActiveTab]     = useState<"healthchecks" | "msa" | "projects">("healthchecks");
   const [customers, setCustomers]     = useState<NSCustomer[]>([]);
   const [healthchecks, setHealthchecks] = useState<Healthcheck[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -480,6 +670,7 @@ export function CustomersView() {
         {([
           { id: "healthchecks" as const, label: "🏥 Health Checks" },
           { id: "msa"          as const, label: "📋 MSA"           },
+          { id: "projects"     as const, label: "🗂 Projects"       },
         ]).map(tab => (
           <button
             key={tab.id}
@@ -500,6 +691,9 @@ export function CustomersView() {
 
       {/* ── MSA tab ──────────────────────────────────────────────────────────── */}
       {activeTab === "msa" && <MSAView />}
+
+      {/* ── Projects tab ─────────────────────────────────────────────────────── */}
+      {activeTab === "projects" && <CustomerProjectsView customers={customers} />}
 
       {/* ── Health Checks tab ────────────────────────────────────────────────── */}
       {activeTab === "healthchecks" && <>
