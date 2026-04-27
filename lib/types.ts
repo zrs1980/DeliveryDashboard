@@ -35,6 +35,7 @@ export interface CUTask {
   time_spent: number | null;    // ms
   url: string;
   list: { id: string; name: string };
+  parent?: string | null;
   dependencies?: Array<{ task_id: string; depends_on: string; type: number }>;
 }
 

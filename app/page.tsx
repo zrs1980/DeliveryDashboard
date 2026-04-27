@@ -17,7 +17,7 @@ import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView"
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import { CustomersView } from "@/components/dashboard/CustomersView";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
-import { ProjectManagementView } from "@/components/dashboard/ProjectManagementView";
+import { PMView } from "@/components/dashboard/PMView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -436,7 +436,7 @@ export default function DashboardPage() {
         {/* Project Management */}
         {hasLoaded && tab === "projectMgmt" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-            <ProjectManagementView projects={projects} />
+            <PMView projects={projects} />
           </div>
         )}
 
