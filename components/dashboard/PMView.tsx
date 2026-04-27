@@ -32,16 +32,35 @@ function CreateProjectModal({
   onClose: () => void;
   onCreated: (project: PMProject) => void;
 }) {
-  const [name, setName]             = useState("");
-  const [clientName, setClient]     = useState("");
-  const [projectType, setType]      = useState("Implementation");
-  const [pmName, setPm]             = useState("");
-  const [goLiveDate, setGoLive]     = useState("");
-  const [budgetHours, setBudget]    = useState("");
-  const [description, setDesc]      = useState("");
-  const [setupPhases, setSetup]     = useState(true);
-  const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState<string | null>(null);
+  const [name, setName]               = useState("");
+  const [clientName, setClient]       = useState("");
+  const [clientNsId, setClientNsId]   = useState<number | null>(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const [customers, setCustomers]     = useState<{ id: number; companyname: string }[]>([]);
+  const [projectType, setType]        = useState("Implementation");
+  const [pmName, setPm]               = useState("");
+  const [goLiveDate, setGoLive]       = useState("");
+  const [budgetHours, setBudget]      = useState("");
+  const [description, setDesc]        = useState("");
+  const [setupPhases, setSetup]       = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/customers").then(r => r.json()).then(d => setCustomers(d.customers ?? []));
+  }, []);
+
+  const filteredCustomers = clientSearch.length > 0
+    ? customers.filter(c => c.companyname.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 8)
+    : customers.slice(0, 8);
+
+  function selectCustomer(c: { id: number; companyname: string }) {
+    setClient(c.companyname);
+    setClientNsId(c.id);
+    setClientSearch("");
+    setShowClientDrop(false);
+  }
 
   const pmList = Object.values(PMS);
 
@@ -52,7 +71,7 @@ function CreateProjectModal({
       const res = await fetch("/api/pm/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), clientName: clientName.trim(), projectType, pmName: pmName || null, goLiveDate: goLiveDate || null, budgetHours: budgetHours || null, description: description.trim() || null, setupPhases }),
+        body: JSON.stringify({ name: name.trim(), clientName: clientName.trim(), projectType, pmName: pmName || null, goLiveDate: goLiveDate || null, budgetHours: budgetHours || null, description: description.trim() || null, setupPhases, nsProjectId: clientNsId ? String(clientNsId) : null }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error);
@@ -95,9 +114,49 @@ function CreateProjectModal({
               <label style={labelStyle}>Project Name *</label>
               <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. NS Implementation" style={inputStyle} autoFocus />
             </div>
-            <div>
-              <label style={labelStyle}>Client Name *</label>
-              <input value={clientName} onChange={e => setClient(e.target.value)} placeholder="e.g. Nautical Fulfillment" style={inputStyle} />
+            <div style={{ position: "relative" }}>
+              <label style={labelStyle}>Client *</label>
+              {/* Selected chip or search input */}
+              {clientName && !showClientDrop ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", border: `1px solid ${C.blue}`, borderRadius: 7, background: C.blueBg, cursor: "pointer" }} onClick={() => { setShowClientDrop(true); setClientSearch(""); }}>
+                  <span style={{ flex: 1, fontSize: 13, color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientName}</span>
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); setClient(""); setClientNsId(null); }}
+                    style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}
+                  >×</button>
+                </div>
+              ) : (
+                <input
+                  autoFocus={showClientDrop}
+                  value={clientSearch}
+                  onChange={e => { setClientSearch(e.target.value); setShowClientDrop(true); }}
+                  onFocus={() => setShowClientDrop(true)}
+                  onBlur={() => setTimeout(() => setShowClientDrop(false), 150)}
+                  placeholder="Search customers…"
+                  style={{ ...inputStyle, borderColor: showClientDrop ? C.blue : C.border }}
+                />
+              )}
+              {/* Dropdown */}
+              {showClientDrop && (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, boxShadow: C.shMd, zIndex: 50, marginTop: 2, overflow: "hidden" }}>
+                  {filteredCustomers.length === 0 ? (
+                    <div style={{ padding: "10px 12px", fontSize: 12, color: C.textSub }}>No customers found</div>
+                  ) : (
+                    filteredCustomers.map(c => (
+                      <div
+                        key={c.id}
+                        onMouseDown={() => selectCustomer(c)}
+                        style={{ padding: "9px 12px", fontSize: 13, color: C.text, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
+                        onMouseEnter={e => (e.currentTarget.style.background = C.alt)}
+                        onMouseLeave={e => (e.currentTarget.style.background = "")}
+                      >
+                        {c.companyname}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
