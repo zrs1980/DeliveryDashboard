@@ -3,7 +3,10 @@ import Google from "next-auth/providers/google";
 import { authConfig } from "./auth.config";
 import { getSupabaseAdmin } from "./lib/supabase";
 
-const ALLOWED_DOMAIN = process.env.AUTH_ALLOWED_DOMAIN;
+const ALLOWED_DOMAINS = (process.env.AUTH_ALLOWED_DOMAIN ?? "")
+  .split(",")
+  .map(d => d.trim())
+  .filter(Boolean);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -24,7 +27,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     async signIn({ account: _account, profile }) {
-      if (ALLOWED_DOMAIN && !profile?.email?.endsWith(`@${ALLOWED_DOMAIN}`)) {
+      if (ALLOWED_DOMAINS.length > 0 && !ALLOWED_DOMAINS.some(d => profile?.email?.endsWith(`@${d}`))) {
         return false;
       }
       return true;
