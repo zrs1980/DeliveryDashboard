@@ -42,32 +42,34 @@ interface PivotProject {
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
+// All internal date keys are ISO YYYY-MM-DD to avoid NS format ambiguity
+// (NS trandate may be "4/1/2026" without leading zeros).
 
-function parseNSDate(s: string): Date | null {
+/** Convert any M/D/YYYY or MM/DD/YYYY NS date to YYYY-MM-DD ISO key */
+function nsToISO(s: string): string {
   const p = s.split("/");
-  if (p.length !== 3) return null;
-  return new Date(parseInt(p[2]), parseInt(p[0]) - 1, parseInt(p[1]));
+  if (p.length !== 3) return s;
+  const mm   = p[0].padStart(2, "0");
+  const dd   = p[1].padStart(2, "0");
+  const yyyy = p[2];
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-/** Generate every calendar day from from→to inclusive, as MM/DD/YYYY strings */
+/** Generate every calendar day from→to inclusive as YYYY-MM-DD ISO strings */
 function generateDateRange(from: Date, to: Date): string[] {
   const dates: string[] = [];
   const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   const end = new Date(to.getFullYear(),   to.getMonth(),   to.getDate());
   while (cur <= end) {
-    const mm   = String(cur.getMonth() + 1).padStart(2, "0");
-    const dd   = String(cur.getDate()).padStart(2, "0");
-    const yyyy = cur.getFullYear();
-    dates.push(`${mm}/${dd}/${yyyy}`);
+    dates.push(cur.toISOString().slice(0, 10));
     cur.setDate(cur.getDate() + 1);
   }
   return dates;
 }
 
-/** Format a MM/DD/YYYY string into compact column header lines */
-function fmtColDate(s: string): { top: string; bot: string; isWeekend: boolean } {
-  const d = parseNSDate(s);
-  if (!d) return { top: s, bot: "", isWeekend: false };
+/** Format a YYYY-MM-DD key into compact two-line column header */
+function fmtColDate(iso: string): { top: string; bot: string; isWeekend: boolean } {
+  const d = new Date(iso + "T12:00:00"); // noon avoids DST edge cases
   const dow = d.getDay();
   return {
     top:       d.toLocaleDateString("en-US", { month: "short" }),
@@ -99,9 +101,10 @@ function buildPivot(entries: TimeEntry[], allDates: string[]): PivotProject[] {
   return Object.entries(byProject).map(([key, proj]) => {
     const byMemo: Record<string, Record<string, number>> = {};
     for (const e of proj.entries) {
-      const mk = e.memo.trim() || "(no memo)";
+      const mk      = e.memo.trim() || "(no memo)";
+      const isoDate = nsToISO(e.date);   // normalise to YYYY-MM-DD
       if (!byMemo[mk]) byMemo[mk] = {};
-      byMemo[mk][e.date] = (byMemo[mk][e.date] ?? 0) + e.hours;
+      byMemo[mk][isoDate] = (byMemo[mk][isoDate] ?? 0) + e.hours;
     }
 
     // Build date totals over the FULL range (not just days with entries)
