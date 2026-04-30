@@ -8,11 +8,12 @@ const PERIODS = [
   { id: "thisMonth",  label: "This Month" },
   { id: "lastMonth",  label: "Last Month" },
   { id: "thisQuarter", label: "This Quarter" },
+  { id: "custom",     label: "Custom" },
 ];
 
 interface TimeEntry {
   id: number;
-  date: string;         // MM/DD/YYYY
+  date: string;         // MM/DD/YYYY (NetSuite format)
   projectId: number | null;
   projectName: string;
   hours: number;
@@ -35,11 +36,12 @@ interface PivotProject {
   projectKey: string;
   projectName: string;
   projectId: number | null;
-  dates: string[];
   memos: { memo: string; byDate: Record<string, number>; total: number }[];
   dateTotals: Record<string, number>;
   grandTotal: number;
 }
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
 
 function parseNSDate(s: string): Date | null {
   const p = s.split("/");
@@ -47,12 +49,30 @@ function parseNSDate(s: string): Date | null {
   return new Date(parseInt(p[2]), parseInt(p[0]) - 1, parseInt(p[1]));
 }
 
-function fmtColDate(s: string): { top: string; bot: string } {
+/** Generate every calendar day from from→to inclusive, as MM/DD/YYYY strings */
+function generateDateRange(from: Date, to: Date): string[] {
+  const dates: string[] = [];
+  const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = new Date(to.getFullYear(),   to.getMonth(),   to.getDate());
+  while (cur <= end) {
+    const mm   = String(cur.getMonth() + 1).padStart(2, "0");
+    const dd   = String(cur.getDate()).padStart(2, "0");
+    const yyyy = cur.getFullYear();
+    dates.push(`${mm}/${dd}/${yyyy}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+/** Format a MM/DD/YYYY string into compact column header lines */
+function fmtColDate(s: string): { top: string; bot: string; isWeekend: boolean } {
   const d = parseNSDate(s);
-  if (!d) return { top: s, bot: "" };
+  if (!d) return { top: s, bot: "", isWeekend: false };
+  const dow = d.getDay();
   return {
-    top: d.toLocaleDateString("en-US", { month: "short" }),
-    bot: String(d.getDate()),
+    top:       d.toLocaleDateString("en-US", { month: "short" }),
+    bot:       String(d.getDate()),
+    isWeekend: dow === 0 || dow === 6,
   };
 }
 
@@ -65,7 +85,9 @@ function initials(name: string): string {
   return name.split(" ").map(n => n[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
 
-function buildPivot(entries: TimeEntry[]): PivotProject[] {
+// ── Pivot builder — uses a fixed set of all dates in the range ───────────────
+
+function buildPivot(entries: TimeEntry[], allDates: string[]): PivotProject[] {
   const byProject: Record<string, { projectName: string; projectId: number | null; entries: TimeEntry[] }> = {};
 
   for (const e of entries) {
@@ -75,9 +97,6 @@ function buildPivot(entries: TimeEntry[]): PivotProject[] {
   }
 
   return Object.entries(byProject).map(([key, proj]) => {
-    const dateSet = new Set<string>(proj.entries.map(e => e.date));
-    const dates = [...dateSet].sort((a, b) => (parseNSDate(a)?.getTime() ?? 0) - (parseNSDate(b)?.getTime() ?? 0));
-
     const byMemo: Record<string, Record<string, number>> = {};
     for (const e of proj.entries) {
       const mk = e.memo.trim() || "(no memo)";
@@ -85,11 +104,12 @@ function buildPivot(entries: TimeEntry[]): PivotProject[] {
       byMemo[mk][e.date] = (byMemo[mk][e.date] ?? 0) + e.hours;
     }
 
+    // Build date totals over the FULL range (not just days with entries)
     const dateTotals: Record<string, number> = {};
-    for (const d of dates) dateTotals[d] = 0;
+    for (const d of allDates) dateTotals[d] = 0;
     for (const byDate of Object.values(byMemo)) {
       for (const [d, h] of Object.entries(byDate)) {
-        dateTotals[d] = (dateTotals[d] ?? 0) + h;
+        if (dateTotals[d] !== undefined) dateTotals[d] += h;
       }
     }
 
@@ -101,93 +121,83 @@ function buildPivot(entries: TimeEntry[]): PivotProject[] {
 
     const grandTotal = memos.reduce((s, m) => s + m.total, 0);
 
-    return { projectKey: key, projectName: proj.projectName, projectId: proj.projectId, dates, memos, dateTotals, grandTotal };
+    return { projectKey: key, projectName: proj.projectName, projectId: proj.projectId, memos, dateTotals, grandTotal };
   });
 }
 
-// ── Styles ──────────────────────────────────────────────────────────────────
+// ── Styles ───────────────────────────────────────────────────────────────────
 
 const tdBase: React.CSSProperties = {
-  padding: "8px 10px",
+  padding: "7px 6px",
   borderBottom: `1px solid ${C.border}`,
   fontSize: 12,
   verticalAlign: "middle",
   whiteSpace: "nowrap",
 };
+const tdNum: React.CSSProperties = { ...tdBase, fontFamily: C.mono, textAlign: "right", minWidth: 46 };
+const MEMO_COL_W = 250;
 
-const tdNum: React.CSSProperties = {
-  ...tdBase,
-  fontFamily: C.mono,
-  textAlign: "right",
-  minWidth: 52,
-};
+// ── ProjectPivot ─────────────────────────────────────────────────────────────
 
-const MEMO_COL_W = 260;
-
-// ── Pivot table for one project ──────────────────────────────────────────────
-
-function ProjectPivot({ proj }: { proj: PivotProject }) {
-  const { dates, memos, dateTotals, grandTotal, projectName } = proj;
+function ProjectPivot({ proj, allDates }: { proj: PivotProject; allDates: string[] }) {
+  const { memos, dateTotals, grandTotal, projectName } = proj;
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 0 }}>
       {/* Project sub-header */}
       <div style={{
-        padding: "8px 14px",
-        background: C.alt,
-        borderBottom: `1px solid ${C.border}`,
+        padding: "7px 14px",
+        background: "#F1F5FB",
         borderTop: `1px solid ${C.border}`,
-        fontSize: 12,
-        fontWeight: 700,
-        color: C.textMid,
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 12, fontWeight: 700, color: C.textMid,
+        display: "flex", alignItems: "center", gap: 8,
       }}>
-        <span style={{
-          width: 7, height: 7, borderRadius: "50%",
-          background: C.blue, display: "inline-block", flexShrink: 0,
-        }} />
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.blue, display: "inline-block", flexShrink: 0 }} />
         {projectName}
       </div>
 
-      {/* Scrollable pivot table */}
+      {/* Scrollable table */}
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
+        <table style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
           <colgroup>
             <col style={{ width: MEMO_COL_W }} />
-            {dates.map(d => <col key={d} style={{ width: 58 }} />)}
-            <col style={{ width: 64 }} />
+            {allDates.map(d => <col key={d} style={{ width: 46 }} />)}
+            <col style={{ width: 58 }} />
           </colgroup>
 
-          {/* Column headers */}
           <thead>
             <tr style={{ background: C.alt }}>
+              {/* Memo col header — sticky */}
               <th style={{
-                ...tdBase,
-                fontWeight: 700, fontSize: 10, letterSpacing: "0.06em",
+                ...tdBase, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em",
                 color: C.textSub, textAlign: "left", textTransform: "uppercase",
-                position: "sticky", left: 0, background: C.alt, zIndex: 1,
+                position: "sticky", left: 0, background: C.alt, zIndex: 2,
+                borderRight: `1px solid ${C.border}`,
               }}>
                 Memo
               </th>
-              {dates.map(d => {
-                const { top, bot } = fmtColDate(d);
+              {/* Date col headers */}
+              {allDates.map(d => {
+                const { top, bot, isWeekend } = fmtColDate(d);
                 return (
                   <th key={d} style={{
                     ...tdBase,
-                    fontWeight: 600, color: C.textSub, textAlign: "center",
-                    lineHeight: 1.25, padding: "6px 4px",
+                    fontWeight: 500, textAlign: "center",
+                    lineHeight: 1.2, padding: "5px 3px",
+                    background: isWeekend ? "#F3F6FA" : C.alt,
+                    opacity: isWeekend ? 0.6 : 1,
                   }}>
-                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>{top}</div>
-                    <div style={{ fontSize: 12, fontFamily: C.mono, color: C.text }}>{bot}</div>
+                    <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em", color: C.textSub }}>{top}</div>
+                    <div style={{ fontSize: 11, fontFamily: C.mono, color: C.text }}>{bot}</div>
                   </th>
                 );
               })}
+              {/* Total col header */}
               <th style={{
-                ...tdBase,
-                fontWeight: 700, fontSize: 10, letterSpacing: "0.06em",
+                ...tdBase, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em",
                 color: C.textSub, textAlign: "right", textTransform: "uppercase",
+                borderLeft: `1px solid ${C.border}`,
               }}>
                 Total
               </th>
@@ -199,58 +209,59 @@ function ProjectPivot({ proj }: { proj: PivotProject }) {
               <tr key={row.memo} style={{ background: i % 2 === 0 ? C.surface : C.alt }}>
                 {/* Memo cell — sticky */}
                 <td style={{
-                  ...tdBase,
-                  color: row.memo === "(no memo)" ? C.textSub : C.text,
-                  fontStyle: row.memo === "(no memo)" ? "italic" : "normal",
+                  ...tdBase, padding: "7px 10px",
+                  color:      row.memo === "(no memo)" ? C.textSub : C.text,
+                  fontStyle:  row.memo === "(no memo)" ? "italic" : "normal",
                   fontWeight: 500,
                   position: "sticky", left: 0,
                   background: i % 2 === 0 ? C.surface : C.alt,
                   zIndex: 1,
-                  maxWidth: MEMO_COL_W,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  maxWidth: MEMO_COL_W, overflow: "hidden", textOverflow: "ellipsis",
+                  borderRight: `1px solid ${C.border}`,
                 }}>
                   {row.memo}
                 </td>
-
                 {/* Date cells */}
-                {dates.map(d => {
+                {allDates.map(d => {
                   const h = row.byDate[d];
+                  const { isWeekend } = fmtColDate(d);
                   return (
                     <td key={d} style={{
                       ...tdNum,
-                      color: h ? C.text : C.mid,
-                      fontWeight: h ? 600 : 400,
+                      color:      h ? C.text    : C.mid,
+                      fontWeight: h ? 600       : 400,
+                      background: isWeekend && !h ? "#F3F6FA" : undefined,
+                      opacity:    isWeekend && !h ? 0.5 : 1,
                     }}>
                       {h ? fmtH(h) : ""}
                     </td>
                   );
                 })}
-
                 {/* Row total */}
-                <td style={{ ...tdNum, fontWeight: 700, color: C.text }}>
+                <td style={{ ...tdNum, fontWeight: 700, color: C.text, borderLeft: `1px solid ${C.border}` }}>
                   {fmtH(row.total)}
                 </td>
               </tr>
             ))}
 
-            {/* Totals footer row */}
+            {/* Column totals footer — only when >1 memo */}
             {memos.length > 1 && (
-              <tr style={{ background: "#EEF2F8", borderTop: `2px solid ${C.border}` }}>
+              <tr style={{ background: "#E8EDF5", borderTop: `2px solid ${C.border}` }}>
                 <td style={{
-                  ...tdBase,
+                  ...tdBase, padding: "7px 10px",
                   fontWeight: 700, fontSize: 11, color: C.textMid,
                   textTransform: "uppercase", letterSpacing: "0.04em",
-                  position: "sticky", left: 0, background: "#EEF2F8", zIndex: 1,
+                  position: "sticky", left: 0, background: "#E8EDF5", zIndex: 1,
+                  borderRight: `1px solid ${C.border}`,
                 }}>
                   Total
                 </td>
-                {dates.map(d => (
+                {allDates.map(d => (
                   <td key={d} style={{ ...tdNum, fontWeight: 700, color: dateTotals[d] ? C.text : C.mid }}>
                     {dateTotals[d] ? fmtH(dateTotals[d]) : ""}
                   </td>
                 ))}
-                <td style={{ ...tdNum, fontWeight: 800, color: C.text, fontSize: 13 }}>
+                <td style={{ ...tdNum, fontWeight: 800, fontSize: 13, color: C.text, borderLeft: `1px solid ${C.border}` }}>
                   {fmtH(grandTotal)}
                 </td>
               </tr>
@@ -262,26 +273,39 @@ function ProjectPivot({ proj }: { proj: PivotProject }) {
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function TimeReview() {
-  const [period, setPeriod]       = useState("thisMonth");
-  const [data, setData]           = useState<EmployeeData[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const [expanded, setExpanded]   = useState<Set<number>>(new Set());
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [period, setPeriod]         = useState("thisMonth");
+  const [customFrom, setCustomFrom] = useState("");   // YYYY-MM-DD
+  const [customTo,   setCustomTo]   = useState("");   // YYYY-MM-DD
+  const [data,       setData]       = useState<EmployeeData[]>([]);
+  const [allDates,   setAllDates]   = useState<string[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
+  const [expanded,   setExpanded]   = useState<Set<number>>(new Set());
+  const [updatedAt,  setUpdatedAt]  = useState<string | null>(null);
 
-  async function load(p: string) {
+  async function load(p: string, from?: string, to?: string) {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch(`/api/time-review?period=${p}`);
+      const url = (p === "custom" && from && to)
+        ? `/api/time-review?period=custom&from=${from}&to=${to}`
+        : `/api/time-review?period=${p}`;
+
+      const res  = await fetch(url);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to load time records");
+
       setData(json.employees ?? []);
       setUpdatedAt(json.updatedAt ?? null);
       setExpanded(new Set());
+
+      // Generate the full date range for consistent columns
+      if (json.rangeFrom && json.rangeTo) {
+        setAllDates(generateDateRange(new Date(json.rangeFrom), new Date(json.rangeTo)));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -289,7 +313,14 @@ export function TimeReview() {
     }
   }
 
-  useEffect(() => { load(period); }, [period]);
+  // Auto-load when a preset period is selected
+  useEffect(() => {
+    if (period !== "custom") load(period);
+  }, [period]);
+
+  function applyCustomRange() {
+    if (customFrom && customTo && customFrom <= customTo) load("custom", customFrom, customTo);
+  }
 
   function toggle(id: number) {
     setExpanded(prev => {
@@ -305,29 +336,73 @@ export function TimeReview() {
   return (
     <div>
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>Time Review</div>
           <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>
-            Memos × dates pivot by resource and project
+            Memo × date pivot — grouped by resource and project
           </div>
         </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {PERIODS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => setPeriod(p.id)}
-              style={{
-                padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: C.font,
-                background: period === p.id ? C.blue : C.surface,
-                color:      period === p.id ? "#fff"  : C.textMid,
-                border:     `1px solid ${period === p.id ? C.blue : C.border}`,
-                borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
+
+        {/* Period selector */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: C.font,
+                  background: period === p.id ? C.blue : C.surface,
+                  color:      period === p.id ? "#fff"  : C.textMid,
+                  border:     `1px solid ${period === p.id ? C.blue : C.border}`,
+                  borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom date range inputs */}
+          {period === "custom" && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={e => setCustomFrom(e.target.value)}
+                style={{
+                  padding: "5px 10px", fontSize: 12, fontFamily: C.font,
+                  border: `1px solid ${C.border}`, borderRadius: 6,
+                  color: C.text, background: C.surface, cursor: "pointer",
+                }}
+              />
+              <span style={{ fontSize: 12, color: C.textSub }}>to</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                onChange={e => setCustomTo(e.target.value)}
+                style={{
+                  padding: "5px 10px", fontSize: 12, fontFamily: C.font,
+                  border: `1px solid ${C.border}`, borderRadius: 6,
+                  color: C.text, background: C.surface, cursor: "pointer",
+                }}
+              />
+              <button
+                onClick={applyCustomRange}
+                disabled={!customFrom || !customTo || customFrom > customTo}
+                style={{
+                  padding: "5px 14px", fontSize: 12, fontWeight: 700, fontFamily: C.font,
+                  background: (!customFrom || !customTo || customFrom > customTo) ? C.alt : C.blue,
+                  color:      (!customFrom || !customTo || customFrom > customTo) ? C.textSub : "#fff",
+                  border: "none", borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
+                }}
+              >
+                Apply
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -344,8 +419,8 @@ export function TimeReview() {
               <span style={{ fontSize: 12, color: C.textSub, marginLeft: 6 }}>entries</span>
             </div>
             <div>
-              <span style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 18, color: C.text }}>{data.length}</span>
-              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 6 }}>resources</span>
+              <span style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 18, color: C.text }}>{allDates.length}</span>
+              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 6 }}>days in range</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -389,7 +464,9 @@ export function TimeReview() {
       {/* ── Empty state ─────────────────────────────────────────────────────── */}
       {!loading && !error && data.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 24px", color: C.textSub, fontSize: 14 }}>
-          No time records found for this period.
+          {period === "custom" && (!customFrom || !customTo)
+            ? "Select a date range above and click Apply."
+            : "No time records found for this period."}
         </div>
       )}
 
@@ -397,12 +474,12 @@ export function TimeReview() {
       {!loading && data.map(emp => {
         const isExpanded  = expanded.has(emp.employeeId);
         const billablePct = emp.totalHours > 0 ? Math.round((emp.billableHours / emp.totalHours) * 100) : 0;
-        const projects    = isExpanded ? buildPivot(emp.entries) : [];
+        const projects    = isExpanded ? buildPivot(emp.entries, allDates) : [];
 
         return (
           <div key={emp.employeeId} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden", boxShadow: C.sh }}>
 
-            {/* ── Employee header (click to expand) ──────────────────────────── */}
+            {/* Employee header */}
             <div
               onClick={() => toggle(emp.employeeId)}
               style={{ display: "flex", alignItems: "center", padding: "14px 18px", cursor: "pointer", gap: 14, userSelect: "none" }}
@@ -444,17 +521,21 @@ export function TimeReview() {
                 </div>
               </div>
 
-              <div style={{ fontSize: 14, color: C.textSub, flexShrink: 0, width: 20, textAlign: "center", transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+              <div style={{
+                fontSize: 14, color: C.textSub, flexShrink: 0, width: 20, textAlign: "center",
+                transition: "transform 0.2s",
+                transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+              }}>
                 ▾
               </div>
             </div>
 
-            {/* ── Expanded: project pivot tables ─────────────────────────────── */}
+            {/* Expanded: project pivots */}
             {isExpanded && (
               <div style={{ borderTop: `1px solid ${C.border}` }}>
                 {projects.length === 0
                   ? <div style={{ padding: "14px 18px", fontSize: 13, color: C.textSub, fontStyle: "italic" }}>No entries.</div>
-                  : projects.map(proj => <ProjectPivot key={proj.projectKey} proj={proj} />)
+                  : projects.map(proj => <ProjectPivot key={proj.projectKey} proj={proj} allDates={allDates} />)
                 }
               </div>
             )}
