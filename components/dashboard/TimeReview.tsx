@@ -140,6 +140,37 @@ const tdBase: React.CSSProperties = {
 const tdNum: React.CSSProperties = { ...tdBase, fontFamily: C.mono, textAlign: "right", minWidth: 46 };
 const MEMO_COL_W = 250;
 
+// ── TotalsRow — reused at top and bottom of each pivot table ─────────────────
+
+function TotalsRow({ dateTotals, allDates, grandTotal, borderTop }: {
+  dateTotals: Record<string, number>;
+  allDates:   string[];
+  grandTotal: number;
+  borderTop:  string;
+}) {
+  return (
+    <tr style={{ background: "#E8EDF5", borderTop }}>
+      <td style={{
+        ...tdBase, padding: "7px 10px",
+        fontWeight: 700, fontSize: 11, color: C.textMid,
+        textTransform: "uppercase", letterSpacing: "0.04em",
+        position: "sticky", left: 0, background: "#E8EDF5", zIndex: 1,
+        borderRight: `1px solid ${C.border}`,
+      }}>
+        Total
+      </td>
+      {allDates.map(d => (
+        <td key={d} style={{ ...tdNum, fontWeight: 700, color: dateTotals[d] ? C.text : C.mid }}>
+          {dateTotals[d] ? fmtH(dateTotals[d]) : ""}
+        </td>
+      ))}
+      <td style={{ ...tdNum, fontWeight: 800, fontSize: 13, color: C.text, borderLeft: `1px solid ${C.border}` }}>
+        {fmtH(grandTotal)}
+      </td>
+    </tr>
+  );
+}
+
 // ── ProjectPivot ─────────────────────────────────────────────────────────────
 
 function ProjectPivot({ proj, allDates }: { proj: PivotProject; allDates: string[] }) {
@@ -208,6 +239,9 @@ function ProjectPivot({ proj, allDates }: { proj: PivotProject; allDates: string
           </thead>
 
           <tbody>
+            {/* ── Top totals row ───────────────────────────────────────────── */}
+            <TotalsRow dateTotals={dateTotals} allDates={allDates} grandTotal={grandTotal} borderTop="none" />
+
             {memos.map((row, i) => (
               <tr key={row.memo} style={{ background: i % 2 === 0 ? C.surface : C.alt }}>
                 {/* Memo cell — sticky */}
@@ -231,8 +265,8 @@ function ProjectPivot({ proj, allDates }: { proj: PivotProject; allDates: string
                   return (
                     <td key={d} style={{
                       ...tdNum,
-                      color:      h ? C.text    : C.mid,
-                      fontWeight: h ? 600       : 400,
+                      color:      h ? C.text : C.mid,
+                      fontWeight: h ? 600    : 400,
                       background: isWeekend && !h ? "#F3F6FA" : undefined,
                       opacity:    isWeekend && !h ? 0.5 : 1,
                     }}>
@@ -247,28 +281,9 @@ function ProjectPivot({ proj, allDates }: { proj: PivotProject; allDates: string
               </tr>
             ))}
 
-            {/* Column totals footer — only when >1 memo */}
-            {memos.length > 1 && (
-              <tr style={{ background: "#E8EDF5", borderTop: `2px solid ${C.border}` }}>
-                <td style={{
-                  ...tdBase, padding: "7px 10px",
-                  fontWeight: 700, fontSize: 11, color: C.textMid,
-                  textTransform: "uppercase", letterSpacing: "0.04em",
-                  position: "sticky", left: 0, background: "#E8EDF5", zIndex: 1,
-                  borderRight: `1px solid ${C.border}`,
-                }}>
-                  Total
-                </td>
-                {allDates.map(d => (
-                  <td key={d} style={{ ...tdNum, fontWeight: 700, color: dateTotals[d] ? C.text : C.mid }}>
-                    {dateTotals[d] ? fmtH(dateTotals[d]) : ""}
-                  </td>
-                ))}
-                <td style={{ ...tdNum, fontWeight: 800, fontSize: 13, color: C.text, borderLeft: `1px solid ${C.border}` }}>
-                  {fmtH(grandTotal)}
-                </td>
-              </tr>
-            )}
+            {/* ── Bottom totals row ────────────────────────────────────────── */}
+            <TotalsRow dateTotals={dateTotals} allDates={allDates} grandTotal={grandTotal} borderTop={`2px solid ${C.border}`} />
+
           </tbody>
         </table>
       </div>
