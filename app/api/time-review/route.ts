@@ -34,9 +34,10 @@ interface TimebillRow {
 }
 
 interface JobRow {
-  id: string;
-  companyname: string;
-  entityid: string;
+  id:          string;
+  client_name: string;   // BUILTIN.DF(customer)
+  project_name: string;  // raw companyname
+  entityid:    string;
 }
 
 export async function GET(req: NextRequest) {
@@ -95,14 +96,14 @@ export async function GET(req: NextRequest) {
         ORDER BY tb.employee, tb.trandate DESC, tb.id DESC
       `),
       runSuiteQLAll<JobRow>(`
-        SELECT id, companyname, entityid
+        SELECT id, BUILTIN.DF(customer) AS client_name, companyname AS project_name, entityid
         FROM job
         ORDER BY id ASC
       `),
     ]);
 
-    const jobMap: Record<string, { companyname: string; entityid: string }> = {};
-    for (const j of jobRows) jobMap[j.id] = { companyname: j.companyname, entityid: j.entityid };
+    const jobMap: Record<string, { client_name: string; project_name: string }> = {};
+    for (const j of jobRows) jobMap[j.id] = { client_name: j.client_name, project_name: j.project_name };
 
     const byEmployee: Record<string, {
       employeeId:    number;
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
       const hours = parseFloat(row.hours) || 0;
       const job   = row.project_id ? jobMap[row.project_id] : undefined;
       const projectName = job
-        ? `${job.companyname}${job.entityid ? ` — #${job.entityid}` : ""}`
+        ? `${job.client_name || job.project_name}${job.project_name && job.client_name ? ` — ${job.project_name}` : ""}`
         : row.project_id ? `Project #${row.project_id}` : "Internal / Admin";
 
       byEmployee[key].totalHours    += hours;
