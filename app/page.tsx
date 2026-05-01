@@ -19,6 +19,7 @@ import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import { CustomersView } from "@/components/dashboard/CustomersView";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
+import { ManagerReview } from "@/components/dashboard/ManagerReview";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -35,15 +36,16 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "time-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt";
+type Tab = "projects" | "tasks" | "resources" | "time" | "time-review" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
   { id: "tasks",      label: "Tasks",       icon: "🗂️" },
   { id: "resources",  label: "Resource Allocation", icon: "👥" },
   { id: "time",        label: "Time Analysis", icon: "⏱️" },
-  { id: "time-review", label: "Time Review",  icon: "🔍" },
-  { id: "consultant",  label: "My Work",      icon: "👤" },
+  { id: "time-review", label: "Time Review",     icon: "🔍" },
+  { id: "mgr-review",  label: "Manager Review", icon: "📋" },
+  { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
   { id: "calendar",   label: "Calendar",    icon: "📅" },
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
@@ -332,6 +334,13 @@ export default function DashboardPage() {
         {tab === "time" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <TimeAnalysis />
+          </div>
+        )}
+
+        {/* Manager Review */}
+        {tab === "mgr-review" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <ManagerReview />
           </div>
         )}
 
