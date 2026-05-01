@@ -25,13 +25,15 @@ interface TimebillRow {
 }
 
 interface AllocRow {
-  id:          string;
-  employee_id: string;
-  project_id:  string;
-  start_date:  string;
-  end_date:    string;
-  pct:         string;   // percentOfTime
-  hrs:         string;   // numberHours (per day)
+  id:           string;
+  employee_id:  string;
+  project_id:   string;
+  company_name: string | null;
+  project_num:  string | null;
+  start_date:   string;
+  end_date:     string;
+  pct:          string;   // percentOfTime
+  hrs:          string;   // numberHours (per day)
 }
 
 interface JobRow {
@@ -97,11 +99,14 @@ export async function GET(req: NextRequest) {
           ra.id,
           ra.allocationResource  AS employee_id,
           ra.project             AS project_id,
+          j.companyname          AS company_name,
+          j.entityid             AS project_num,
           ra.startDate           AS start_date,
           ra.endDate             AS end_date,
           ra.percentOfTime       AS pct,
           ra.numberHours         AS hrs
         FROM resourceallocation ra
+        LEFT JOIN job j ON j.id = ra.project
         WHERE ra.allocationResource IN (${empList})
           AND ra.startDate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
           AND ra.endDate   >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
@@ -113,10 +118,13 @@ export async function GET(req: NextRequest) {
     const jobMap: Record<string, { company: string; number: string }> = {};
     for (const j of jobRows) jobMap[j.id] = { company: j.companyname, number: j.entityid };
 
-    function projectLabel(projectId: string | null): string {
+    function projectLabel(projectId: string | null, companyName?: string | null, projectNum?: string | null): string {
       if (!projectId) return "Internal / Admin";
-      const j = jobMap[projectId];
-      return j ? `${j.company}${j.number ? ` — #${j.number}` : ""}` : `Project #${projectId}`;
+      // Prefer inline fields from the JOIN; fall back to jobMap for timebill rows
+      const company = companyName || jobMap[projectId]?.company;
+      const num     = projectNum  || jobMap[projectId]?.number;
+      if (company) return `${company}${num ? ` — #${num}` : ""}`;
+      return `Project #${projectId}`;
     }
 
     // Build actual hours map: empId → projectId → { total, billable }
@@ -155,19 +163,28 @@ export async function GET(req: NextRequest) {
           ...Object.keys(empAllocs),
         ]);
 
-        const projects = [...allProjectIds].map(projId => ({
-          projectId:    projId === "__internal__" ? null : parseInt(projId),
-          projectName:  projectLabel(projId === "__internal__" ? null : projId),
-          actualHours:  empActuals[projId]?.total    ?? 0,
-          billableHours: empActuals[projId]?.billable ?? 0,
-          allocations:  (empAllocs[projId] ?? []).map(a => ({
-            id:        a.id,
-            startDate: a.start_date,
-            endDate:   a.end_date,
-            pct:       parseFloat(a.pct)  || 0,
-            hrsPerDay: parseFloat(a.hrs)  || 0,
-          })),
-        }));
+        const projects = [...allProjectIds].map(projId => {
+          const allocList = empAllocs[projId] ?? [];
+          // Use inline company/num from first allocation row if available
+          const firstAlloc = allocList[0];
+          return {
+            projectId:    projId === "__internal__" ? null : parseInt(projId),
+            projectName:  projectLabel(
+              projId === "__internal__" ? null : projId,
+              firstAlloc?.company_name,
+              firstAlloc?.project_num,
+            ),
+            actualHours:  empActuals[projId]?.total    ?? 0,
+            billableHours: empActuals[projId]?.billable ?? 0,
+            allocations:  allocList.map(a => ({
+              id:        a.id,
+              startDate: a.start_date,
+              endDate:   a.end_date,
+              pct:       parseFloat(a.pct)  || 0,
+              hrsPerDay: parseFloat(a.hrs)  || 0,
+            })),
+          };
+        });
 
         const totalHours    = projects.reduce((s, p) => s + p.actualHours,   0);
         const billableHours = projects.reduce((s, p) => s + p.billableHours, 0);
