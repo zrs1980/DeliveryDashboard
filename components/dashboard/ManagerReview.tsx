@@ -121,9 +121,9 @@ function initials(name: string) { return name.split(" ").map(n => n[0] ?? "").jo
 
 // ── Mini bar ──────────────────────────────────────────────────────────────────
 
-function MiniBar({ value, color, bg = C.alt }: { value: number; color: string; bg?: string }) {
+function MiniBar({ value, color, bg = C.alt, width = 80 }: { value: number; color: string; bg?: string; width?: number }) {
   return (
-    <div style={{ width: 80, height: 6, background: bg, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+    <div style={{ width, height: 6, background: bg, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
       <div style={{ width: `${Math.min(100, Math.max(0, value * 100))}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.3s" }} />
     </div>
   );
@@ -158,7 +158,7 @@ function ProjectRow({
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "1fr 72px 72px 72px 72px 68px 80px",
+      gridTemplateColumns: "1fr 72px 72px 72px 72px 80px 110px",
       alignItems: "center",
       padding: "9px 18px",
       borderBottom: isLast ? "none" : `1px solid ${C.border}`,
@@ -214,7 +214,7 @@ function ProjectRow({
             <span style={{ fontFamily: C.mono, fontSize: 11, color: billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red }}>
               {pct(billPct)}
             </span>
-            <MiniBar value={billPct} color={billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red} />
+            <MiniBar value={billPct} color={billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red} width={44} />
           </>
         )}
       </div>
@@ -405,7 +405,7 @@ export function ManagerReview() {
       {!loading && expanded.size > 0 && (
         <div style={{
           display: "grid",
-          gridTemplateColumns: "1fr 72px 72px 72px 72px 68px 80px",
+          gridTemplateColumns: "1fr 72px 72px 72px 72px 80px 110px",
           padding: "5px 18px",
           marginBottom: 4,
           fontSize: 10, fontWeight: 700, color: C.textSub,
