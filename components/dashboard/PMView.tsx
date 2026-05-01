@@ -276,8 +276,7 @@ function NativeProjectCard({ project, onClick }: { project: PMProject; onClick: 
         {/* Header row */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</div>
-            <div style={{ fontSize: 12, color: C.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.client_name}</div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.client_name} — {project.name}</div>
           </div>
           <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: statusBg, color: statusColor, border: `1px solid ${statusBd}`, marginLeft: 10, flexShrink: 0 }}>
             {statusLabel}
