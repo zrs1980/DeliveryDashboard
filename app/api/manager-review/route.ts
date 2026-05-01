@@ -28,8 +28,8 @@ interface AllocRow {
   id:           string;
   employee_id:  string;
   project_id:   string;
-  company_name: string | null;
-  project_num:  string | null;
+  company_name: string | null;  // BUILTIN.DF(customer) — client name
+  project_name: string | null;  // job.companyname — project name
   start_date:   string;
   end_date:     string;
   pct:          string;   // percentOfTime
@@ -37,9 +37,10 @@ interface AllocRow {
 }
 
 interface JobRow {
-  id: string;
-  companyname: string;
-  entityid: string;
+  id:          string;
+  companyname: string;   // BUILTIN.DF(customer) — client name
+  projectname: string;   // raw companyname — project name
+  entityid:    string;
 }
 
 export async function GET(req: NextRequest) {
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest) {
           ra.allocationResource       AS employee_id,
           ra.project                  AS project_id,
           BUILTIN.DF(j.customer)      AS company_name,
-          j.entityid                  AS project_num,
+          j.companyname               AS project_name,
           ra.startDate                AS start_date,
           ra.endDate                  AS end_date,
           ra.percentOfTime            AS pct,
@@ -112,18 +113,19 @@ export async function GET(req: NextRequest) {
           AND ra.endDate   >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
         ORDER BY ra.allocationResource, ra.startDate
       `),
-      runSuiteQLAll<JobRow>(`SELECT id, BUILTIN.DF(customer) AS companyname, entityid FROM job ORDER BY id ASC`),
+      runSuiteQLAll<JobRow>(`SELECT id, BUILTIN.DF(customer) AS companyname, companyname AS projectname, entityid FROM job ORDER BY id ASC`),
     ]);
 
-    const jobMap: Record<string, { company: string; number: string }> = {};
-    for (const j of jobRows) jobMap[j.id] = { company: j.companyname, number: j.entityid };
+    const jobMap: Record<string, { company: string; name: string }> = {};
+    for (const j of jobRows) jobMap[j.id] = { company: j.companyname, name: j.projectname };
 
-    function projectLabel(projectId: string | null, companyName?: string | null, projectNum?: string | null): string {
+    function projectLabel(projectId: string | null, companyName?: string | null, projectName?: string | null): string {
       if (!projectId) return "Internal / Admin";
       // Prefer inline fields from the JOIN; fall back to jobMap for timebill rows
       const company = companyName || jobMap[projectId]?.company;
-      const num     = projectNum  || jobMap[projectId]?.number;
-      if (company) return `${company}${num ? ` — #${num}` : ""}`;
+      const name    = projectName || jobMap[projectId]?.name;
+      if (company) return `${company}${name ? ` — ${name}` : ""}`;
+      if (name) return name;
       return `Project #${projectId}`;
     }
 
@@ -172,7 +174,7 @@ export async function GET(req: NextRequest) {
             projectName:  projectLabel(
               projId === "__internal__" ? null : projId,
               firstAlloc?.company_name,
-              firstAlloc?.project_num,
+              firstAlloc?.project_name,
             ),
             actualHours:  empActuals[projId]?.total    ?? 0,
             billableHours: empActuals[projId]?.billable ?? 0,
