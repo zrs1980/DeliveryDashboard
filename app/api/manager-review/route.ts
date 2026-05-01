@@ -97,14 +97,14 @@ export async function GET(req: NextRequest) {
       runSuiteQLAll<AllocRow>(`
         SELECT
           ra.id,
-          ra.allocationResource  AS employee_id,
-          ra.project             AS project_id,
-          j.companyname          AS company_name,
-          j.entityid             AS project_num,
-          ra.startDate           AS start_date,
-          ra.endDate             AS end_date,
-          ra.percentOfTime       AS pct,
-          ra.numberHours         AS hrs
+          ra.allocationResource       AS employee_id,
+          ra.project                  AS project_id,
+          BUILTIN.DF(j.customer)      AS company_name,
+          j.entityid                  AS project_num,
+          ra.startDate                AS start_date,
+          ra.endDate                  AS end_date,
+          ra.percentOfTime            AS pct,
+          ra.numberHours              AS hrs
         FROM resourceallocation ra
         LEFT JOIN job j ON j.id = ra.project
         WHERE ra.allocationResource IN (${empList})
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
           AND ra.endDate   >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
         ORDER BY ra.allocationResource, ra.startDate
       `),
-      runSuiteQLAll<JobRow>(`SELECT id, companyname, entityid FROM job ORDER BY id ASC`),
+      runSuiteQLAll<JobRow>(`SELECT id, BUILTIN.DF(customer) AS companyname, entityid FROM job ORDER BY id ASC`),
     ]);
 
     const jobMap: Record<string, { company: string; number: string }> = {};
