@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= TO_DATE('${toNSDateLiteral(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDateLiteral(to)}',   'MM/DD/YYYY')
-          AND tb.isutilized = 'T'
+          AND tb.timetype = 'A'
         ORDER BY tb.employee, tb.trandate DESC, tb.id DESC
       `),
       runSuiteQLAll<JobRow>(`
