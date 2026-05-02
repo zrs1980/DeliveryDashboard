@@ -155,8 +155,10 @@ export async function GET(req: NextRequest) {
     for (const e of entryRows) {
       const emp     = e.employee;
       const rawProj = e.project_id ?? "__internal__";
-      // Remap: if this entry is against a NS case, bucket it under the Cases project
-      const proj    = (e.casetask && casesId) ? casesId : rawProj;
+      // Remap: if this entry is against a NS case, bucket it under the Cases project.
+      // NS returns "0" (not null) for non-case entries, so guard against that.
+      const isCaseEntry = casesId && e.casetask != null && e.casetask !== "" && e.casetask !== "0";
+      const proj        = isCaseEntry ? casesId : rawProj;
 
       const hours   = Math.round((parseFloat(e.hours) || 0) * 100) / 100;
       const billable = e.isbillable === "T";
