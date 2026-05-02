@@ -21,7 +21,6 @@ interface EntryRow {
   id:             string;
   employee:       string;
   project_id:     string | null;
-  casetask:       string | null;  // casetaskevent — non-null means logged against a NS case
   date:           string;
   hours:          string;
   memo:           string | null;
@@ -84,12 +83,6 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    // Look up the Cases Resource Allocation Project so case time can be bucketed under it
-    const casesRows = await runSuiteQLAll<{ id: string }>(`
-      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
-    `);
-    const casesId = casesRows[0]?.id ?? null;
-
     const [entryRows, allocRows, jobRows] = await Promise.all([
       // Individual time entries — used for both actuals aggregation and drill-down
       runSuiteQLAll<EntryRow>(`
@@ -97,7 +90,6 @@ export async function GET(req: NextRequest) {
           tb.id,
           tb.employee,
           tb.customer       AS project_id,
-          tb.casetaskevent  AS casetask,
           tb.trandate       AS date,
           tb.hours,
           tb.memo,
@@ -145,20 +137,15 @@ export async function GET(req: NextRequest) {
       return `Project #${projectId}`;
     }
 
-    // Build entry map + actuals map together from individual rows.
-    // Case entries (casetask IS NOT NULL) are remapped to the Cases Resource Allocation Project.
+    // Build entry map + actuals map together from individual rows
     const entryMap: Record<string, Record<string, Array<{
       id: number; date: string; hours: number; memo: string; billable: boolean; approved: boolean;
     }>>> = {};
     const actuals: Record<string, Record<string, { total: number; billable: number }>> = {};
 
     for (const e of entryRows) {
-      const emp     = e.employee;
-      const rawProj = e.project_id ?? "__internal__";
-      // Remap: if this entry is against a NS case, bucket it under the Cases project.
-      // NS returns "0" (not null) for non-case entries, so guard against that.
-      const isCaseEntry = casesId && e.casetask != null && e.casetask !== "" && e.casetask !== "0";
-      const proj        = isCaseEntry ? casesId : rawProj;
+      const emp  = e.employee;
+      const proj = e.project_id ?? "__internal__";
 
       const hours   = Math.round((parseFloat(e.hours) || 0) * 100) / 100;
       const billable = e.isbillable === "T";

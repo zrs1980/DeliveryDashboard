@@ -76,21 +76,12 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    // Look up the Cases Resource Allocation Project so case time can be bucketed under it
-    const casesRows = await runSuiteQLAll<{ id: string }>(`
-      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
-    `);
-    const casesId = casesRows[0]?.id ?? null;
-    const projExpr = casesId
-      ? `CASE WHEN tb.casetaskevent IS NOT NULL THEN '${casesId}' ELSE tb.customer END`
-      : `tb.customer`;
-
     const [rows, jobRows] = await Promise.all([
       runSuiteQLAll<TimebillRow>(`
         SELECT
           tb.id,
           tb.employee,
-          ${projExpr}       AS project_id,
+          tb.customer       AS project_id,
           tb.trandate,
           tb.hours,
           tb.memo,
