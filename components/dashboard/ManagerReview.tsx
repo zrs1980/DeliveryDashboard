@@ -251,7 +251,7 @@ function ProjectRow({
       {open && hasEntries && (
         <div style={{ background: C.alt }}>
           <div style={{
-            display: "grid", gridTemplateColumns: "110px 1fr 56px 44px",
+            display: "grid", gridTemplateColumns: "110px 1fr 56px 44px 40px",
             padding: "4px 18px 4px 44px",
             fontSize: 10, fontWeight: 700, color: C.textSub,
             textTransform: "uppercase", letterSpacing: "0.06em",
@@ -261,10 +261,11 @@ function ProjectRow({
             <div>Memo</div>
             <div style={{ textAlign: "right" }}>Hours</div>
             <div style={{ textAlign: "right" }}>Bill</div>
+            <div />
           </div>
           {proj.entries.map((entry, i) => (
             <div key={entry.id} style={{
-              display: "grid", gridTemplateColumns: "110px 1fr 56px 44px",
+              display: "grid", gridTemplateColumns: "110px 1fr 56px 44px 40px",
               padding: "6px 18px 6px 44px",
               alignItems: "center",
               borderTop: i > 0 ? `1px solid ${C.border}` : "none",
@@ -284,6 +285,15 @@ function ProjectRow({
                   ? <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, padding: "1px 5px" }}>B</span>
                   : <span style={{ fontSize: 11, color: C.mid }}>—</span>
                 }
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <a
+                  href={`https://system.na1.netsuite.com/app/time/timeentry.nl?id=${entry.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 10, fontWeight: 600, color: C.purple, textDecoration: "none", background: C.purpleBg, border: `1px solid ${C.purpleBd}`, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}
+                >↗ NS</a>
               </div>
             </div>
           ))}
