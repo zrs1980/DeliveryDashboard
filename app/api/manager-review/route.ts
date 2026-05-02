@@ -90,12 +90,23 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
+    // Look up the Cases Resource Allocation Project so case time can be bucketed under it
+    const casesRows = await runSuiteQLAll<{ id: string }>(`
+      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
+    `);
+    const casesId = casesRows[0]?.id ?? null;
+
+    // CASE expression: time logged against a NS case → Cases Resource Allocation Project
+    const projExpr = casesId
+      ? `CASE WHEN tb.casetaskevent IS NOT NULL THEN '${casesId}' ELSE tb.customer END`
+      : `tb.customer`;
+
     const [timebillRows, entryRows, allocRows, jobRows] = await Promise.all([
       // Actual hours by employee+project, aggregated
       runSuiteQLAll<TimebillRow>(`
         SELECT
           tb.employee,
-          tb.customer                                                    AS project_id,
+          ${projExpr}                                                    AS project_id,
           SUM(tb.hours)                                                  AS total_hours,
           SUM(CASE WHEN tb.isbillable = 'T' THEN tb.hours ELSE 0 END)  AS billable_hours
         FROM timebill tb
@@ -103,7 +114,7 @@ export async function GET(req: NextRequest) {
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
           AND tb.timetype = 'A'
-        GROUP BY tb.employee, tb.customer
+        GROUP BY tb.employee, ${projExpr}
         ORDER BY tb.employee, total_hours DESC
       `),
       // Individual time entries (for drill-down)
@@ -111,7 +122,7 @@ export async function GET(req: NextRequest) {
         SELECT
           tb.id,
           tb.employee,
-          tb.customer       AS project_id,
+          ${projExpr}       AS project_id,
           tb.trandate       AS date,
           tb.hours,
           tb.memo,
@@ -122,7 +133,7 @@ export async function GET(req: NextRequest) {
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
           AND tb.timetype = 'A'
-        ORDER BY tb.employee, tb.customer, tb.trandate ASC, tb.id ASC
+        ORDER BY tb.employee, ${projExpr}, tb.trandate ASC, tb.id ASC
       `),
       // Allocations that overlap the period (not just future ones)
       runSuiteQLAll<AllocRow>(`
