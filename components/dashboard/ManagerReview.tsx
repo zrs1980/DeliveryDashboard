@@ -132,7 +132,7 @@ const RAG = {
 
 // ── Tiny helpers ──────────────────────────────────────────────────────────────
 
-function fmtH(n: number) { const r = Math.round(n * 10) / 10; return r % 1 === 0 ? String(r) : r.toFixed(1); }
+function fmtH(n: number) { return n.toFixed(2); }
 function pct(n: number)  { return Math.round(n * 100) + "%"; }
 function initials(name: string) { return name.split(" ").map(n => n[0] ?? "").join("").slice(0, 2).toUpperCase(); }
 
