@@ -41,10 +41,11 @@ interface AllocRow {
 }
 
 interface JobRow {
-  id:          string;
-  companyname: string;
-  projectname: string;
-  entityid:    string;
+  id:           string;
+  companyname:  string;
+  projectname:  string;
+  entityid:     string;
+  project_type: string;
 }
 
 export async function GET(req: NextRequest) {
@@ -137,11 +138,11 @@ export async function GET(req: NextRequest) {
           AND ra.endDate   >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
         ORDER BY ra.allocationResource, ra.startDate
       `),
-      runSuiteQLAll<JobRow>(`SELECT id, BUILTIN.DF(customer) AS companyname, companyname AS projectname, entityid FROM job ORDER BY id ASC`),
+      runSuiteQLAll<JobRow>(`SELECT id, BUILTIN.DF(customer) AS companyname, companyname AS projectname, entityid, BUILTIN.DF(jobtype) AS project_type FROM job ORDER BY id ASC`),
     ]);
 
-    const jobMap: Record<string, { company: string; name: string }> = {};
-    for (const j of jobRows) jobMap[j.id] = { company: j.companyname, name: j.projectname };
+    const jobMap: Record<string, { company: string; name: string; projectType: string }> = {};
+    for (const j of jobRows) jobMap[j.id] = { company: j.companyname, name: j.projectname, projectType: j.project_type ?? "" };
 
     function projectLabel(projectId: string | null, companyName?: string | null, projectName?: string | null): string {
       if (!projectId) return "Internal / Admin";
@@ -211,13 +212,17 @@ export async function GET(req: NextRequest) {
         const projects = [...allProjectIds].map(projId => {
           const allocList  = empAllocs[projId] ?? [];
           const firstAlloc = allocList[0];
+          const projectType = projId === "__internal__"
+            ? "Internal"
+            : (jobMap[projId]?.projectType ?? "");
           return {
-            projectId:     projId === "__internal__" ? null : parseInt(projId),
-            projectName:   projectLabel(
+            projectId:    projId === "__internal__" ? null : parseInt(projId),
+            projectName:  projectLabel(
               projId === "__internal__" ? null : projId,
               firstAlloc?.company_name,
               firstAlloc?.project_name,
             ),
+            projectType,
             actualHours:   empActuals[projId]?.total    ?? 0,
             billableHours: empActuals[projId]?.billable ?? 0,
             entries:       entryMap[id]?.[projId] ?? [],

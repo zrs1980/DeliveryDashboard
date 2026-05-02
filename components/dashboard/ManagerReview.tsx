@@ -38,10 +38,21 @@ interface TimeEntry {
 interface ProjectData {
   projectId:     number | null;
   projectName:   string;
+  projectType:   string;
   actualHours:   number;
   billableHours: number;
   entries:       TimeEntry[];
   allocations:   AllocSegment[];
+}
+
+const CUSTOMER_TYPES = new Set([
+  "consulting services", "general consulting", "implementation",
+  "managed services agreement", "service", "technical services", "training",
+]);
+
+function isCustomer(projectType: string): boolean {
+  const t = projectType.toLowerCase().trim();
+  return t !== "internal" && t !== "";
 }
 
 interface EmployeeData {
@@ -575,6 +586,14 @@ export function ManagerReview() {
         const allocProjects = emp.projects.filter(p => p.isAllocated).sort((a, b) => b.actualHours - a.actualHours);
         const driftProjects = emp.projects.filter(p => !p.isAllocated && p.actualHours > 0).sort((a, b) => b.actualHours - a.actualHours);
 
+        // Customer / Internal grouping
+        const allVisibleProjects = [
+          ...allocProjects,
+          ...driftProjects,
+        ];
+        const customerProjects = allVisibleProjects.filter(p => isCustomer(p.projectType));
+        const internalProjects = allVisibleProjects.filter(p => !isCustomer(p.projectType));
+
         const utilizationPct = emp.allocatedTotal > 0 ? emp.totalHours / emp.allocatedTotal : null;
 
         return (
@@ -667,31 +686,31 @@ export function ManagerReview() {
             {isExpanded && (
               <div style={{ borderTop: `1px solid ${C.border}` }}>
 
-                {/* Allocated projects section */}
-                {allocProjects.length > 0 && (
+                {/* Customer Projects section */}
+                {customerProjects.length > 0 && (
                   <>
                     <div style={{ padding: "7px 18px", background: C.alt, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      Allocated Projects
+                      Customer Projects
                     </div>
-                    {allocProjects.map((p, i) => (
-                      <ProjectRow key={p.projectId ?? "__internal__"} proj={p} allocHours={p.allocHours} isAllocated isLast={i === allocProjects.length - 1 && driftProjects.length === 0} />
+                    {customerProjects.map((p, i) => (
+                      <ProjectRow key={p.projectId ?? "__customer__"} proj={p} allocHours={p.allocHours} isAllocated={p.isAllocated} isLast={i === customerProjects.length - 1 && internalProjects.length === 0} />
                     ))}
                   </>
                 )}
 
-                {/* Drift section */}
-                {driftProjects.length > 0 && (
+                {/* Internal section */}
+                {internalProjects.length > 0 && (
                   <>
-                    <div style={{ padding: "7px 18px", background: "#FFF8F0", borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 6 }}>
-                      ⚠ Other Time — not in allocation
+                    <div style={{ padding: "7px 18px", background: C.blueBg, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Internal
                     </div>
-                    {driftProjects.map((p, i) => (
-                      <ProjectRow key={p.projectId ?? "__internal_drift__"} proj={p} allocHours={0} isAllocated={false} isLast={i === driftProjects.length - 1} />
+                    {internalProjects.map((p, i) => (
+                      <ProjectRow key={p.projectId ?? "__internal__"} proj={p} allocHours={p.allocHours} isAllocated={p.isAllocated} isLast={i === internalProjects.length - 1} />
                     ))}
                   </>
                 )}
 
-                {allocProjects.length === 0 && driftProjects.length === 0 && (
+                {customerProjects.length === 0 && internalProjects.length === 0 && (
                   <div style={{ padding: "14px 18px", fontSize: 13, color: C.textSub, fontStyle: "italic" }}>No time logged in this period.</div>
                 )}
               </div>
