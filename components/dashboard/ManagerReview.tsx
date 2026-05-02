@@ -76,17 +76,21 @@ function weeklyHours(seg: AllocSegment): number {
   return seg.pct > 0 ? (seg.pct / 100) * 40 : seg.hrsPerDay * 5;
 }
 
-/** Allocated hours for one segment within one Mon-starting week */
-function segHoursForWeek(seg: AllocSegment, weekStart: Date): number {
+/** Allocated hours for one segment within one Mon-starting week, clipped to [rangeFrom, rangeTo] */
+function segHoursForWeek(seg: AllocSegment, weekStart: Date, rangeFrom: Date, rangeTo: Date): number {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
+  // Clip the effective window to the query range
+  const windowStart = rangeFrom > weekStart ? rangeFrom : weekStart;
+  const windowEnd   = rangeTo   < weekEnd   ? rangeTo   : weekEnd;
+  if (windowStart > windowEnd) return 0;
+
   const s = parseDate(seg.startDate);
   const e = parseDate(seg.endDate);
-  if (!s || !e || s > weekEnd || e < weekStart) return 0;
-  if (s <= weekStart && e >= weekEnd) return weeklyHours(seg);
+  if (!s || !e || s > windowEnd || e < windowStart) return 0;
 
-  const overlapStart = s > weekStart ? s : weekStart;
-  const overlapEnd   = e < weekEnd   ? e : weekEnd;
+  const overlapStart = s > windowStart ? s : windowStart;
+  const overlapEnd   = e < windowEnd   ? e : windowEnd;
   let workDays = 0;
   const cur = new Date(overlapStart);
   cur.setHours(0, 0, 0, 0);
@@ -106,7 +110,7 @@ function allocatedForPeriod(allocs: AllocSegment[], from: Date, to: Date): numbe
   let total = 0;
   const cur = getMondayOf(from);
   while (cur <= to) {
-    for (const seg of allocs) total += segHoursForWeek(seg, cur);
+    for (const seg of allocs) total += segHoursForWeek(seg, cur, from, to);
     cur.setDate(cur.getDate() + 7);
   }
   return Math.round(total * 100) / 100;
