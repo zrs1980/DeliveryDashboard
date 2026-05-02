@@ -152,6 +152,7 @@ export async function GET(req: NextRequest) {
     const actuals: Record<string, Record<string, { total: number; billable: number }>> = {};
     const entryMap: Record<string, Record<string, Array<{
       id: number; date: string; hours: number; memo: string; billable: boolean; approved: boolean;
+      sourceProject?: string;  // set when remapped from an MSA project — used for sub-grouping
     }>>> = {};
 
     for (const e of entryRows) {
@@ -176,7 +177,8 @@ export async function GET(req: NextRequest) {
         hours,
         memo:     e.memo ?? "",
         billable,
-        approved: e.approvalstatus === "Approved" || e.approvalstatus === "1",
+        approved:      e.approvalstatus === "Approved" || e.approvalstatus === "1",
+        sourceProject: isMSA ? projectLabel(rawProj) : undefined,
       });
     }
 

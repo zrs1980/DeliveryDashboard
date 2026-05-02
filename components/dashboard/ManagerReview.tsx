@@ -24,12 +24,13 @@ interface AllocSegment {
 }
 
 interface TimeEntry {
-  id:       number;
-  date:     string;
-  hours:    number;
-  memo:     string;
-  billable: boolean;
-  approved: boolean;
+  id:             number;
+  date:           string;
+  hours:          number;
+  memo:           string;
+  billable:       boolean;
+  approved:       boolean;
+  sourceProject?: string;  // set when remapped from an MSA project
 }
 
 interface ProjectData {
@@ -160,6 +161,109 @@ function Kpi({ label, value, sub, color }: { label: string; value: string; sub?:
   );
 }
 
+// ── Entry rows (shared between flat and grouped views) ────────────────────────
+
+const ENTRY_COLS = "110px 1fr 56px 44px 40px";
+
+function EntryRows({ entries, stripOffset = 0 }: { entries: TimeEntry[]; stripOffset?: number }) {
+  return (
+    <>
+      {entries.map((entry, i) => (
+        <div key={entry.id} style={{
+          display: "grid", gridTemplateColumns: ENTRY_COLS,
+          padding: "6px 18px 6px 44px",
+          alignItems: "center",
+          borderTop: `1px solid ${C.border}`,
+          background: (i + stripOffset) % 2 === 0 ? C.alt : C.surface,
+        }}>
+          <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+            {fmtDate(entry.date)}
+          </div>
+          <div style={{ fontSize: 11, color: entry.memo ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>
+            {entry.memo || <em>no memo</em>}
+          </div>
+          <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, textAlign: "right", color: C.text }}>
+            {fmtH(entry.hours)}h
+          </div>
+          <div style={{ textAlign: "right" }}>
+            {entry.billable
+              ? <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, padding: "1px 5px" }}>B</span>
+              : <span style={{ fontSize: 11, color: C.mid }}>—</span>
+            }
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <a
+              href={`https://system.na1.netsuite.com/app/time/timeentry.nl?id=${entry.id}`}
+              target="_blank" rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: 10, fontWeight: 600, color: C.purple, textDecoration: "none", background: C.purpleBg, border: `1px solid ${C.purpleBd}`, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}
+            >↗ NS</a>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function EntryTable({ entries }: { entries: TimeEntry[] }) {
+  const isGrouped = entries.some(e => e.sourceProject);
+
+  // Column header row
+  const header = (
+    <div style={{
+      display: "grid", gridTemplateColumns: ENTRY_COLS,
+      padding: "4px 18px 4px 44px",
+      fontSize: 10, fontWeight: 700, color: C.textSub,
+      textTransform: "uppercase", letterSpacing: "0.06em",
+      borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
+    }}>
+      <div>Date</div>
+      <div>Memo</div>
+      <div style={{ textAlign: "right" }}>Hours</div>
+      <div style={{ textAlign: "right" }}>Bill</div>
+      <div />
+    </div>
+  );
+
+  if (!isGrouped) {
+    return <>{header}<EntryRows entries={entries} /></>;
+  }
+
+  // Group by sourceProject
+  const groups: { name: string; entries: TimeEntry[] }[] = [];
+  const seen = new Map<string, TimeEntry[]>();
+  for (const e of entries) {
+    const key = e.sourceProject ?? "—";
+    if (!seen.has(key)) { seen.set(key, []); groups.push({ name: key, entries: seen.get(key)! }); }
+    seen.get(key)!.push(e);
+  }
+
+  let globalIdx = 0;
+  return (
+    <>
+      {header}
+      {groups.map(g => (
+        <div key={g.name}>
+          {/* Sub-project header */}
+          <div style={{
+            padding: "5px 18px 5px 44px",
+            fontSize: 11, fontWeight: 700, color: C.textMid,
+            background: C.blueBg, borderTop: `1px solid ${C.blueBd}`, borderBottom: `1px solid ${C.blueBd}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <span>{g.name}</span>
+            <span style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+              {fmtH(g.entries.reduce((s, e) => s + e.hours, 0))}h
+            </span>
+          </div>
+          <EntryRows entries={g.entries} stripOffset={globalIdx} />
+          {(() => { globalIdx += g.entries.length; return null; })()}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ── Project row inside expanded card ─────────────────────────────────────────
 
 function ProjectRow({
@@ -250,53 +354,7 @@ function ProjectRow({
       {/* ── Entries sub-table ── */}
       {open && hasEntries && (
         <div style={{ background: C.alt }}>
-          <div style={{
-            display: "grid", gridTemplateColumns: "110px 1fr 56px 44px 40px",
-            padding: "4px 18px 4px 44px",
-            fontSize: 10, fontWeight: 700, color: C.textSub,
-            textTransform: "uppercase", letterSpacing: "0.06em",
-            borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
-          }}>
-            <div>Date</div>
-            <div>Memo</div>
-            <div style={{ textAlign: "right" }}>Hours</div>
-            <div style={{ textAlign: "right" }}>Bill</div>
-            <div />
-          </div>
-          {proj.entries.map((entry, i) => (
-            <div key={entry.id} style={{
-              display: "grid", gridTemplateColumns: "110px 1fr 56px 44px 40px",
-              padding: "6px 18px 6px 44px",
-              alignItems: "center",
-              borderTop: i > 0 ? `1px solid ${C.border}` : "none",
-              background: i % 2 === 0 ? C.alt : C.surface,
-            }}>
-              <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
-                {fmtDate(entry.date)}
-              </div>
-              <div style={{ fontSize: 11, color: entry.memo ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>
-                {entry.memo || <em>no memo</em>}
-              </div>
-              <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, textAlign: "right", color: C.text }}>
-                {fmtH(entry.hours)}h
-              </div>
-              <div style={{ textAlign: "right" }}>
-                {entry.billable
-                  ? <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, padding: "1px 5px" }}>B</span>
-                  : <span style={{ fontSize: 11, color: C.mid }}>—</span>
-                }
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <a
-                  href={`https://system.na1.netsuite.com/app/time/timeentry.nl?id=${entry.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={e => e.stopPropagation()}
-                  style={{ fontSize: 10, fontWeight: 600, color: C.purple, textDecoration: "none", background: C.purpleBg, border: `1px solid ${C.purpleBd}`, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}
-                >↗ NS</a>
-              </div>
-            </div>
-          ))}
+          <EntryTable entries={proj.entries} />
         </div>
       )}
     </div>
