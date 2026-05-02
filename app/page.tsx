@@ -127,7 +127,7 @@ export default function DashboardPage() {
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <header style={{
-        background: "linear-gradient(135deg, #0A0F1E 0%, #0D1B35 50%, #0A1628 100%)",
+        background: "linear-gradient(135deg, #1B2F52 0%, #1E3D6E 50%, #1A3460 100%)",
         borderBottom: "1px solid rgba(255,255,255,0.08)",
         position: "sticky",
         top: 0,
@@ -242,7 +242,7 @@ export default function DashboardPage() {
       <nav style={{
         position: "fixed", top: 60, left: 0, bottom: 0,
         width: sidebarOpen ? 220 : 52,
-        background: "linear-gradient(180deg, #0D1B35 0%, #08111E 100%)",
+        background: "linear-gradient(180deg, #1E3D6E 0%, #1A3460 100%)",
         borderRight: "1px solid rgba(255,255,255,0.08)",
         zIndex: 90,
         transition: "width 0.22s ease",
