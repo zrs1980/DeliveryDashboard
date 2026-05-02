@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
           AND tb.trandate >= TO_DATE('${toNSDateLiteral(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDateLiteral(to)}',   'MM/DD/YYYY')
           AND tb.timetype = 'A'
-        ORDER BY tb.employee, ${projExpr}, tb.trandate DESC, tb.id DESC
+        ORDER BY tb.employee, tb.trandate DESC, tb.id DESC
       `),
       runSuiteQLAll<JobRow>(`
         SELECT id, BUILTIN.DF(customer) AS client_name, companyname AS project_name, entityid
