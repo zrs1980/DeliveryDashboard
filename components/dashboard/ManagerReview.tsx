@@ -5,12 +5,14 @@ import { C } from "@/lib/constants";
 // ── Period options ────────────────────────────────────────────────────────────
 
 const PERIODS = [
+  { id: "today",       label: "Today" },
+  { id: "yesterday",   label: "Yesterday" },
   { id: "thisWeek",    label: "This Week" },
-  { id: "lastWeek",   label: "Last Week" },
-  { id: "thisMonth",  label: "This Month" },
-  { id: "lastMonth",  label: "Last Month" },
+  { id: "lastWeek",    label: "Last Week" },
+  { id: "thisMonth",   label: "This Month" },
+  { id: "lastMonth",   label: "Last Month" },
   { id: "thisQuarter", label: "This Quarter" },
-  { id: "custom",     label: "Custom" },
+  { id: "custom",      label: "Custom" },
 ];
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -54,7 +54,10 @@ export async function GET(req: NextRequest) {
   const toParam   = searchParams.get("to");
 
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const todayStart         = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today              = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const yesterdayStart     = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yesterdayEnd       = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
   const thisMonday         = getMondayOfWeek(now);
   const lastMonday         = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
   const lastSunday         = new Date(thisMonday); lastSunday.setDate(thisMonday.getDate() - 1); lastSunday.setHours(23, 59, 59, 999);
@@ -65,6 +68,8 @@ export async function GET(req: NextRequest) {
   const firstOfThisQuarter = new Date(now.getFullYear(), currentQuarter * 3, 1);
 
   const periodRanges: Record<string, [Date, Date]> = {
+    today:       [todayStart,         today],
+    yesterday:   [yesterdayStart,     yesterdayEnd],
     thisWeek:    [thisMonday,         today],
     lastWeek:    [lastMonday,         lastSunday],
     thisMonth:   [firstOfMonth,       today],
