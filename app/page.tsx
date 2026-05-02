@@ -65,6 +65,7 @@ interface DataState {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [taskSubTab, setTaskSubTab] = useState<"overdue" | "blocked">("overdue");
   const [splitPct, setSplitPct] = useState(42); // % width for ConsultantView panel
   const [showCalendar, setShowCalendar] = useState(false);
@@ -235,31 +236,93 @@ export default function DashboardPage() {
           </a>
         </div>
 
-        {/* Tab nav bar */}
-        <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", display: "flex", gap: 2, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          {TABS.filter(t => t.id !== "utilization" || session?.user?.email === "zabe@cebasolutions.com").map(t => (
+        {/* Nav bar — hamburger + active tab */}
+        <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", borderTop: "1px solid rgba(255,255,255,0.06)", position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, height: 42 }}>
+            {/* Hamburger button */}
             <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => setMenuOpen(o => !o)}
               style={{
-                padding: "9px 18px", fontSize: 12.5, fontWeight: 600, fontFamily: C.font,
-                background: "none", border: "none",
-                borderBottom: tab === t.id ? "2px solid #3B82F6" : "2px solid transparent",
-                color: tab === t.id ? "#93C5FD" : "#475569",
-                cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-                transition: "color 0.15s, border-color 0.15s",
-                whiteSpace: "nowrap",
+                background: menuOpen ? "rgba(59,130,246,0.15)" : "none",
+                border: `1px solid ${menuOpen ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.1)"}`,
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "center",
+                transition: "all 0.15s", flexShrink: 0,
               }}
+              aria-label="Open navigation"
             >
-              <span style={{ fontSize: 13 }}>{t.icon}</span>
-              {t.label}
-              {t.id === "cases" && cases.length > 0 && (
-                <span style={{ fontSize: 10, background: "rgba(59,130,246,0.2)", color: "#60A5FA", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>
-                  {cases.length}
-                </span>
-              )}
+              {[0,1,2].map(i => (
+                <span key={i} style={{ display: "block", width: 16, height: 2, background: menuOpen ? "#93C5FD" : "#64748B", borderRadius: 1, transition: "background 0.15s" }} />
+              ))}
             </button>
-          ))}
+
+            {/* Active tab label */}
+            {(() => {
+              const active = TABS.find(t => t.id === tab);
+              return active ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13 }}>{active.icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#93C5FD" }}>{active.label}</span>
+                  {active.id === "cases" && cases.length > 0 && (
+                    <span style={{ fontSize: 10, background: "rgba(59,130,246,0.2)", color: "#60A5FA", borderRadius: 10, padding: "1px 6px", fontWeight: 700 }}>
+                      {cases.length}
+                    </span>
+                  )}
+                </div>
+              ) : null;
+            })()}
+          </div>
+
+          {/* Dropdown menu */}
+          {menuOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                onClick={() => setMenuOpen(false)}
+                style={{ position: "fixed", inset: 0, zIndex: 199 }}
+              />
+              <div style={{
+                position: "absolute", top: "100%", left: 0, zIndex: 200,
+                background: "linear-gradient(180deg, #0D1B35 0%, #0A1628 100%)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderTop: "none",
+                borderRadius: "0 0 12px 12px",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                padding: "8px",
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: 2,
+                minWidth: 360,
+              }}>
+                {TABS.filter(t => t.id !== "utilization" || session?.user?.email === "zabe@cebasolutions.com").map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 7,
+                      padding: "9px 12px", borderRadius: 6,
+                      background: tab === t.id ? "rgba(59,130,246,0.15)" : "none",
+                      border: `1px solid ${tab === t.id ? "rgba(59,130,246,0.3)" : "transparent"}`,
+                      color: tab === t.id ? "#93C5FD" : "#94A3B8",
+                      fontSize: 12.5, fontWeight: tab === t.id ? 700 : 500,
+                      fontFamily: C.font, cursor: "pointer", whiteSpace: "nowrap",
+                      transition: "all 0.1s", textAlign: "left",
+                    }}
+                    onMouseEnter={e => { if (tab !== t.id) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; }}
+                    onMouseLeave={e => { if (tab !== t.id) (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+                  >
+                    <span style={{ fontSize: 14 }}>{t.icon}</span>
+                    {t.label}
+                    {t.id === "cases" && cases.length > 0 && (
+                      <span style={{ fontSize: 10, background: "rgba(59,130,246,0.2)", color: "#60A5FA", borderRadius: 10, padding: "1px 5px", fontWeight: 700, marginLeft: "auto" }}>
+                        {cases.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </header>
 
