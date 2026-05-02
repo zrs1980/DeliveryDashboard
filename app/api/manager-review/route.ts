@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
-          AND tb.type != 'Allocated Time'
+          AND tb.isutilized = 'T'
         GROUP BY tb.employee, tb.customer
         ORDER BY tb.employee, total_hours DESC
       `),
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
-          AND tb.type != 'Allocated Time'
+          AND tb.isutilized = 'T'
         ORDER BY tb.employee, tb.customer, tb.trandate ASC, tb.id ASC
       `),
       // Allocations that overlap the period (not just future ones)
