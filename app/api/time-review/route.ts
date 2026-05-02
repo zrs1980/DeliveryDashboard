@@ -76,12 +76,22 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
+    // Look up the Cases Resource Allocation Project (entityid=398)
+    const casesRows = await runSuiteQLAll<{ id: string }>(`
+      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
+    `);
+    const casesId = casesRows[0]?.id ?? null;
+    // Use > 0 rather than IS NOT NULL — NS stores 0 for non-case entries, not SQL NULL
+    const projExpr = casesId
+      ? `CASE WHEN tb.casetaskevent > 0 THEN '${casesId}' ELSE tb.customer END`
+      : `tb.customer`;
+
     const [rows, jobRows] = await Promise.all([
       runSuiteQLAll<TimebillRow>(`
         SELECT
           tb.id,
           tb.employee,
-          tb.customer       AS project_id,
+          ${projExpr}       AS project_id,
           tb.trandate,
           tb.hours,
           tb.memo,

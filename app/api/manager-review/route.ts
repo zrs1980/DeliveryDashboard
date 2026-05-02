@@ -17,29 +17,30 @@ function toNSDate(d: Date): string {
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
-interface TimebillRow {
-  employee:        string;
-  project_id:      string | null;
-  total_hours:     string;
-  billable_hours:  string;
+interface EntryRow {
+  employee:       string;
+  project_id:     string | null;
+  casetask:       string;   // casetaskevent — NS returns "0" for non-case entries
+  hours:          string;
+  isbillable:     string;
 }
 
 interface AllocRow {
   id:           string;
   employee_id:  string;
   project_id:   string;
-  company_name: string | null;  // BUILTIN.DF(customer) — client name
-  project_name: string | null;  // job.companyname — project name
+  company_name: string | null;
+  project_name: string | null;
   start_date:   string;
   end_date:     string;
-  pct:          string;   // percentOfTime
-  hrs:          string;   // numberHours (per day)
+  pct:          string;
+  hrs:          string;
 }
 
 interface JobRow {
   id:          string;
-  companyname: string;   // BUILTIN.DF(customer) — client name
-  projectname: string;   // raw companyname — project name
+  companyname: string;
+  projectname: string;
   entityid:    string;
 }
 
@@ -79,22 +80,29 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    const [timebillRows, allocRows, jobRows] = await Promise.all([
-      // Actual hours by employee+project, aggregated
-      runSuiteQLAll<TimebillRow>(`
+    // Look up the Cases Resource Allocation Project (entityid=398)
+    const casesRows = await runSuiteQLAll<{ id: string }>(`
+      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
+    `);
+    const casesId = casesRows[0]?.id ?? null;
+
+    const [entryRows, allocRows, jobRows] = await Promise.all([
+      // Fetch individual rows so we can inspect casetaskevent per entry.
+      // NS returns "0" (not null) for non-case entries, so we check > 0 below.
+      runSuiteQLAll<EntryRow>(`
         SELECT
           tb.employee,
-          tb.customer                                                    AS project_id,
-          SUM(tb.hours)                                                  AS total_hours,
-          SUM(CASE WHEN tb.isbillable = 'T' THEN tb.hours ELSE 0 END)  AS billable_hours
+          tb.customer       AS project_id,
+          tb.casetaskevent  AS casetask,
+          tb.hours,
+          tb.isbillable
         FROM timebill tb
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
-        GROUP BY tb.employee, tb.customer
-        ORDER BY tb.employee, total_hours DESC
+          AND tb.timetype = 'A'
+        ORDER BY tb.employee, tb.customer
       `),
-      // Allocations that overlap the period (not just future ones)
       runSuiteQLAll<AllocRow>(`
         SELECT
           ra.id,
@@ -121,7 +129,6 @@ export async function GET(req: NextRequest) {
 
     function projectLabel(projectId: string | null, companyName?: string | null, projectName?: string | null): string {
       if (!projectId) return "Internal / Admin";
-      // Prefer inline fields from the JOIN; fall back to jobMap for timebill rows
       const company = companyName || jobMap[projectId]?.company;
       const name    = projectName || jobMap[projectId]?.name;
       if (company) return `${company}${name ? ` — ${name}` : ""}`;
@@ -129,61 +136,65 @@ export async function GET(req: NextRequest) {
       return `Project #${projectId}`;
     }
 
-    // Build actual hours map: empId → projectId → { total, billable }
+    // Aggregate actuals: empId → projectId → { total, billable }
+    // Case entries (casetaskevent > 0) are remapped to the Cases project.
+    // NS serializes NULL reference fields as "0", so we use parseInt(...) > 0.
     const actuals: Record<string, Record<string, { total: number; billable: number }>> = {};
-    for (const r of timebillRows) {
-      const emp = r.employee;
-      const proj = r.project_id ?? "__internal__";
+
+    for (const e of entryRows) {
+      const emp      = e.employee;
+      const rawProj  = e.project_id ?? "__internal__";
+      const isCaseEntry = casesId && parseInt(e.casetask ?? "0") > 0;
+      const proj     = isCaseEntry ? casesId : rawProj;
+
+      const hours    = Math.round((parseFloat(e.hours) || 0) * 100) / 100;
+      const billable = e.isbillable === "T";
+
       if (!actuals[emp]) actuals[emp] = {};
-      actuals[emp][proj] = {
-        total:    Math.round((parseFloat(r.total_hours)    || 0) * 100) / 100,
-        billable: Math.round((parseFloat(r.billable_hours) || 0) * 100) / 100,
-      };
+      if (!actuals[emp][proj]) actuals[emp][proj] = { total: 0, billable: 0 };
+      actuals[emp][proj].total    = Math.round((actuals[emp][proj].total    + hours)              * 100) / 100;
+      actuals[emp][proj].billable = Math.round((actuals[emp][proj].billable + (billable ? hours : 0)) * 100) / 100;
     }
 
     // Build allocation map: empId → projectId → AllocRow[]
     const allocMap: Record<string, Record<string, AllocRow[]>> = {};
     for (const r of allocRows) {
-      const emp = r.employee_id;
+      const emp  = r.employee_id;
       const proj = r.project_id;
       if (!allocMap[emp]) allocMap[emp] = {};
       if (!allocMap[emp][proj]) allocMap[emp][proj] = [];
       allocMap[emp][proj].push(r);
     }
 
-    // Return structured data; allocated-hours calculation happens client-side
-    // using the period dates we return here
     const employees = Object.keys(EMPLOYEES)
       .filter(id => actuals[id] || allocMap[id])
       .map(id => {
-        const empActuals  = actuals[id]  ?? {};
-        const empAllocs   = allocMap[id] ?? {};
+        const empActuals = actuals[id] ?? {};
+        const empAllocs  = allocMap[id] ?? {};
 
-        // All project IDs touched (actual or allocated)
         const allProjectIds = new Set([
           ...Object.keys(empActuals),
           ...Object.keys(empAllocs),
         ]);
 
         const projects = [...allProjectIds].map(projId => {
-          const allocList = empAllocs[projId] ?? [];
-          // Use inline company/num from first allocation row if available
+          const allocList  = empAllocs[projId] ?? [];
           const firstAlloc = allocList[0];
           return {
-            projectId:    projId === "__internal__" ? null : parseInt(projId),
-            projectName:  projectLabel(
+            projectId:     projId === "__internal__" ? null : parseInt(projId),
+            projectName:   projectLabel(
               projId === "__internal__" ? null : projId,
               firstAlloc?.company_name,
               firstAlloc?.project_name,
             ),
-            actualHours:  empActuals[projId]?.total    ?? 0,
+            actualHours:   empActuals[projId]?.total    ?? 0,
             billableHours: empActuals[projId]?.billable ?? 0,
-            allocations:  allocList.map(a => ({
+            allocations:   allocList.map(a => ({
               id:        a.id,
               startDate: a.start_date,
               endDate:   a.end_date,
-              pct:       parseFloat(a.pct)  || 0,
-              hrsPerDay: parseFloat(a.hrs)  || 0,
+              pct:       parseFloat(a.pct) || 0,
+              hrsPerDay: parseFloat(a.hrs) || 0,
             })),
           };
         });
@@ -192,9 +203,9 @@ export async function GET(req: NextRequest) {
         const billableHours = projects.reduce((s, p) => s + p.billableHours, 0);
 
         return {
-          employeeId:   parseInt(id),
-          employeeName: EMPLOYEES[parseInt(id)],
-          totalHours:   Math.round(totalHours    * 100) / 100,
+          employeeId:    parseInt(id),
+          employeeName:  EMPLOYEES[parseInt(id)],
+          totalHours:    Math.round(totalHours    * 100) / 100,
           billableHours: Math.round(billableHours * 100) / 100,
           projects,
         };
