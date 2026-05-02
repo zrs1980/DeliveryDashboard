@@ -8,7 +8,6 @@ import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
 import { TaskCommandCenter } from "@/components/dashboard/TaskCommandCenter";
 import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
 import { TimeAnalysis } from "@/components/dashboard/TimeAnalysis";
-import { TimeReview } from "@/components/dashboard/TimeReview";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
@@ -36,14 +35,13 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "time-review" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt";
+type Tab = "projects" | "tasks" | "resources" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
   { id: "tasks",      label: "Tasks",       icon: "🗂️" },
   { id: "resources",  label: "Resource Allocation", icon: "👥" },
   { id: "time",        label: "Time Analysis", icon: "⏱️" },
-  { id: "time-review", label: "Time Review",     icon: "🔍" },
   { id: "mgr-review",  label: "Manager Review", icon: "📋" },
   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
@@ -344,12 +342,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Time Review */}
-        {tab === "time-review" && (
-          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-            <TimeReview />
-          </div>
-        )}
 
         {/* My Work — task list with optional calendar split */}
         {hasLoaded && tab === "consultant" && (
