@@ -21,7 +21,7 @@ interface EntryRow {
   id:             string;
   employee:       string;
   project_id:     string | null;
-  casetask:       string;   // casetaskevent — NS returns "0" for non-case entries
+  casetask_label: string | null;  // BUILTIN.DF(casetaskevent) — "Case # 911" for cases, task/event name otherwise
   date:           string;
   hours:          string;
   memo:           string | null;
@@ -97,9 +97,9 @@ export async function GET(req: NextRequest) {
         SELECT
           tb.id,
           tb.employee,
-          tb.customer       AS project_id,
-          tb.casetaskevent  AS casetask,
-          tb.trandate       AS date,
+          tb.customer                     AS project_id,
+          BUILTIN.DF(tb.casetaskevent)    AS casetask_label,
+          tb.trandate                     AS date,
           tb.hours,
           tb.memo,
           tb.isbillable,
@@ -155,7 +155,10 @@ export async function GET(req: NextRequest) {
     for (const e of entryRows) {
       const emp         = e.employee;
       const rawProj     = e.project_id ?? "__internal__";
-      const isCaseEntry = casesId && parseInt(e.casetask ?? "0") > 0;
+      // casetaskevent is a CASE/TASK/EVENT field — only remap when the display
+      // value starts with "Case" (e.g. "Case # 911"), not tasks or events
+      const isCaseEntry = casesId && e.casetask_label != null &&
+                          e.casetask_label.toLowerCase().startsWith("case");
       const proj        = isCaseEntry ? casesId : rawProj;
 
       const hours    = Math.round((parseFloat(e.hours) || 0) * 100) / 100;

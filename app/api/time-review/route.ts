@@ -81,9 +81,9 @@ export async function GET(req: NextRequest) {
       SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
     `);
     const casesId = casesRows[0]?.id ?? null;
-    // Use > 0 rather than IS NOT NULL — NS stores 0 for non-case entries, not SQL NULL
+    // casetaskevent is CASE/TASK/EVENT — only remap when the display label starts with "Case"
     const projExpr = casesId
-      ? `CASE WHEN tb.casetaskevent > 0 THEN '${casesId}' ELSE tb.customer END`
+      ? `CASE WHEN BUILTIN.DF(tb.casetaskevent) LIKE 'Case%' THEN '${casesId}' ELSE tb.customer END`
       : `tb.customer`;
 
     const [rows, jobRows] = await Promise.all([
