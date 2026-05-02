@@ -76,22 +76,24 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    // Look up the Cases Resource Allocation Project (entityid=398)
-    const casesRows = await runSuiteQLAll<{ id: string }>(`
-      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
-    `);
-    const casesId = casesRows[0]?.id ?? null;
-    // casetaskevent is CASE/TASK/EVENT — only remap when the display label starts with "Case"
-    const projExpr = casesId
-      ? `CASE WHEN BUILTIN.DF(tb.casetaskevent) LIKE 'Case%' THEN '${casesId}' ELSE tb.customer END`
-      : `tb.customer`;
+    // Look up Cases Resource Allocation Project and all MSA projects in parallel
+    const [casesRows, msaRows] = await Promise.all([
+      runSuiteQLAll<{ id: string }>(`
+        SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
+      `),
+      runSuiteQLAll<{ id: string }>(`
+        SELECT id FROM job WHERE LOWER(companyname) LIKE '%managed service%'
+      `),
+    ]);
+    const casesId       = casesRows[0]?.id ?? null;
+    const msaProjectIds = new Set(msaRows.map(r => r.id));
 
     const [rows, jobRows] = await Promise.all([
       runSuiteQLAll<TimebillRow>(`
         SELECT
           tb.id,
           tb.employee,
-          ${projExpr}       AS project_id,
+          tb.customer       AS project_id,
           tb.trandate,
           tb.hours,
           tb.memo,
@@ -137,17 +139,19 @@ export async function GET(req: NextRequest) {
         byEmployee[key] = { employeeId: empId, employeeName: EMPLOYEES[empId], totalHours: 0, billableHours: 0, entries: [] };
       }
 
-      const hours = parseFloat(row.hours) || 0;
-      const job   = row.project_id ? jobMap[row.project_id] : undefined;
+      const hours   = parseFloat(row.hours) || 0;
+      const isMSA   = casesId && row.project_id && msaProjectIds.has(row.project_id);
+      const projId  = isMSA ? casesId : row.project_id;
+      const job     = projId ? jobMap[projId] : undefined;
       const projectName = job
         ? `${job.client_name || job.project_name}${job.project_name && job.client_name ? ` — ${job.project_name}` : ""}`
-        : row.project_id ? `Project #${row.project_id}` : "Internal / Admin";
+        : projId ? `Project #${projId}` : "Internal / Admin";
 
       byEmployee[key].totalHours    += hours;
       byEmployee[key].billableHours += row.isbillable === "T" ? hours : 0;
       byEmployee[key].entries.push({
         id: parseInt(row.id), date: row.trandate,
-        projectId: row.project_id ? parseInt(row.project_id) : null,
+        projectId: projId ? parseInt(projId) : null,
         projectName, hours,
         memo:           row.memo ?? "",
         isBillable:     row.isbillable   === "T",

@@ -21,7 +21,6 @@ interface EntryRow {
   id:             string;
   employee:       string;
   project_id:     string | null;
-  casetask_label: string | null;  // BUILTIN.DF(casetaskevent) — "Case # 911" for cases, task/event name otherwise
   date:           string;
   hours:          string;
   memo:           string | null;
@@ -84,22 +83,26 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    // Look up the Cases Resource Allocation Project (entityid=398)
-    const casesRows = await runSuiteQLAll<{ id: string }>(`
-      SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
-    `);
-    const casesId = casesRows[0]?.id ?? null;
+    // Look up the Cases Resource Allocation Project (entityid=398) and all
+    // Managed Service Agreement projects in parallel — MSA time rolls up to Cases.
+    const [casesRows, msaRows] = await Promise.all([
+      runSuiteQLAll<{ id: string }>(`
+        SELECT id FROM job WHERE entityid = '398' FETCH FIRST 1 ROW ONLY
+      `),
+      runSuiteQLAll<{ id: string }>(`
+        SELECT id FROM job WHERE LOWER(companyname) LIKE '%managed service%'
+      `),
+    ]);
+    const casesId       = casesRows[0]?.id ?? null;
+    const msaProjectIds = new Set(msaRows.map(r => r.id));
 
     const [entryRows, allocRows, jobRows] = await Promise.all([
-      // Fetch individual rows so we can inspect casetaskevent per entry.
-      // NS returns "0" (not null) for non-case entries, so we check > 0 below.
       runSuiteQLAll<EntryRow>(`
         SELECT
           tb.id,
           tb.employee,
-          tb.customer                     AS project_id,
-          BUILTIN.DF(tb.casetaskevent)    AS casetask_label,
-          tb.trandate                     AS date,
+          tb.customer   AS project_id,
+          tb.trandate   AS date,
           tb.hours,
           tb.memo,
           tb.isbillable,
@@ -145,21 +148,17 @@ export async function GET(req: NextRequest) {
     }
 
     // Aggregate actuals + build entry drill-down.
-    // Case entries (casetaskevent > 0) are remapped to the Cases project.
-    // NS serializes NULL reference fields as "0", so we use parseInt(...) > 0.
+    // Time logged against a Managed Service Agreement project rolls up to Cases.
     const actuals: Record<string, Record<string, { total: number; billable: number }>> = {};
     const entryMap: Record<string, Record<string, Array<{
       id: number; date: string; hours: number; memo: string; billable: boolean; approved: boolean;
     }>>> = {};
 
     for (const e of entryRows) {
-      const emp         = e.employee;
-      const rawProj     = e.project_id ?? "__internal__";
-      // casetaskevent is a CASE/TASK/EVENT field — only remap when the display
-      // value starts with "Case" (e.g. "Case # 911"), not tasks or events
-      const isCaseEntry = casesId && e.casetask_label != null &&
-                          e.casetask_label.toLowerCase().startsWith("case");
-      const proj        = isCaseEntry ? casesId : rawProj;
+      const emp      = e.employee;
+      const rawProj  = e.project_id ?? "__internal__";
+      const isMSA    = casesId && rawProj !== "__internal__" && msaProjectIds.has(rawProj);
+      const proj     = isMSA ? casesId : rawProj;
 
       const hours    = Math.round((parseFloat(e.hours) || 0) * 100) / 100;
       const billable = e.isbillable === "T";
