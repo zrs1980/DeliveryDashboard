@@ -18,11 +18,15 @@ function toNSDate(d: Date): string {
 }
 
 interface EntryRow {
+  id:             string;
   employee:       string;
   project_id:     string | null;
   casetask:       string;   // casetaskevent — NS returns "0" for non-case entries
+  date:           string;
   hours:          string;
+  memo:           string | null;
   isbillable:     string;
+  approvalstatus: string | null;
 }
 
 interface AllocRow {
@@ -91,17 +95,21 @@ export async function GET(req: NextRequest) {
       // NS returns "0" (not null) for non-case entries, so we check > 0 below.
       runSuiteQLAll<EntryRow>(`
         SELECT
+          tb.id,
           tb.employee,
           tb.customer       AS project_id,
           tb.casetaskevent  AS casetask,
+          tb.trandate       AS date,
           tb.hours,
-          tb.isbillable
+          tb.memo,
+          tb.isbillable,
+          tb.approvalstatus
         FROM timebill tb
         WHERE tb.employee IN (${empList})
           AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
           AND tb.timetype = 'A'
-        ORDER BY tb.employee, tb.customer
+        ORDER BY tb.employee, tb.trandate ASC, tb.id ASC
       `),
       runSuiteQLAll<AllocRow>(`
         SELECT
@@ -136,16 +144,19 @@ export async function GET(req: NextRequest) {
       return `Project #${projectId}`;
     }
 
-    // Aggregate actuals: empId → projectId → { total, billable }
+    // Aggregate actuals + build entry drill-down.
     // Case entries (casetaskevent > 0) are remapped to the Cases project.
     // NS serializes NULL reference fields as "0", so we use parseInt(...) > 0.
     const actuals: Record<string, Record<string, { total: number; billable: number }>> = {};
+    const entryMap: Record<string, Record<string, Array<{
+      id: number; date: string; hours: number; memo: string; billable: boolean; approved: boolean;
+    }>>> = {};
 
     for (const e of entryRows) {
-      const emp      = e.employee;
-      const rawProj  = e.project_id ?? "__internal__";
+      const emp         = e.employee;
+      const rawProj     = e.project_id ?? "__internal__";
       const isCaseEntry = casesId && parseInt(e.casetask ?? "0") > 0;
-      const proj     = isCaseEntry ? casesId : rawProj;
+      const proj        = isCaseEntry ? casesId : rawProj;
 
       const hours    = Math.round((parseFloat(e.hours) || 0) * 100) / 100;
       const billable = e.isbillable === "T";
@@ -154,6 +165,17 @@ export async function GET(req: NextRequest) {
       if (!actuals[emp][proj]) actuals[emp][proj] = { total: 0, billable: 0 };
       actuals[emp][proj].total    = Math.round((actuals[emp][proj].total    + hours)              * 100) / 100;
       actuals[emp][proj].billable = Math.round((actuals[emp][proj].billable + (billable ? hours : 0)) * 100) / 100;
+
+      if (!entryMap[emp]) entryMap[emp] = {};
+      if (!entryMap[emp][proj]) entryMap[emp][proj] = [];
+      entryMap[emp][proj].push({
+        id:       parseInt(e.id),
+        date:     e.date,
+        hours,
+        memo:     e.memo ?? "",
+        billable,
+        approved: e.approvalstatus === "Approved" || e.approvalstatus === "1",
+      });
     }
 
     // Build allocation map: empId → projectId → AllocRow[]
@@ -189,6 +211,7 @@ export async function GET(req: NextRequest) {
             ),
             actualHours:   empActuals[projId]?.total    ?? 0,
             billableHours: empActuals[projId]?.billable ?? 0,
+            entries:       entryMap[id]?.[projId] ?? [],
             allocations:   allocList.map(a => ({
               id:        a.id,
               startDate: a.start_date,

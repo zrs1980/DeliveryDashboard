@@ -23,11 +23,21 @@ interface AllocSegment {
   hrsPerDay: number;   // fallback if pct = 0
 }
 
+interface TimeEntry {
+  id:       number;
+  date:     string;
+  hours:    number;
+  memo:     string;
+  billable: boolean;
+  approved: boolean;
+}
+
 interface ProjectData {
   projectId:     number | null;
   projectName:   string;
   actualHours:   number;
   billableHours: number;
+  entries:       TimeEntry[];
   allocations:   AllocSegment[];
 }
 
@@ -119,6 +129,15 @@ function fmtH(n: number) { const r = Math.round(n * 10) / 10; return r % 1 === 0
 function pct(n: number)  { return Math.round(n * 100) + "%"; }
 function initials(name: string) { return name.split(" ").map(n => n[0] ?? "").join("").slice(0, 2).toUpperCase(); }
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtDate(raw: string): string {
+  const p = raw.split("/");
+  if (p.length !== 3) return raw;
+  const d = new Date(parseInt(p[2]), parseInt(p[0]) - 1, parseInt(p[1]));
+  const dow = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+  return `${dow} ${parseInt(p[1])} ${MONTHS[parseInt(p[0]) - 1]}`;
+}
+
 // ── Mini bar ──────────────────────────────────────────────────────────────────
 
 function MiniBar({ value, color, bg = C.alt, width = 80 }: { value: number; color: string; bg?: string; width?: number }) {
@@ -151,73 +170,125 @@ function ProjectRow({
   isAllocated: boolean;
   isLast:      boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const hasEntries = proj.entries.length > 0;
+
   const nonBillable = Math.round((proj.actualHours - proj.billableHours) * 10) / 10;
   const gap         = isAllocated ? Math.round((proj.actualHours - allocHours) * 10) / 10 : null;
   const billPct     = proj.actualHours > 0 ? proj.billableHours / proj.actualHours : 0;
+  const rowBg       = isAllocated ? C.surface : "#FFFBF5";
 
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "1fr 72px 72px 72px 72px 80px 110px",
-      alignItems: "center",
-      padding: "9px 18px",
-      borderBottom: isLast ? "none" : `1px solid ${C.border}`,
-      background: isAllocated ? C.surface : "#FFFBF5",
-      gap: 0,
-    }}>
-      {/* Project name + drift badge */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        {!isAllocated && (
-          <span style={{ fontSize: 10, fontWeight: 700, background: C.orangeBg, color: C.orange, border: `1px solid ${C.orangeBd}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
-            DRIFT
-          </span>
-        )}
-        {isAllocated && proj.actualHours === 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, background: C.yellowBg, color: C.yellow, border: `1px solid ${C.yellowBd}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
-            NO TIME
-          </span>
-        )}
-        <span style={{ fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {proj.projectName}
-        </span>
-      </div>
-
-      {/* Allocated */}
-      <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: isAllocated ? C.textMid : C.mid }}>
-        {isAllocated ? `${fmtH(allocHours)}h` : "—"}
-      </div>
-
-      {/* Actual */}
-      <div style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, textAlign: "right", color: proj.actualHours > 0 ? C.text : C.mid }}>
-        {proj.actualHours > 0 ? `${fmtH(proj.actualHours)}h` : "—"}
-      </div>
-
-      {/* Billable */}
-      <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: proj.billableHours > 0 ? C.green : C.mid }}>
-        {proj.billableHours > 0 ? `${fmtH(proj.billableHours)}h` : "—"}
-      </div>
-
-      {/* Non-billable */}
-      <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: nonBillable > 0 ? C.orange : C.mid }}>
-        {nonBillable > 0 ? `${fmtH(nonBillable)}h` : "—"}
-      </div>
-
-      {/* Gap (actual − allocated) */}
-      <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: gap === null ? C.mid : gap > 0 ? C.red : gap < 0 ? C.yellow : C.green }}>
-        {gap === null ? "—" : gap === 0 ? "±0" : gap > 0 ? `+${fmtH(gap)}h` : `${fmtH(gap)}h`}
-      </div>
-
-      {/* Billable % bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-        {proj.actualHours > 0 && (
-          <>
-            <span style={{ fontFamily: C.mono, fontSize: 11, color: billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red }}>
-              {pct(billPct)}
+    <div style={{ borderBottom: isLast && !open ? "none" : `1px solid ${C.border}` }}>
+      {/* ── Summary row ── */}
+      <div
+        onClick={hasEntries ? () => setOpen(o => !o) : undefined}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 72px 72px 72px 72px 80px 110px",
+          alignItems: "center",
+          padding: "9px 18px",
+          background: rowBg,
+          gap: 0,
+          cursor: hasEntries ? "pointer" : "default",
+          userSelect: "none",
+        }}
+        onMouseEnter={e => { if (hasEntries) (e.currentTarget as HTMLDivElement).style.background = isAllocated ? C.alt : "#FFF3EB"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = rowBg; }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {hasEntries && (
+            <span style={{
+              fontSize: 8, color: C.textSub, flexShrink: 0,
+              display: "inline-block",
+              transform: open ? "rotate(90deg)" : "rotate(0deg)",
+              transition: "transform 0.15s",
+            }}>▶</span>
+          )}
+          {!isAllocated && (
+            <span style={{ fontSize: 10, fontWeight: 700, background: C.orangeBg, color: C.orange, border: `1px solid ${C.orangeBd}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
+              DRIFT
             </span>
-            <MiniBar value={billPct} color={billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red} width={44} />
-          </>
-        )}
+          )}
+          {isAllocated && proj.actualHours === 0 && (
+            <span style={{ fontSize: 10, fontWeight: 700, background: C.yellowBg, color: C.yellow, border: `1px solid ${C.yellowBd}`, borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>
+              NO TIME
+            </span>
+          )}
+          <span style={{ fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {proj.projectName}
+          </span>
+        </div>
+
+        <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: isAllocated ? C.textMid : C.mid }}>
+          {isAllocated ? `${fmtH(allocHours)}h` : "—"}
+        </div>
+        <div style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, textAlign: "right", color: proj.actualHours > 0 ? C.text : C.mid }}>
+          {proj.actualHours > 0 ? `${fmtH(proj.actualHours)}h` : "—"}
+        </div>
+        <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: proj.billableHours > 0 ? C.green : C.mid }}>
+          {proj.billableHours > 0 ? `${fmtH(proj.billableHours)}h` : "—"}
+        </div>
+        <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: nonBillable > 0 ? C.orange : C.mid }}>
+          {nonBillable > 0 ? `${fmtH(nonBillable)}h` : "—"}
+        </div>
+        <div style={{ fontFamily: C.mono, fontSize: 12, textAlign: "right", color: gap === null ? C.mid : gap > 0 ? C.red : gap < 0 ? C.yellow : C.green }}>
+          {gap === null ? "—" : gap === 0 ? "±0" : gap > 0 ? `+${fmtH(gap)}h` : `${fmtH(gap)}h`}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+          {proj.actualHours > 0 && (
+            <>
+              <span style={{ fontFamily: C.mono, fontSize: 11, color: billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red }}>
+                {pct(billPct)}
+              </span>
+              <MiniBar value={billPct} color={billPct >= 0.65 ? C.green : billPct >= 0.5 ? C.yellow : C.red} width={44} />
+            </>
+          )}
+        </div>
       </div>
+
+      {/* ── Entries sub-table ── */}
+      {open && hasEntries && (
+        <div style={{ background: C.alt }}>
+          <div style={{
+            display: "grid", gridTemplateColumns: "110px 1fr 56px 44px",
+            padding: "4px 18px 4px 44px",
+            fontSize: 10, fontWeight: 700, color: C.textSub,
+            textTransform: "uppercase", letterSpacing: "0.06em",
+            borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
+          }}>
+            <div>Date</div>
+            <div>Memo</div>
+            <div style={{ textAlign: "right" }}>Hours</div>
+            <div style={{ textAlign: "right" }}>Bill</div>
+          </div>
+          {proj.entries.map((entry, i) => (
+            <div key={entry.id} style={{
+              display: "grid", gridTemplateColumns: "110px 1fr 56px 44px",
+              padding: "6px 18px 6px 44px",
+              alignItems: "center",
+              borderTop: i > 0 ? `1px solid ${C.border}` : "none",
+              background: i % 2 === 0 ? C.alt : C.surface,
+            }}>
+              <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+                {fmtDate(entry.date)}
+              </div>
+              <div style={{ fontSize: 11, color: entry.memo ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>
+                {entry.memo || <em>no memo</em>}
+              </div>
+              <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, textAlign: "right", color: C.text }}>
+                {fmtH(entry.hours)}h
+              </div>
+              <div style={{ textAlign: "right" }}>
+                {entry.billable
+                  ? <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, padding: "1px 5px" }}>B</span>
+                  : <span style={{ fontSize: 11, color: C.mid }}>—</span>
+                }
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
