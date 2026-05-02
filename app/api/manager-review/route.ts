@@ -24,6 +24,17 @@ interface TimebillRow {
   billable_hours:  string;
 }
 
+interface EntryRow {
+  id:             string;
+  employee:       string;
+  project_id:     string | null;
+  date:           string;
+  hours:          string;
+  memo:           string | null;
+  isbillable:     string;
+  approvalstatus: string | null;
+}
+
 interface AllocRow {
   id:           string;
   employee_id:  string;
@@ -79,7 +90,7 @@ export async function GET(req: NextRequest) {
   const empList = Object.keys(EMPLOYEES).join(", ");
 
   try {
-    const [timebillRows, allocRows, jobRows] = await Promise.all([
+    const [timebillRows, entryRows, allocRows, jobRows] = await Promise.all([
       // Actual hours by employee+project, aggregated
       runSuiteQLAll<TimebillRow>(`
         SELECT
@@ -93,6 +104,23 @@ export async function GET(req: NextRequest) {
           AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
         GROUP BY tb.employee, tb.customer
         ORDER BY tb.employee, total_hours DESC
+      `),
+      // Individual time entries (for drill-down)
+      runSuiteQLAll<EntryRow>(`
+        SELECT
+          tb.id,
+          tb.employee,
+          tb.customer       AS project_id,
+          tb.trandate       AS date,
+          tb.hours,
+          tb.memo,
+          tb.isbillable,
+          tb.approvalstatus
+        FROM timebill tb
+        WHERE tb.employee IN (${empList})
+          AND tb.trandate >= TO_DATE('${toNSDate(from)}', 'MM/DD/YYYY')
+          AND tb.trandate <= TO_DATE('${toNSDate(to)}',   'MM/DD/YYYY')
+        ORDER BY tb.employee, tb.customer, tb.trandate ASC, tb.id ASC
       `),
       // Allocations that overlap the period (not just future ones)
       runSuiteQLAll<AllocRow>(`
@@ -127,6 +155,25 @@ export async function GET(req: NextRequest) {
       if (company) return `${company}${name ? ` — ${name}` : ""}`;
       if (name) return name;
       return `Project #${projectId}`;
+    }
+
+    // Build entry map: empId → projectId → Entry[]
+    const entryMap: Record<string, Record<string, Array<{
+      id: number; date: string; hours: number; memo: string; billable: boolean; approved: boolean;
+    }>>> = {};
+    for (const e of entryRows) {
+      const emp  = e.employee;
+      const proj = e.project_id ?? "__internal__";
+      if (!entryMap[emp]) entryMap[emp] = {};
+      if (!entryMap[emp][proj]) entryMap[emp][proj] = [];
+      entryMap[emp][proj].push({
+        id:       parseInt(e.id),
+        date:     e.date,
+        hours:    Math.round((parseFloat(e.hours) || 0) * 100) / 100,
+        memo:     e.memo ?? "",
+        billable: e.isbillable === "T",
+        approved: e.approvalstatus === "Approved" || e.approvalstatus === "1",
+      });
     }
 
     // Build actual hours map: empId → projectId → { total, billable }
@@ -178,6 +225,7 @@ export async function GET(req: NextRequest) {
             ),
             actualHours:  empActuals[projId]?.total    ?? 0,
             billableHours: empActuals[projId]?.billable ?? 0,
+            entries:      entryMap[id]?.[projId] ?? [],
             allocations:  allocList.map(a => ({
               id:        a.id,
               startDate: a.start_date,
