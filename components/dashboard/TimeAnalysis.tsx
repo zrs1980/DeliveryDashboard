@@ -20,15 +20,25 @@ interface PeriodMetrics {
 
 interface WeekPoint extends PeriodMetrics { weekStart: string; }
 
+interface TimeEntry {
+  id: number;
+  date: string;
+  hours: number;
+  memo: string;
+  billable: boolean;
+  utilized: boolean;
+}
+
 interface ProjectBreakdown {
-  projectId: number | null;
+  projectId:   number | null;
+  clientName:  string;
   projectName: string;
-  companyName: string;
-  total: number;
-  billable: number;
-  utilized: number;
-  productive: number;
+  total:       number;
+  billable:    number;
+  utilized:    number;
+  productive:  number;
   billablePct: number;
+  entries:     TimeEntry[];
 }
 
 interface EmployeeTimeData {
@@ -49,7 +59,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
 };
 const TARGETS = { billable: 0.65, utilized: 0.75, productive: 0.85 };
 
-function fmtH(n: number) { return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`; }
+function fmtH(n: number) { return `${n.toFixed(2)}h`; }
 function fmtPct(n: number) { return `${Math.round(n * 100)}%`; }
 
 function PctBar({ value, target, color, slim }: { value: number; target: number; color: string; slim?: boolean }) {
@@ -99,6 +109,7 @@ export function TimeAnalysis() {
   const [error, setError]         = useState<string | null>(null);
   const [period, setPeriod]       = useState<PeriodKey>("thisMonth");
   const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
+  const [expandedProj, setExpandedProj] = useState<Set<string>>(new Set());
   const [aiStates, setAiStates]   = useState<Record<number, AiState>>({});
 
   async function load() {
@@ -311,27 +322,83 @@ export function TimeAnalysis() {
 
                                   const utilised     = allProj.filter(p => p.utilized > 0);
                                   const nonUtilised  = allProj.filter(p => p.utilized === 0);
-                                  const utilBill     = utilised.filter(p => p.billable > 0);
-                                  const utilNonBill  = utilised.filter(p => p.billable === 0);
+                                  const utilBill    = utilised.filter(p => p.billable > 0);
+                                  const utilNonBill = utilised.filter(p => p.billable === 0);
 
-                                  const ProjRow = ({ proj, showBillable }: { proj: typeof allProj[0]; showBillable?: boolean }) => {
-                                    const customer = proj.companyName || (proj.projectId ? null : "Internal / Admin");
-                                    const projName = proj.projectName?.split("—")[1]?.trim() || (proj.projectId ? proj.projectName : null);
+                                  const utilTotal    = utilised.reduce((s, p) => s + p.total, 0);
+                                  const utilBillTotal = utilBill.reduce((s, p) => s + p.total, 0);
+                                  const utilNonBillTotal = utilNonBill.reduce((s, p) => s + p.total, 0);
+                                  const nonUtilTotal = nonUtilised.reduce((s, p) => s + p.total, 0);
+
+                                  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                                  function fmtDate(raw: string) {
+                                    const pts = raw.split("/");
+                                    if (pts.length !== 3) return raw;
+                                    const d = new Date(+pts[2], +pts[0]-1, +pts[1]);
+                                    return `${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${+pts[1]} ${months[+pts[0]-1]}`;
+                                  }
+
+                                  const ProjRow = ({ proj }: { proj: typeof allProj[0] }) => {
+                                    const key = `${emp.employeeId}-${proj.projectId ?? "int"}`;
+                                    const open = expandedProj.has(key);
+                                    const toggle = () => setExpandedProj(prev => {
+                                      const next = new Set(prev);
+                                      next.has(key) ? next.delete(key) : next.add(key);
+                                      return next;
+                                    });
                                     return (
-                                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto" + (showBillable ? " auto" : ""), gap: "0 12px", padding: "6px 8px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
-                                        <div style={{ minWidth: 0 }}>
-                                          <div style={{ fontWeight: 600, fontSize: 12, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{customer}</div>
-                                          {projName && <div style={{ fontSize: 10, color: C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projName}</div>}
+                                      <>
+                                        <div
+                                          onClick={toggle}
+                                          style={{ display: "grid", gridTemplateColumns: "16px 1fr auto auto", gap: "0 8px", padding: "7px 10px", borderBottom: `1px solid ${C.border}`, alignItems: "center", cursor: "pointer", background: open ? C.blueBg : "transparent" }}
+                                          onMouseEnter={e => { if (!open) (e.currentTarget as HTMLDivElement).style.background = C.alt; }}
+                                          onMouseLeave={e => { if (!open) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                                        >
+                                          <span style={{ fontSize: 8, color: C.textSub, transition: "transform 0.15s", display: "inline-block", transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                          <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 12, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                              {proj.clientName || (proj.projectId ? `Project #${proj.projectId}` : "Internal / Admin")}
+                                            </div>
+                                            {proj.projectName && proj.projectName !== proj.clientName && (
+                                              <div style={{ fontSize: 10, color: C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.projectName}</div>
+                                            )}
+                                          </div>
+                                          <div style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 12, color: C.text, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.total)}</div>
+                                          {proj.billable > 0 && proj.billable < proj.total && (
+                                            <div style={{ fontFamily: C.mono, fontSize: 10, color: C.blue, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.billable)} bill</div>
+                                          )}
+                                          {proj.billable === 0 && <div />}
+                                          {proj.billable === proj.total && proj.total > 0 && <div style={{ fontFamily: C.mono, fontSize: 10, color: C.blue }}>100% bill</div>}
                                         </div>
-                                        <div style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 12, color: C.text, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.total)}h</div>
-                                        {showBillable && <div style={{ fontFamily: C.mono, fontSize: 11, color: C.blue, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.billable)}h bill</div>}
-                                      </div>
+                                        {open && proj.entries.length > 0 && (
+                                          <div style={{ background: C.alt, borderBottom: `1px solid ${C.border}` }}>
+                                            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 70px", padding: "4px 10px 4px 34px", fontSize: 9, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${C.border}` }}>
+                                              <div>Date</div><div>Memo</div><div style={{ textAlign: "right" }}>Hours</div>
+                                            </div>
+                                            {proj.entries.map(e => (
+                                              <div key={e.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 70px", padding: "5px 10px 5px 34px", fontSize: 11, borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+                                                <div style={{ fontFamily: C.mono, fontSize: 10, color: C.textSub }}>{fmtDate(e.date)}</div>
+                                                <div style={{ color: e.memo ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{e.memo || <em>no memo</em>}</div>
+                                                <div style={{ fontFamily: C.mono, fontWeight: 600, fontSize: 11, color: C.text, textAlign: "right" }}>{fmtH(e.hours)}</div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
                                     );
                                   };
 
-                                  const SectionHeader = ({ label, color, bg }: { label: string; color: string; bg: string }) => (
-                                    <div style={{ padding: "5px 8px", background: bg, fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>
-                                      {label}
+                                  const GroupHeader = ({ label, total, color, bg, borderColor }: { label: string; total: number; color: string; bg: string; borderColor: string }) => (
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", background: bg, borderBottom: `2px solid ${borderColor}`, borderTop: `1px solid ${borderColor}` }}>
+                                      <span style={{ fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+                                      <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color }}>{fmtH(total)}</span>
+                                    </div>
+                                  );
+
+                                  const SubHeader = ({ label, total, color, bg }: { label: string; total: number; color: string; bg: string }) => (
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 10px 5px 24px", background: bg, borderBottom: `1px solid ${C.border}` }}>
+                                      <span style={{ fontSize: 10, fontWeight: 600, color, textTransform: "uppercase", letterSpacing: "0.05em" }}>↳ {label}</span>
+                                      <span style={{ fontFamily: C.mono, fontSize: 11, color }}>{fmtH(total)}</span>
                                     </div>
                                   );
 
@@ -339,19 +406,19 @@ export function TimeAnalysis() {
                                     <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden", fontSize: 12 }}>
                                       {/* UTILIZED */}
                                       {utilised.length > 0 && <>
-                                        <SectionHeader label="Utilized" color={C.teal} bg={C.tealBg} />
+                                        <GroupHeader label="Utilized" total={utilTotal} color={C.teal} bg={C.tealBg} borderColor={C.tealBd} />
                                         {utilBill.length > 0 && <>
-                                          <SectionHeader label="↳ Billable" color={C.blue} bg={C.blueBg} />
-                                          {utilBill.map((p, i) => <ProjRow key={i} proj={p} showBillable />)}
+                                          <SubHeader label="Billable" total={utilBillTotal} color={C.blue} bg={C.blueBg} />
+                                          {utilBill.map((p, i) => <ProjRow key={i} proj={p} />)}
                                         </>}
                                         {utilNonBill.length > 0 && <>
-                                          <SectionHeader label="↳ Non-Billable" color={C.textMid} bg={C.alt} />
+                                          <SubHeader label="Non-Billable" total={utilNonBillTotal} color={C.textMid} bg={C.alt} />
                                           {utilNonBill.map((p, i) => <ProjRow key={i} proj={p} />)}
                                         </>}
                                       </>}
                                       {/* NON-UTILIZED */}
                                       {nonUtilised.length > 0 && <>
-                                        <SectionHeader label="Non-Utilized" color={C.textSub} bg={C.bg} />
+                                        <GroupHeader label="Non-Utilized" total={nonUtilTotal} color={C.textSub} bg={C.bg} borderColor={C.border} />
                                         {nonUtilised.map((p, i) => <ProjRow key={i} proj={p} />)}
                                       </>}
                                     </div>

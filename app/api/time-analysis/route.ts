@@ -29,10 +29,22 @@ interface ProjectRow {
   productive_hours: string;
 }
 
-interface JobRow {
+interface EntryRow {
   id: string;
-  companyname: string;
-  entityid: string;
+  employee: string;
+  project_id: string | null;
+  trandate: string;
+  hours: string;
+  memo: string | null;
+  isbillable: string;
+  isutilized: string;
+}
+
+interface JobRow {
+  id:           string;
+  client_name:  string;   // BUILTIN.DF(customer) — the customer/company
+  project_name: string;   // companyname — the project name
+  entityid:     string;
 }
 
 // Aggregated totals keyed by trandate, derived from project rows
@@ -71,9 +83,7 @@ export async function GET() {
     const now = new Date();
     const empList = employeeIds.join(", ");
 
-    // Single timebill query: grouped by employee + project + date.
-    // Summary totals are DERIVED from this same data so they always match the breakdown.
-    const [projectRows, jobRows] = await Promise.all([
+    const [projectRows, entryRows, jobRows] = await Promise.all([
       runSuiteQLAll<ProjectRow>(`
         SELECT
           tb.employee,
@@ -91,16 +101,36 @@ export async function GET() {
         GROUP BY tb.employee, tb.customer, tb.trandate
         ORDER BY tb.employee, tb.customer, tb.trandate
       `),
+      runSuiteQLAll<EntryRow>(`
+        SELECT tb.id, tb.employee, tb.customer AS project_id, tb.trandate,
+               tb.hours, tb.memo, tb.isbillable, tb.isutilized
+        FROM timebill tb
+        WHERE tb.employee IN (${empList})
+          AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
+          AND tb.trandate <= SYSDATE
+          AND tb.approvalstatus IS NOT NULL
+        ORDER BY tb.employee, tb.customer, tb.trandate DESC, tb.id DESC
+      `),
       runSuiteQL<JobRow>(`
-        SELECT id, companyname, entityid
+        SELECT id, BUILTIN.DF(customer) AS client_name, companyname AS project_name, entityid
         FROM job
         ORDER BY id ASC
       `),
     ]);
 
-    const jobMap: Record<string, { companyname: string; entityid: string }> = {};
+    const jobMap: Record<string, { clientName: string; projectName: string; entityid: string }> = {};
     for (const j of jobRows) {
-      jobMap[j.id] = { companyname: j.companyname, entityid: j.entityid };
+      jobMap[j.id] = { clientName: j.client_name ?? "", projectName: j.project_name ?? "", entityid: j.entityid ?? "" };
+    }
+
+    // Index individual entries by employee → project
+    const entriesByEmpProj: Record<string, Record<string, EntryRow[]>> = {};
+    for (const e of entryRows) {
+      const emp  = e.employee;
+      const proj = e.project_id ?? "__internal__";
+      if (!entriesByEmpProj[emp]) entriesByEmpProj[emp] = {};
+      if (!entriesByEmpProj[emp][proj]) entriesByEmpProj[emp][proj] = [];
+      entriesByEmpProj[emp][proj].push(e);
     }
 
     // Group project rows by employee
@@ -176,7 +206,7 @@ export async function GET() {
         const projectBreakdown = Object.fromEntries(
           (Object.entries(periods2) as [string, readonly [Date, Date]][]).map(([key, [from, to]]) => {
             const byProj: Record<string, {
-              projectId: number | null; companyName: string; projectNumber: string | null;
+              projectId: number | null; clientName: string; projectName: string; projectNumber: string | null;
               total: number; billable: number; utilized: number; productive: number;
             }> = {};
 
@@ -187,8 +217,9 @@ export async function GET() {
               if (!byProj[key2]) {
                 const job = r.project_id ? jobMap[r.project_id] : undefined;
                 byProj[key2] = {
-                  projectId:     r.project_id ? parseInt(r.project_id) : null,
-                  companyName:   job?.companyname ?? (r.project_id ? `Unknown (#${r.project_id})` : "Internal / Admin"),
+                  projectId:    r.project_id ? parseInt(r.project_id) : null,
+                  clientName:   job?.clientName ?? (r.project_id ? `#${r.project_id}` : "Internal / Admin"),
+                  projectName:  job?.projectName ?? "",
                   projectNumber: job?.entityid ?? null,
                   total: 0, billable: 0, utilized: 0, productive: 0,
                 };
@@ -202,16 +233,30 @@ export async function GET() {
             const list = Object.values(byProj)
               .filter(p => p.total > 0)
               .sort((a, b) => b.total - a.total)
-              .map(p => ({
-                projectId:   p.projectId,
-                projectName: p.projectNumber ? `${p.companyName} — #${p.projectNumber}` : p.companyName,
-                companyName: p.companyName,
-                total:       Math.round(p.total * 100) / 100,
-                billable:    Math.round(p.billable * 100) / 100,
-                utilized:    Math.round(p.utilized * 100) / 100,
-                productive:  Math.round(p.productive * 100) / 100,
-                billablePct: p.total > 0 ? p.billable / p.total : 0,
-              }));
+              .map(p => {
+                const projKey  = p.projectId ? String(p.projectId) : "__internal__";
+                const rawEntries = (entriesByEmpProj[String(empId)]?.[projKey] ?? [])
+                  .filter(e => { const d = parseNSDate(e.trandate); return d && d >= from && d <= to; })
+                  .map(e => ({
+                    id:       parseInt(e.id),
+                    date:     e.trandate,
+                    hours:    Math.round((parseFloat(e.hours) || 0) * 100) / 100,
+                    memo:     e.memo ?? "",
+                    billable: e.isbillable === "T",
+                    utilized: e.isutilized === "T",
+                  }));
+                return {
+                  projectId:    p.projectId,
+                  clientName:   p.clientName,
+                  projectName:  p.projectName,
+                  total:        Math.round(p.total * 100) / 100,
+                  billable:     Math.round(p.billable * 100) / 100,
+                  utilized:     Math.round(p.utilized * 100) / 100,
+                  productive:   Math.round(p.productive * 100) / 100,
+                  billablePct:  p.total > 0 ? p.billable / p.total : 0,
+                  entries:      rawEntries,
+                };
+              });
             return [key, list];
           })
         );
