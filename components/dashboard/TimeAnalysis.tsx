@@ -367,8 +367,7 @@ export function TimeAnalysis() {
                                           {proj.billable > 0 && proj.billable < proj.total && (
                                             <div style={{ fontFamily: C.mono, fontSize: 10, color: C.blue, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.billable)} bill</div>
                                           )}
-                                          {proj.billable === 0 && <div />}
-                                          {proj.billable === proj.total && proj.total > 0 && <div style={{ fontFamily: C.mono, fontSize: 10, color: C.blue }}>100% bill</div>}
+                                          {(proj.billable === 0 || proj.billable === proj.total) && <div />}
                                         </div>
                                         {open && proj.entries.length > 0 && (
                                           <div style={{ background: C.alt, borderBottom: `1px solid ${C.border}` }}>
