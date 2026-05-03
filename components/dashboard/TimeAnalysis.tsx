@@ -305,38 +305,58 @@ export function TimeAnalysis() {
                                 <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>
                                   Project Breakdown <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>— {PERIOD_LABELS[period]}</span>
                                 </div>
-                                {(emp.projectBreakdown[period] ?? []).length === 0 ? (
-                                  <div style={{ color: C.textSub, fontSize: 13 }}>No project data for this period.</div>
-                                ) : (
-                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                    <thead>
-                                      <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                                        <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 600, fontSize: 10, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Project</th>
-                                        <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, fontSize: 10, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Hours</th>
-                                        <th style={{ padding: "6px 8px", fontWeight: 600, fontSize: 10, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 140 }}>Billable %</th>
-                                        <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 600, fontSize: 10, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>Non-bill</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {(emp.projectBreakdown[period] ?? []).map((proj, pi) => {
-                                        const nonBill = proj.total - proj.billable;
-                                        const isInternal = !proj.projectId;
-                                        return (
-                                          <tr key={pi} style={{ borderBottom: `1px solid ${C.border}`, background: pi % 2 === 0 ? "#fff" : C.alt }}>
-                                            <td style={{ padding: "7px 8px", maxWidth: 200 }}>
-                                              <div style={{ fontWeight: 600, color: C.text, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.companyName}</div>
-                                              {proj.projectId && <div style={{ fontSize: 10, color: C.textSub }}>{proj.projectName.split("—")[1]?.trim() ?? ""}</div>}
-                                              {isInternal && <div style={{ fontSize: 10, color: C.orange, fontWeight: 600 }}>Internal / Admin</div>}
-                                            </td>
-                                            <td style={{ padding: "7px 8px", textAlign: "right", fontFamily: C.mono, fontWeight: 700, color: C.text }}>{fmtH(proj.total)}</td>
-                                            <td style={{ padding: "7px 8px" }}><PctBar value={proj.billablePct} target={TARGETS.billable} color={C.blue} slim /></td>
-                                            <td style={{ padding: "7px 8px", textAlign: "right", fontFamily: C.mono, fontSize: 11, color: nonBill > 0 ? C.red : C.textSub }}>{nonBill > 0 ? fmtH(nonBill) : "—"}</td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                )}
+                                {(() => {
+                                  const allProj = emp.projectBreakdown[period] ?? [];
+                                  if (allProj.length === 0) return <div style={{ color: C.textSub, fontSize: 13 }}>No project data for this period.</div>;
+
+                                  const utilised     = allProj.filter(p => p.utilized > 0);
+                                  const nonUtilised  = allProj.filter(p => p.utilized === 0);
+                                  const utilBill     = utilised.filter(p => p.billable > 0);
+                                  const utilNonBill  = utilised.filter(p => p.billable === 0);
+
+                                  const ProjRow = ({ proj, showBillable }: { proj: typeof allProj[0]; showBillable?: boolean }) => {
+                                    const customer = proj.companyName || (proj.projectId ? null : "Internal / Admin");
+                                    const projName = proj.projectName?.split("—")[1]?.trim() || (proj.projectId ? proj.projectName : null);
+                                    return (
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto" + (showBillable ? " auto" : ""), gap: "0 12px", padding: "6px 8px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+                                        <div style={{ minWidth: 0 }}>
+                                          <div style={{ fontWeight: 600, fontSize: 12, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{customer}</div>
+                                          {projName && <div style={{ fontSize: 10, color: C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projName}</div>}
+                                        </div>
+                                        <div style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 12, color: C.text, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.total)}h</div>
+                                        {showBillable && <div style={{ fontFamily: C.mono, fontSize: 11, color: C.blue, textAlign: "right", whiteSpace: "nowrap" }}>{fmtH(proj.billable)}h bill</div>}
+                                      </div>
+                                    );
+                                  };
+
+                                  const SectionHeader = ({ label, color, bg }: { label: string; color: string; bg: string }) => (
+                                    <div style={{ padding: "5px 8px", background: bg, fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>
+                                      {label}
+                                    </div>
+                                  );
+
+                                  return (
+                                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden", fontSize: 12 }}>
+                                      {/* UTILIZED */}
+                                      {utilised.length > 0 && <>
+                                        <SectionHeader label="Utilized" color={C.teal} bg={C.tealBg} />
+                                        {utilBill.length > 0 && <>
+                                          <SectionHeader label="↳ Billable" color={C.blue} bg={C.blueBg} />
+                                          {utilBill.map((p, i) => <ProjRow key={i} proj={p} showBillable />)}
+                                        </>}
+                                        {utilNonBill.length > 0 && <>
+                                          <SectionHeader label="↳ Non-Billable" color={C.textMid} bg={C.alt} />
+                                          {utilNonBill.map((p, i) => <ProjRow key={i} proj={p} />)}
+                                        </>}
+                                      </>}
+                                      {/* NON-UTILIZED */}
+                                      {nonUtilised.length > 0 && <>
+                                        <SectionHeader label="Non-Utilized" color={C.textSub} bg={C.bg} />
+                                        {nonUtilised.map((p, i) => <ProjRow key={i} proj={p} />)}
+                                      </>}
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* Summary + gap cards */}
                                 {p.total > 0 && (
