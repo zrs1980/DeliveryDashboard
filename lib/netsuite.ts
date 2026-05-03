@@ -412,15 +412,17 @@ export async function fetchAllPhases() {
   `);
 }
 
-/** Returns all active employees in the Consulting department (custentity10 = 'Consulting'): { id → "First Last" } */
-export async function getActiveJobResources(): Promise<Record<number, string>> {
-  const rows = await runSuiteQLAll<{ id: string; firstname: string; lastname: string }>(
-    `SELECT id, firstname, lastname FROM employee WHERE BUILTIN.DF(custentity10) = 'Consulting' AND isinactive = 'F' ORDER BY lastname, firstname`
+export interface JobResource { name: string; employeeType: string; }
+
+/** Returns all active employees with their custentity10 type: { id → { name, employeeType } } */
+export async function getActiveJobResources(): Promise<Record<number, JobResource>> {
+  const rows = await runSuiteQLAll<{ id: string; firstname: string; lastname: string; employee_type: string }>(
+    `SELECT id, firstname, lastname, BUILTIN.DF(custentity10) AS employee_type FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
   );
-  const map: Record<number, string> = {};
+  const map: Record<number, JobResource> = {};
   for (const r of rows) {
     const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
-    if (name) map[parseInt(r.id)] = name;
+    if (name) map[parseInt(r.id)] = { name, employeeType: r.employee_type ?? "" };
   }
   return map;
 }

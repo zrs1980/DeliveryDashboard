@@ -241,7 +241,8 @@ export async function GET(req: NextRequest) {
 
         return {
           employeeId:    parseInt(id),
-          employeeName:  EMPLOYEES[parseInt(id)],
+          employeeName:  EMPLOYEES[parseInt(id)]?.name ?? `Employee #${id}`,
+          employeeType:  EMPLOYEES[parseInt(id)]?.employeeType ?? "",
           totalHours:    Math.round(totalHours    * 100) / 100,
           billableHours: Math.round(billableHours * 100) / 100,
           projects,

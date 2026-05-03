@@ -218,7 +218,8 @@ export async function GET() {
 
         return {
           employeeId:   empId,
-          employeeName: EMPLOYEES[empId],
+          employeeName: EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
+          employeeType: EMPLOYEES[empId]?.employeeType ?? "",
           periods: {
             thisWeek:    sumPeriod(byDate, thisMonday,         today),
             lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday),

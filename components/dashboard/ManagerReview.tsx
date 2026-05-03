@@ -58,6 +58,7 @@ function isCustomer(projectType: string): boolean {
 interface EmployeeData {
   employeeId:    number;
   employeeName:  string;
+  employeeType:  string;
   totalHours:    number;
   billableHours: number;
   projects:      ProjectData[];
@@ -433,6 +434,7 @@ export function ManagerReview() {
     billablePct:     number;
     rag:             "green" | "yellow" | "red";
     projects:        EnrichedProject[];
+    // employeeType inherited from EmployeeData
   }
 
   const enriched: EnrichedEmployee[] = (rangeFrom && rangeTo ? data : []).map(emp => {
@@ -577,8 +579,26 @@ export function ManagerReview() {
         </div>
       )}
 
-      {/* ── Consultant cards ──────────────────────────────────────────────── */}
-      {!loading && enriched.map(emp => {
+      {/* ── Consultant cards — grouped by employee type ───────────────────── */}
+      {!loading && (() => {
+        const grouped = enriched.reduce((acc, emp) => {
+          const t = emp.employeeType || "Other";
+          if (!acc[t]) acc[t] = [];
+          acc[t].push(emp);
+          return acc;
+        }, {} as Record<string, typeof enriched>);
+        const groups = Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
+        return groups.map(([type, emps]) => (
+          <div key={type} style={{ marginBottom: 8 }}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, color: C.textSub,
+              textTransform: "uppercase", letterSpacing: "0.07em",
+              padding: "6px 4px", marginBottom: 6,
+              borderBottom: `2px solid ${C.border}`,
+            }}>
+              {type}
+            </div>
+            {emps.map(emp => {
         const isExpanded = expanded.has(emp.employeeId);
         const rag        = RAG[emp.rag];
 
@@ -715,9 +735,11 @@ export function ManagerReview() {
                 )}
               </div>
             )}
+            </div>
+            );})}
           </div>
-        );
-      })}
+        ));
+      })()}
 
       {/* ── Legend ────────────────────────────────────────────────────────── */}
       {!loading && enriched.length > 0 && (

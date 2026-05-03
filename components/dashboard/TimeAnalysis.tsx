@@ -34,6 +34,7 @@ interface ProjectBreakdown {
 interface EmployeeTimeData {
   employeeId: number;
   employeeName: string;
+  employeeType: string;
   periods: Record<PeriodKey, PeriodMetrics>;
   weeklyTrend: WeekPoint[];
   projectBreakdown: Record<PeriodKey, ProjectBreakdown[]>;
@@ -216,7 +217,24 @@ export function TimeAnalysis() {
               </tr>
             </thead>
             <tbody>
-              {employees.map((emp, i) => {
+              {(() => {
+                const grouped = employees.reduce((acc, emp) => {
+                  const t = emp.employeeType || "Other";
+                  if (!acc[t]) acc[t] = [];
+                  acc[t].push(emp);
+                  return acc;
+                }, {} as Record<string, EmployeeTimeData[]>);
+                const groups = Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
+                let rowIdx = 0;
+                return groups.flatMap(([type, emps]) => [
+                  <tr key={`group-${type}`}>
+                    <td colSpan={5} style={{ padding: "8px 18px 4px", background: C.bg, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                      {type}
+                    </td>
+                  </tr>,
+                  ...emps.map((emp) => {
+                    const i = rowIdx++;
+
                 const p          = emp.periods[period];
                 const isExpanded = expandedEmp === emp.employeeId;
                 const initials   = emp.employeeName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
@@ -393,8 +411,10 @@ export function TimeAnalysis() {
                       </tr>
                     )}
                   </>
-                );
-              })}
+                  );
+                }),
+                ]);
+              })()}
             </tbody>
           </table>
           <div style={{ padding: "8px 18px", borderTop: `1px solid ${C.border}`, background: C.alt, fontSize: 11, color: C.textSub }}>
