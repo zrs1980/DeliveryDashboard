@@ -411,3 +411,16 @@ export async function fetchAllPhases() {
     ORDER BY j.id, pt.id ASC
   `);
 }
+
+/** Returns all active employees flagged as job resources: { id → "First Last" } */
+export async function getActiveJobResources(): Promise<Record<number, string>> {
+  const rows = await runSuiteQLAll<{ id: string; firstname: string; lastname: string }>(
+    `SELECT id, firstname, lastname FROM employee WHERE isjobresource = 'T' AND isinactive = 'F' ORDER BY lastname, firstname`
+  );
+  const map: Record<number, string> = {};
+  for (const r of rows) {
+    const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
+    if (name) map[parseInt(r.id)] = name;
+  }
+  return map;
+}

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { runSuiteQL, runSuiteQLAll } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { runSuiteQL, runSuiteQLAll, getActiveJobResources } from "@/lib/netsuite";
 
 export const revalidate = 0;
 
@@ -67,6 +66,7 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
 
 export async function GET() {
   try {
+    const EMPLOYEES   = await getActiveJobResources();
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const now = new Date();
     const empList = employeeIds.join(", ");

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQLAll } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { runSuiteQLAll, getActiveJobResources } from "@/lib/netsuite";
 
 export const revalidate = 0;
 
@@ -86,9 +85,10 @@ export async function GET(req: NextRequest) {
     [from, to] = periodRanges[period] ?? periodRanges.thisMonth;
   }
 
-  const empList = Object.keys(EMPLOYEES).join(", ");
-
   try {
+    const EMPLOYEES = await getActiveJobResources();
+    const empList   = Object.keys(EMPLOYEES).join(", ");
+
     // Look up the Cases Resource Allocation Project (entityid=398) and all
     // Managed Service Agreement projects in parallel — MSA time rolls up to Cases.
     const [casesRows, msaRows] = await Promise.all([
