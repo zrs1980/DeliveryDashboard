@@ -60,6 +60,14 @@ const TARGETS = { billable: 0.65, utilized: 0.75, productive: 0.85 };
 function fmtH(n: number) { return `${n.toFixed(2)}h`; }
 function fmtPct(n: number) { return `${Math.round(n * 100)}%`; }
 
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtNSDate(raw: string): string {
+  const p = raw.split("/");
+  if (p.length !== 3) return raw;
+  const d = new Date(+p[2], +p[0] - 1, +p[1]);
+  return `${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${+p[1]} ${MONTHS_SHORT[+p[0]-1]}`;
+}
+
 function PctBar({ value, target, color, slim }: { value: number; target: number; color: string; slim?: boolean }) {
   const pct = Math.min(value * 100, 100);
   const targetPct = Math.min(target * 100, 100);
@@ -142,6 +150,7 @@ export function TimeAnalysis() {
   const [expandedProj, setExpandedProj] = useState<Set<string>>(new Set());
   const [mgrCache, setMgrCache]   = useState<Record<string, MgrPeriodCache>>({});
   const [mgrLoading, setMgrLoading] = useState<Record<string, boolean>>({});
+  const [openAllocProj, setOpenAllocProj] = useState<Set<string>>(new Set());
   const mgrRequested = useRef<Set<string>>(new Set());
 
   async function load() {
@@ -515,15 +524,45 @@ export function TimeAnalysis() {
                                     const nonBill  = Math.round((actual - bill) * 100) / 100;
                                     const gap      = Math.round((actual - alloc) * 100) / 100;
                                     const gapColor = gap > 2 ? C.orange : gap < -2 ? C.red : C.green;
+                                    const rowKey   = `${emp.employeeId}-alloc-${proj.projectId ?? "int"}`;
+                                    const open     = openAllocProj.has(rowKey);
+                                    const hasEntries = proj.entries && proj.entries.length > 0;
+                                    const toggle   = () => hasEntries && setOpenAllocProj(prev => {
+                                      const next = new Set(prev);
+                                      next.has(rowKey) ? next.delete(rowKey) : next.add(rowKey);
+                                      return next;
+                                    });
                                     return (
-                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
-                                        <div style={{ fontSize: 11, color: C.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.projectName}</div>
-                                        <div style={{ ...colVal, color: C.textMid }}>{fmtH(alloc)}</div>
-                                        <div style={{ ...colVal, color: C.text }}>{fmtH(actual)}</div>
-                                        <div style={{ ...colVal, color: bill > 0 ? C.green : C.textSub }}>{fmtH(bill)}</div>
-                                        <div style={{ ...colVal, color: nonBill > 0 ? C.textMid : C.textSub }}>{fmtH(nonBill)}</div>
-                                        <div style={{ ...colVal, color: gapColor, fontWeight: 700 }}>{gap > 0 ? "+" : ""}{fmtH(gap)}</div>
-                                      </div>
+                                      <>
+                                        <div
+                                          onClick={toggle}
+                                          style={{ display: "grid", gridTemplateColumns: "16px 1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, alignItems: "center", cursor: hasEntries ? "pointer" : "default", background: open ? C.blueBg : "transparent" }}
+                                          onMouseEnter={e => { if (hasEntries && !open) (e.currentTarget as HTMLDivElement).style.background = C.alt; }}
+                                          onMouseLeave={e => { if (!open) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                                        >
+                                          <span style={{ fontSize: 8, color: C.textSub, display: "inline-block", transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", visibility: hasEntries ? "visible" : "hidden" }}>▶</span>
+                                          <div style={{ fontSize: 11, color: C.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.projectName}</div>
+                                          <div style={{ ...colVal, color: C.textMid }}>{fmtH(alloc)}</div>
+                                          <div style={{ ...colVal, color: C.text }}>{fmtH(actual)}</div>
+                                          <div style={{ ...colVal, color: bill > 0 ? C.green : C.textSub }}>{fmtH(bill)}</div>
+                                          <div style={{ ...colVal, color: nonBill > 0 ? C.textMid : C.textSub }}>{fmtH(nonBill)}</div>
+                                          <div style={{ ...colVal, color: gapColor, fontWeight: 700 }}>{gap > 0 ? "+" : ""}{fmtH(gap)}</div>
+                                        </div>
+                                        {open && hasEntries && (
+                                          <div style={{ borderBottom: `1px solid ${C.border}` }}>
+                                            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 64px", padding: "4px 10px 4px 26px", fontSize: 9, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", background: C.alt, borderBottom: `1px solid ${C.border}` }}>
+                                              <div>Date</div><div>Memo</div><div style={{ textAlign: "right" }}>Hours</div>
+                                            </div>
+                                            {proj.entries.map((entry: any) => (
+                                              <div key={entry.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 64px", padding: "5px 10px 5px 26px", fontSize: 11, borderBottom: `1px solid ${C.border}`, alignItems: "center", background: C.surface }}>
+                                                <div style={{ fontFamily: C.mono, fontSize: 10, color: C.textSub }}>{fmtNSDate(entry.date)}</div>
+                                                <div style={{ color: entry.memo ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{entry.memo || <em>no memo</em>}</div>
+                                                <div style={{ fontFamily: C.mono, fontWeight: 600, fontSize: 11, color: C.text, textAlign: "right" }}>{fmtH(entry.hours)}</div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
                                     );
                                   };
 
@@ -533,7 +572,8 @@ export function TimeAnalysis() {
 
                                   return (
                                     <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
-                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "5px 10px", background: C.alt, borderBottom: `1px solid ${C.border}` }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "16px 1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "5px 10px", background: C.alt, borderBottom: `1px solid ${C.border}` }}>
+                                        <div />
                                         <div style={{ ...colHdr, textAlign: "left" }}>Project</div>
                                         <div style={colHdr}>Alloc</div>
                                         <div style={colHdr}>Actual</div>
