@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C } from "@/lib/constants";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -50,8 +50,6 @@ interface EmployeeTimeData {
   projectBreakdown: Record<PeriodKey, ProjectBreakdown[]>;
 }
 
-interface AiState { loading: boolean; text: string | null; error: string | null; }
-
 const PERIOD_LABELS: Record<PeriodKey, string> = {
   thisWeek: "This Week", lastWeek: "Last Week",
   thisMonth: "This Month", lastMonth: "Last Month",
@@ -80,28 +78,27 @@ function PctBar({ value, target, color, slim }: { value: number; target: number;
   );
 }
 
-// Render AI text the same way as AiInsights — bullet lines get a → prefix
-function AiText({ text }: { text: string }) {
-  return (
-    <div style={{ fontSize: 13, lineHeight: 1.65, color: "#CBD5E1" }}>
-      {text.split("\n").filter(l => l.trim()).map((line, i) => {
-        const isBullet = /^[-•*]|\d+\./.test(line.trim());
-        const isHeader = line.trim().endsWith(":") || /\*\*.*\*\*/.test(line);
-        const clean = line.replace(/\*\*/g, "").trim();
-        if (isHeader) return (
-          <div key={i} style={{ fontWeight: 700, color: "#F1F5F9", marginTop: 10, marginBottom: 2 }}>{clean}</div>
-        );
-        if (isBullet) return (
-          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4, paddingLeft: 4 }}>
-            <span style={{ color: "#60A5FA", fontWeight: 700, flexShrink: 0 }}>→</span>
-            <span>{clean.replace(/^[-•*]\s*/, "")}</span>
-          </div>
-        );
-        return <div key={i} style={{ marginBottom: 4 }}>{clean}</div>;
-      })}
-    </div>
-  );
+function parseNSDateClient(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("/");
+  if (parts.length !== 3) return null;
+  return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
 }
+
+function countWorkDaysClient(start: Date, end: Date): number {
+  let count = 0;
+  const cur = new Date(start); cur.setHours(0, 0, 0, 0);
+  const fin = new Date(end);   fin.setHours(0, 0, 0, 0);
+  while (cur <= fin) { const d = cur.getDay(); if (d !== 0 && d !== 6) count++; cur.setDate(cur.getDate() + 1); }
+  return count;
+}
+
+function isCustomerType(projectType: string): boolean {
+  const pt = (projectType ?? "").toLowerCase().trim();
+  return pt !== "" && pt !== "internal";
+}
+
+interface MgrPeriodCache { employees: any[]; rangeFrom: string; rangeTo: string; }
 
 export function TimeAnalysis() {
   const [employees, setEmployees] = useState<EmployeeTimeData[]>([]);
@@ -110,7 +107,9 @@ export function TimeAnalysis() {
   const [period, setPeriod]       = useState<PeriodKey>("thisMonth");
   const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
   const [expandedProj, setExpandedProj] = useState<Set<string>>(new Set());
-  const [aiStates, setAiStates]   = useState<Record<number, AiState>>({});
+  const [mgrCache, setMgrCache]   = useState<Record<string, MgrPeriodCache>>({});
+  const [mgrLoading, setMgrLoading] = useState<Record<string, boolean>>({});
+  const mgrRequested = useRef<Set<string>>(new Set());
 
   async function load() {
     setLoading(true); setError(null);
@@ -126,26 +125,18 @@ export function TimeAnalysis() {
 
   useEffect(() => { load(); }, []);
 
-  async function getAiAnalysis(emp: EmployeeTimeData) {
-    setAiStates(s => ({ ...s, [emp.employeeId]: { loading: true, text: null, error: null } }));
-    try {
-      const res = await fetch("/api/time-analysis/insights", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeName:     emp.employeeName,
-          periodLabel:      PERIOD_LABELS[period],
-          metrics:          emp.periods[period],
-          projectBreakdown: emp.projectBreakdown[period] ?? [],
-        }),
-      });
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      setAiStates(s => ({ ...s, [emp.employeeId]: { loading: false, text: json.text, error: null } }));
-    } catch (e) {
-      setAiStates(s => ({ ...s, [emp.employeeId]: { loading: false, text: null, error: e instanceof Error ? e.message : "Unknown error" } }));
-    }
-  }
+  useEffect(() => {
+    if (expandedEmp === null) return;
+    if (mgrRequested.current.has(period)) return;
+    mgrRequested.current.add(period);
+    const p = period;
+    setMgrLoading(s => ({ ...s, [p]: true }));
+    fetch(`/api/manager-review?period=${p}`)
+      .then(r => r.json())
+      .then(json => setMgrCache(s => ({ ...s, [p]: { employees: json.employees ?? [], rangeFrom: json.rangeFrom ?? "", rangeTo: json.rangeTo ?? "" } })))
+      .catch(() => {})
+      .finally(() => setMgrLoading(s => ({ ...s, [p]: false })));
+  }, [expandedEmp, period]);
 
   // ── Team totals ──────────────────────────────────────────────────────────
   const active = employees.filter(e => e.periods[period].total > 0);
@@ -249,7 +240,6 @@ export function TimeAnalysis() {
                 const p          = emp.periods[period];
                 const isExpanded = expandedEmp === emp.employeeId;
                 const initials   = emp.employeeName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-                const ai         = aiStates[emp.employeeId];
                 return (
                   <>
                     {/* Summary row */}
@@ -460,35 +450,90 @@ export function TimeAnalysis() {
                                 )}
                               </div>
 
-                              {/* ── Right: AI Analysis ── */}
+                              {/* ── Right: Allocation vs Actuals ── */}
                               <div>
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>AI Analysis</div>
-                                  <button
-                                    onClick={e => { e.stopPropagation(); getAiAnalysis(emp); }}
-                                    disabled={ai?.loading}
-                                    style={{ padding: "5px 14px", fontSize: 11, fontWeight: 700, fontFamily: C.font, background: ai?.loading ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg, #1A56DB, #2563EB)", color: "#fff", border: "none", borderRadius: 7, cursor: ai?.loading ? "not-allowed" : "pointer", opacity: ai?.loading ? 0.7 : 1 }}
-                                  >
-                                    {ai?.loading ? "↻ Analysing…" : ai?.text ? "↻ Refresh" : "✦ Get Analysis"}
-                                  </button>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>
+                                  Allocation vs Actuals <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>— {PERIOD_LABELS[period]}</span>
                                 </div>
+                                {mgrLoading[period] ? (
+                                  <div style={{ color: C.textSub, fontSize: 12, padding: "20px 0", textAlign: "center" }}>Loading allocation data…</div>
+                                ) : (() => {
+                                  const cached = mgrCache[period];
+                                  if (!cached) return <div style={{ color: C.textSub, fontSize: 12, padding: "20px 0" }}>Allocation data will load when you expand a row.</div>;
 
-                                <div style={{ background: "linear-gradient(135deg, #0F172A, #1A3052)", borderRadius: 10, padding: "16px 18px", minHeight: 180 }}>
-                                  {!ai && (
-                                    <div style={{ color: "#64748B", fontSize: 13, textAlign: "center", paddingTop: 40 }}>
-                                      Click <strong style={{ color: "#93C5FD" }}>Get Analysis</strong> to understand why {emp.employeeName.split(" ")[0]} is{" "}
-                                      {p.billablePct < TARGETS.billable ? "missing billable targets" : p.utilizedPct < TARGETS.utilized ? "under-utilized" : "not hitting productive targets"} and what to do about it.
+                                  const mgrEmp = cached.employees.find((e: any) => e.employeeId === emp.employeeId);
+                                  if (!mgrEmp || mgrEmp.projects.length === 0) return (
+                                    <div style={{ color: C.textSub, fontSize: 12, padding: "20px 0" }}>No allocation data for this period.</div>
+                                  );
+
+                                  const from = new Date(cached.rangeFrom + "T00:00:00");
+                                  const to   = new Date(cached.rangeTo   + "T23:59:59");
+
+                                  function allocHrs(allocs: any[]): number {
+                                    let t = 0;
+                                    for (const a of allocs) {
+                                      const s = parseNSDateClient(a.startDate);
+                                      const e = parseNSDateClient(a.endDate);
+                                      if (!s || !e) continue;
+                                      const lo = s > from ? new Date(s) : new Date(from);
+                                      const hi = e < to   ? new Date(e) : new Date(to);
+                                      if (lo > hi) continue;
+                                      const hpd = a.hrsPerDay > 0 ? a.hrsPerDay : (a.pct / 100) * 8;
+                                      t += countWorkDaysClient(lo, hi) * hpd;
+                                    }
+                                    return Math.round(t * 100) / 100;
+                                  }
+
+                                  const customerProjs = mgrEmp.projects.filter((proj: any) => isCustomerType(proj.projectType));
+                                  const internalProjs = mgrEmp.projects.filter((proj: any) => !isCustomerType(proj.projectType));
+
+                                  const colHdr = { fontSize: 10, fontWeight: 700 as const, color: C.textSub, textTransform: "uppercase" as const, letterSpacing: "0.05em", textAlign: "right" as const };
+                                  const colVal = { fontFamily: C.mono, fontSize: 11, fontWeight: 600 as const, textAlign: "right" as const };
+
+                                  const ProjAllocRow = ({ proj }: { proj: any }) => {
+                                    const alloc    = allocHrs(proj.allocations);
+                                    const actual   = proj.actualHours;
+                                    const bill     = proj.billableHours;
+                                    const nonBill  = Math.round((actual - bill) * 100) / 100;
+                                    const gap      = Math.round((actual - alloc) * 100) / 100;
+                                    const gapColor = gap > 2 ? C.orange : gap < -2 ? C.red : C.green;
+                                    return (
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
+                                        <div style={{ fontSize: 11, color: C.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proj.projectName}</div>
+                                        <div style={{ ...colVal, color: C.textMid }}>{fmtH(alloc)}</div>
+                                        <div style={{ ...colVal, color: C.text }}>{fmtH(actual)}</div>
+                                        <div style={{ ...colVal, color: bill > 0 ? C.green : C.textSub }}>{fmtH(bill)}</div>
+                                        <div style={{ ...colVal, color: nonBill > 0 ? C.textMid : C.textSub }}>{fmtH(nonBill)}</div>
+                                        <div style={{ ...colVal, color: gapColor, fontWeight: 700 }}>{gap > 0 ? "+" : ""}{fmtH(gap)}</div>
+                                      </div>
+                                    );
+                                  };
+
+                                  const SectionHdr = ({ label, bg, color }: { label: string; bg: string; color: string }) => (
+                                    <div style={{ padding: "5px 10px", background: bg, fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>{label}</div>
+                                  );
+
+                                  return (
+                                    <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 54px 54px 54px 58px", gap: "0 4px", padding: "5px 10px", background: C.alt, borderBottom: `1px solid ${C.border}` }}>
+                                        <div style={{ ...colHdr, textAlign: "left" }}>Project</div>
+                                        <div style={colHdr}>Alloc</div>
+                                        <div style={colHdr}>Actual</div>
+                                        <div style={colHdr}>Bill</div>
+                                        <div style={colHdr}>Non-Bill</div>
+                                        <div style={colHdr}>Gap</div>
+                                      </div>
+                                      {customerProjs.length > 0 && <>
+                                        <SectionHdr label="Customer Projects" bg={C.alt} color={C.textMid} />
+                                        {customerProjs.map((proj: any, i: number) => <ProjAllocRow key={i} proj={proj} />)}
+                                      </>}
+                                      {internalProjs.length > 0 && <>
+                                        <SectionHdr label="Internal" bg={C.blueBg} color={C.blue} />
+                                        {internalProjs.map((proj: any, i: number) => <ProjAllocRow key={i} proj={proj} />)}
+                                      </>}
                                     </div>
-                                  )}
-                                  {ai?.loading && (
-                                    <div style={{ color: "#64748B", fontSize: 13, textAlign: "center", paddingTop: 40, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                                      <div style={{ width: 20, height: 20, border: "3px solid rgba(255,255,255,0.15)", borderTopColor: "#60A5FA", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                                      Analysing time data…
-                                    </div>
-                                  )}
-                                  {ai?.error && <div style={{ color: "#F87171", fontSize: 12 }}>⚠ {ai.error}</div>}
-                                  {ai?.text && <AiText text={ai.text} />}
-                                </div>
+                                  );
+                                })()}
                               </div>
 
                             </div>
@@ -504,7 +549,7 @@ export function TimeAnalysis() {
             </tbody>
           </table>
           <div style={{ padding: "8px 18px", borderTop: `1px solid ${C.border}`, background: C.alt, fontSize: 11, color: C.textSub }}>
-            Click a row to expand project breakdown and AI analysis · Expanded row also filters the chart below
+            Click a row to expand project breakdown and allocation data · Expanded row also filters the chart below
           </div>
         </div>
       )}
