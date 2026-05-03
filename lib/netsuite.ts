@@ -415,7 +415,7 @@ export async function fetchAllPhases() {
 /** Returns all active employees in the Consulting department (custentity10 = 'Consulting'): { id → "First Last" } */
 export async function getActiveJobResources(): Promise<Record<number, string>> {
   const rows = await runSuiteQLAll<{ id: string; firstname: string; lastname: string }>(
-    `SELECT id, firstname, lastname FROM employee WHERE custentity10 = 'Consulting' AND isinactive = 'F' ORDER BY lastname, firstname`
+    `SELECT id, firstname, lastname FROM employee WHERE BUILTIN.DF(custentity10) = 'Consulting' AND isinactive = 'F' ORDER BY lastname, firstname`
   );
   const map: Record<number, string> = {};
   for (const r of rows) {
