@@ -6,7 +6,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-type PeriodKey = "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter";
+type PeriodKey = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter" | "custom";
 
 interface PeriodMetrics {
   total: number;
@@ -45,15 +45,17 @@ interface EmployeeTimeData {
   employeeId: number;
   employeeName: string;
   employeeType: string;
-  periods: Record<PeriodKey, PeriodMetrics>;
+  periods: Partial<Record<PeriodKey, PeriodMetrics>>;
   weeklyTrend: WeekPoint[];
-  projectBreakdown: Record<PeriodKey, ProjectBreakdown[]>;
+  projectBreakdown: Partial<Record<PeriodKey, ProjectBreakdown[]>>;
 }
 
 const PERIOD_LABELS: Record<PeriodKey, string> = {
+  today: "Today", yesterday: "Yesterday",
   thisWeek: "This Week", lastWeek: "Last Week",
   thisMonth: "This Month", lastMonth: "Last Month",
   thisQuarter: "This Quarter", lastQuarter: "Last Quarter",
+  custom: "Custom",
 };
 const TARGETS = { billable: 0.65, utilized: 0.75, productive: 0.85 };
 
@@ -151,12 +153,18 @@ export function TimeAnalysis() {
   const [mgrCache, setMgrCache]   = useState<Record<string, MgrPeriodCache>>({});
   const [mgrLoading, setMgrLoading] = useState<Record<string, boolean>>({});
   const [openAllocProj, setOpenAllocProj] = useState<Set<string>>(new Set());
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo,   setCustomTo]   = useState("");
   const mgrRequested = useRef<Set<string>>(new Set());
 
-  async function load() {
+  const mgrCacheKey = period === "custom" && customFrom && customTo
+    ? `custom_${customFrom}_${customTo}` : period;
+
+  async function load(from?: string, to?: string) {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/time-analysis");
+      const url = from && to ? `/api/time-analysis?from=${from}&to=${to}` : "/api/time-analysis";
+      const res = await fetch(url);
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setEmployees(json.employees ?? []);
@@ -165,25 +173,38 @@ export function TimeAnalysis() {
     } finally { setLoading(false); }
   }
 
+  function applyCustom() {
+    if (!customFrom || !customTo || customFrom > customTo) return;
+    setPeriod("custom");
+    load(customFrom, customTo);
+    const key = `custom_${customFrom}_${customTo}`;
+    mgrRequested.current.delete(key);
+    setMgrCache(prev => { const n = { ...prev }; delete n[key]; return n; });
+  }
+
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
     if (expandedEmp === null) return;
-    if (mgrRequested.current.has(period)) return;
-    mgrRequested.current.add(period);
-    const p = period;
-    setMgrLoading(s => ({ ...s, [p]: true }));
-    fetch(`/api/manager-review?period=${p}`)
+    if (period === "custom" && (!customFrom || !customTo)) return;
+    if (mgrRequested.current.has(mgrCacheKey)) return;
+    mgrRequested.current.add(mgrCacheKey);
+    const key = mgrCacheKey;
+    const url = period === "custom" && customFrom && customTo
+      ? `/api/manager-review?period=custom&from=${customFrom}&to=${customTo}`
+      : `/api/manager-review?period=${period}`;
+    setMgrLoading(s => ({ ...s, [key]: true }));
+    fetch(url)
       .then(r => r.json())
-      .then(json => setMgrCache(s => ({ ...s, [p]: { employees: json.employees ?? [], rangeFrom: json.rangeFrom ?? "", rangeTo: json.rangeTo ?? "" } })))
+      .then(json => setMgrCache(s => ({ ...s, [key]: { employees: json.employees ?? [], rangeFrom: json.rangeFrom ?? "", rangeTo: json.rangeTo ?? "" } })))
       .catch(() => {})
-      .finally(() => setMgrLoading(s => ({ ...s, [p]: false })));
-  }, [expandedEmp, period]);
+      .finally(() => setMgrLoading(s => ({ ...s, [key]: false })));
+  }, [expandedEmp, mgrCacheKey]);
 
   // ── Team totals ──────────────────────────────────────────────────────────
-  const active = employees.filter(e => e.periods[period].total > 0);
+  const active = employees.filter(e => (e.periods[period]?.total ?? 0) > 0);
   const teamTotals = active.reduce(
-    (acc, e) => { acc.total += e.periods[period].total; acc.billable += e.periods[period].billable; acc.utilized += e.periods[period].utilized; acc.productive += e.periods[period].productive; return acc; },
+    (acc, e) => { const p = e.periods[period]; if (!p) return acc; acc.total += p.total; acc.billable += p.billable; acc.utilized += p.utilized; acc.productive += p.productive; return acc; },
     { total: 0, billable: 0, utilized: 0, productive: 0 },
   );
   const tt = teamTotals.total;
@@ -213,15 +234,30 @@ export function TimeAnalysis() {
           <div style={{ fontWeight: 700, fontSize: 17, color: C.text }}>Time Analysis</div>
           <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>Billable · Utilized · Productive — from NetSuite timebill records</div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {(Object.keys(PERIOD_LABELS) as PeriodKey[]).map(p => (
-            <button key={p} onClick={() => setPeriod(p)} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: C.font, background: period === p ? C.blue : "transparent", color: period === p ? "#fff" : C.textMid, border: `1px solid ${period === p ? C.blue : C.border}`, borderRadius: 7, cursor: "pointer", transition: "all 0.15s" }}>
-              {PERIOD_LABELS[p]}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {(Object.keys(PERIOD_LABELS) as PeriodKey[]).map(p => (
+              <button key={p} onClick={() => setPeriod(p)} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600, fontFamily: C.font, background: period === p ? C.blue : "transparent", color: period === p ? "#fff" : C.textMid, border: `1px solid ${period === p ? C.blue : C.border}`, borderRadius: 7, cursor: "pointer", transition: "all 0.15s" }}>
+                {PERIOD_LABELS[p]}
+              </button>
+            ))}
+            <button onClick={() => load()} disabled={loading} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600, fontFamily: C.font, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 7, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}>
+              {loading ? "↻ Loading…" : "↻ Refresh"}
             </button>
-          ))}
-          <button onClick={load} disabled={loading} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: C.font, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 7, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}>
-            {loading ? "↻ Loading…" : "↻ Refresh"}
-          </button>
+          </div>
+          {period === "custom" && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                style={{ padding: "5px 10px", fontSize: 12, fontFamily: C.font, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, background: "#fff" }} />
+              <span style={{ fontSize: 12, color: C.textSub }}>to</span>
+              <input type="date" value={customTo} min={customFrom} onChange={e => setCustomTo(e.target.value)}
+                style={{ padding: "5px 10px", fontSize: 12, fontFamily: C.font, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, background: "#fff" }} />
+              <button onClick={applyCustom} disabled={!customFrom || !customTo || customFrom > customTo}
+                style={{ padding: "5px 14px", fontSize: 12, fontWeight: 700, fontFamily: C.font, background: (!customFrom || !customTo || customFrom > customTo) ? C.alt : C.blue, color: (!customFrom || !customTo || customFrom > customTo) ? C.textSub : "#fff", border: "none", borderRadius: 6, cursor: (!customFrom || !customTo || customFrom > customTo) ? "not-allowed" : "pointer" }}>
+                Apply
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -279,7 +315,7 @@ export function TimeAnalysis() {
                   ...emps.map((emp) => {
                     const i = rowIdx++;
 
-                const p          = emp.periods[period];
+                const p          = emp.periods[period] ?? { total: 0, billable: 0, utilized: 0, productive: 0, billablePct: 0, utilizedPct: 0, productivePct: 0 };
                 const isExpanded = expandedEmp === emp.employeeId;
                 const initials   = emp.employeeName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
                 return (
@@ -497,10 +533,10 @@ export function TimeAnalysis() {
                                 <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 12 }}>
                                   Allocation vs Actuals <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>— {PERIOD_LABELS[period]}</span>
                                 </div>
-                                {mgrLoading[period] ? (
+                                {mgrLoading[mgrCacheKey] ? (
                                   <div style={{ color: C.textSub, fontSize: 12, padding: "20px 0", textAlign: "center" }}>Loading allocation data…</div>
                                 ) : (() => {
-                                  const cached = mgrCache[period];
+                                  const cached = mgrCache[mgrCacheKey];
                                   if (!cached) return <div style={{ color: C.textSub, fontSize: 12, padding: "20px 0" }}>Allocation data will load when you expand a row.</div>;
 
                                   const mgrEmp = cached.employees.find((e: any) => e.employeeId === emp.employeeId);

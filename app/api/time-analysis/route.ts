@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { runSuiteQL, runSuiteQLAll, getActiveJobResources } from "@/lib/netsuite";
 
 export const revalidate = 0;
@@ -76,8 +76,12 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const fromParam = searchParams.get("from");
+    const toParam   = searchParams.get("to");
+
     const EMPLOYEES   = await getActiveJobResources();
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const now = new Date();
@@ -140,8 +144,15 @@ export async function GET() {
       projectsByEmployee[row.employee].push(row);
     }
 
+    // Custom range (if provided)
+    const customFrom = fromParam ? new Date(fromParam + "T00:00:00") : null;
+    const customTo   = toParam   ? new Date(toParam   + "T23:59:59") : null;
+
     // Period boundaries
-    const today         = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const todayStart     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const today          = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yesterdayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
     const thisMonday    = getMondayOfWeek(now);
     const lastMonday    = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
     const lastSunday    = new Date(thisMonday); lastSunday.setDate(thisMonday.getDate() - 1); lastSunday.setHours(23, 59, 59, 999);
@@ -194,17 +205,20 @@ export async function GET() {
           return { weekStart: weekStart.toISOString().slice(0, 10), ...sumPeriod(byDate, weekStart, weekEnd) };
         });
 
-        const periods2 = {
+        const periods2: Record<string, [Date, Date]> = {
+          today:        [todayStart,          today],
+          yesterday:    [yesterdayStart,      yesterdayEnd],
           thisWeek:     [thisMonday,          today],
           lastWeek:     [lastMonday,          lastSunday],
           thisMonth:    [firstOfMonth,        today],
           lastMonth:    [firstOfLastMonth,    lastDayLastMonth],
           thisQuarter:  [firstOfThisQuarter,  today],
           lastQuarter:  [firstOfLastQuarter,  lastDayLastQuarter],
-        } as const;
+        };
+        if (customFrom && customTo) periods2["custom"] = [customFrom, customTo];
 
         const projectBreakdown = Object.fromEntries(
-          (Object.entries(periods2) as [string, readonly [Date, Date]][]).map(([key, [from, to]]) => {
+          Object.entries(periods2).map(([key, [from, to]]) => {
             const byProj: Record<string, {
               projectId: number | null; clientName: string; projectName: string; projectNumber: string | null;
               total: number; billable: number; utilized: number; productive: number;
@@ -266,12 +280,15 @@ export async function GET() {
           employeeName: EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
           employeeType: EMPLOYEES[empId]?.employeeType ?? "",
           periods: {
+            today:       sumPeriod(byDate, todayStart,         today),
+            yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd),
             thisWeek:    sumPeriod(byDate, thisMonday,         today),
             lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday),
             thisMonth:   sumPeriod(byDate, firstOfMonth,       today),
             lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth),
             thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today),
             lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter),
+            ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo) } : {}),
           },
           weeklyTrend,
           projectBreakdown,
