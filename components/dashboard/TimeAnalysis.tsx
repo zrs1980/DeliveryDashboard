@@ -78,19 +78,52 @@ function PctBar({ value, target, color, slim }: { value: number; target: number;
   );
 }
 
-function parseNSDateClient(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const parts = dateStr.split("/");
-  if (parts.length !== 3) return null;
-  return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+// ── Allocation helpers (must match ManagerReview.tsx exactly) ────────────────
+
+function parseAllocDate(s: string): Date | null {
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + "T12:00:00");
+  const p = s.split("/");
+  if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[0]) - 1, parseInt(p[1]));
+  return null;
 }
 
-function countWorkDaysClient(start: Date, end: Date): number {
-  let count = 0;
-  const cur = new Date(start); cur.setHours(0, 0, 0, 0);
-  const fin = new Date(end);   fin.setHours(0, 0, 0, 0);
-  while (cur <= fin) { const d = cur.getDay(); if (d !== 0 && d !== 6) count++; cur.setDate(cur.getDate() + 1); }
-  return count;
+function getMondayOf(d: Date): Date {
+  const r = new Date(d); r.setHours(0, 0, 0, 0);
+  r.setDate(r.getDate() - ((r.getDay() + 6) % 7));
+  return r;
+}
+
+function weeklyAllocHours(seg: { pct: number; hrsPerDay: number }): number {
+  return seg.pct > 0 ? (seg.pct / 100) * 40 : seg.hrsPerDay * 5;
+}
+
+function segHoursForWeek(seg: { startDate: string; endDate: string; pct: number; hrsPerDay: number }, weekStart: Date, rangeFrom: Date, rangeTo: Date): number {
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+  const windowStart = rangeFrom > weekStart ? rangeFrom : weekStart;
+  const windowEnd   = rangeTo   < weekEnd   ? rangeTo   : weekEnd;
+  if (windowStart > windowEnd) return 0;
+  const s = parseAllocDate(seg.startDate);
+  const e = parseAllocDate(seg.endDate);
+  if (!s || !e || s > windowEnd || e < windowStart) return 0;
+  const overlapStart = s > windowStart ? s : windowStart;
+  const overlapEnd   = e < windowEnd   ? e : windowEnd;
+  let workDays = 0;
+  const cur = new Date(overlapStart); cur.setHours(0, 0, 0, 0);
+  const last = new Date(overlapEnd);  last.setHours(0, 0, 0, 0);
+  while (cur <= last) { const dow = cur.getDay(); if (dow >= 1 && dow <= 5) workDays++; cur.setDate(cur.getDate() + 1); }
+  return (weeklyAllocHours(seg) / 5) * workDays;
+}
+
+function allocatedForPeriod(allocs: { startDate: string; endDate: string; pct: number; hrsPerDay: number }[], from: Date, to: Date): number {
+  if (allocs.length === 0) return 0;
+  let total = 0;
+  const cur = getMondayOf(from);
+  while (cur <= to) {
+    for (const seg of allocs) total += segHoursForWeek(seg, cur, from, to);
+    cur.setDate(cur.getDate() + 7);
+  }
+  return Math.round(total * 100) / 100;
 }
 
 function isCustomerType(projectType: string): boolean {
@@ -469,21 +502,6 @@ export function TimeAnalysis() {
                                   const from = new Date(cached.rangeFrom + "T00:00:00");
                                   const to   = new Date(cached.rangeTo   + "T23:59:59");
 
-                                  function allocHrs(allocs: any[]): number {
-                                    let t = 0;
-                                    for (const a of allocs) {
-                                      const s = parseNSDateClient(a.startDate);
-                                      const e = parseNSDateClient(a.endDate);
-                                      if (!s || !e) continue;
-                                      const lo = s > from ? new Date(s) : new Date(from);
-                                      const hi = e < to   ? new Date(e) : new Date(to);
-                                      if (lo > hi) continue;
-                                      const hpd = a.hrsPerDay > 0 ? a.hrsPerDay : (a.pct / 100) * 8;
-                                      t += countWorkDaysClient(lo, hi) * hpd;
-                                    }
-                                    return Math.round(t * 100) / 100;
-                                  }
-
                                   const customerProjs = mgrEmp.projects.filter((proj: any) => isCustomerType(proj.projectType));
                                   const internalProjs = mgrEmp.projects.filter((proj: any) => !isCustomerType(proj.projectType));
 
@@ -491,7 +509,7 @@ export function TimeAnalysis() {
                                   const colVal = { fontFamily: C.mono, fontSize: 11, fontWeight: 600 as const, textAlign: "right" as const };
 
                                   const ProjAllocRow = ({ proj }: { proj: any }) => {
-                                    const alloc    = allocHrs(proj.allocations);
+                                    const alloc    = allocatedForPeriod(proj.allocations, from, to);
                                     const actual   = proj.actualHours;
                                     const bill     = proj.billableHours;
                                     const nonBill  = Math.round((actual - bill) * 100) / 100;
