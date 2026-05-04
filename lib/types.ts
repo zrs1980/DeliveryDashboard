@@ -113,6 +113,7 @@ export interface NSAllocation {
   employeeName: string;
   projectId: number;
   projectName: string;
+  projectType: "Implementation" | "Service" | "Internal";
   startDate: string;        // e.g. "3/16/2026"
   endDate: string;
   allocationUnit: string;   // "H" = hours, "P" = percentage

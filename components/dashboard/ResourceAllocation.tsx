@@ -14,6 +14,7 @@ interface CellEdit {
   employeeName:  string;
   projectId:     number;
   projectName:   string;
+  projectType:   "Implementation" | "Service" | "Internal";
   companyName:   string;
   remainingHours: number | null;
   budgetHours:   number | null;
@@ -206,6 +207,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
       projectId: number;
       name: string;
       companyName: string;
+      projectType: "Implementation" | "Service" | "Internal";
       remainingHours: number | null;
       budgetHours: number | null;
       rows: NSAllocation[];
@@ -216,6 +218,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
           projectId:      a.projectId,
           name:           a.projectName,
           companyName:    a.companyName,
+          projectType:    a.projectType ?? "Internal",
           remainingHours: a.remainingHours,
           budgetHours:    a.budgetHours,
           rows:           [],
@@ -309,6 +312,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
           employeeName:   cell.employeeName,
           projectId:      cell.projectId,
           projectName:    cell.projectName,
+          projectType:    cell.projectType ?? "Internal",
           startDate:      fmt(weekStart),
           endDate:        fmt(weekEnd),
           allocationUnit: "P",
@@ -517,23 +521,48 @@ export function ResourceAllocation({ allocations, error }: Props) {
                     ))}
                   </tr>
 
-                  {isExp && emp.rows.map((a, ai) => (
-                    <tr key={`${emp.name}-${a.id}`} style={{ background: ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8" }}>
-                      <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8" }} title={a.companyName ? `${a.companyName} — ${a.projectName}` : a.projectName}>
-                        <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                        {a.companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{a.companyName} —</span>}
-                        {a.projectName}
-                      </td>
-                      {weeks.map((w, wi) => {
-                        const hrs = hoursForWeek(a, w);
-                        return (
-                          <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
-                            {hrs > 0 ? hrs.toFixed(1) : <span style={{ color: C.mid }}>—</span>}
+                  {isExp && (() => {
+                    const TYPE_ORDER = ["Implementation", "Service", "Internal"] as const;
+                    const TYPE_STYLE: Record<string, { bg: string; color: string; bd: string }> = {
+                      Implementation: { bg: C.purpleBg, color: C.purple, bd: C.purpleBd },
+                      Service:        { bg: C.blueBg,   color: C.blue,   bd: C.blueBd   },
+                      Internal:       { bg: C.alt,      color: C.textSub, bd: C.border  },
+                    };
+                    const grouped: Record<string, typeof emp.rows> = {};
+                    for (const a of emp.rows) {
+                      const t = a.projectType ?? "Internal";
+                      if (!grouped[t]) grouped[t] = [];
+                      grouped[t].push(a);
+                    }
+                    const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
+                    return TYPE_ORDER.filter(t => grouped[t]?.length).flatMap(t => {
+                      const style = TYPE_STYLE[t];
+                      return [
+                        <tr key={`${emp.name}-type-${t}`}>
+                          <td colSpan={weeks.length + 1} style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
+                            {t}
                           </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                        </tr>,
+                        ...grouped[t].map((a) => (
+                          <tr key={`${emp.name}-${a.id}`} style={{ background: rowBgSub }}>
+                            <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: rowBgSub }} title={a.companyName ? `${a.companyName} — ${a.projectName}` : a.projectName}>
+                              <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                              {a.companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{a.companyName} —</span>}
+                              {a.projectName}
+                            </td>
+                            {weeks.map((w, wi) => {
+                              const hrs = hoursForWeek(a, w);
+                              return (
+                                <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
+                                  {hrs > 0 ? hrs.toFixed(1) : <span style={{ color: C.mid }}>—</span>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        )),
+                      ];
+                    });
+                  })()}
                 </>
               );
             })}
@@ -719,6 +748,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                               employeeName:   emp.name,
                               projectId:      proj.projectId,
                               projectName:    proj.name,
+                              projectType:    proj.projectType ?? "Internal",
                               companyName:    proj.companyName ?? "",
                               remainingHours: proj.remainingHours,
                               budgetHours:    proj.budgetHours,

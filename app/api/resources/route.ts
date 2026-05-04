@@ -15,6 +15,7 @@ export async function GET() {
       entity_id: string | null;
       remaining_hours: string | null;
       budget_hours: string | null;
+      jobtype: string | null;
       startdate: string;
       enddate: string;
       allocationunit: string;
@@ -29,6 +30,7 @@ export async function GET() {
         j.customer                                     AS entity_id,
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
+        j.jobtype                                      AS jobtype,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -60,12 +62,15 @@ export async function GET() {
 
     const allocations: NSAllocation[] = rows.map(r => {
       const empId = parseInt(r.employee_id);
+      const jt = parseInt(r.jobtype ?? "0");
+      const projectType = jt === 1 ? "Implementation" : jt === 2 ? "Service" : "Internal";
       return {
         id:             r.id,
         employeeId:     empId,
         employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
         projectId:      parseInt(r.project_id) || 0,
         projectName:    r.project_name || "—",
+        projectType,
         companyName:    r.entity_id ? (clientMap[String(r.entity_id)] || "") : "",
         startDate:      r.startdate,
         endDate:        r.enddate,
