@@ -257,11 +257,11 @@ export default function DashboardPage() {
             padding: sidebarOpen ? "12px 14px" : "12px 0",
             background: "none", border: "none", cursor: "pointer",
             borderBottom: "1px solid rgba(255,255,255,0.06)",
-            color: "#475569", fontSize: 16, flexShrink: 0,
+            color: "#ffffff", fontSize: 16, flexShrink: 0,
             transition: "color 0.15s",
           }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#93C5FD"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#475569"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#ffffff"; }}
           aria-label={sidebarOpen ? "Collapse menu" : "Expand menu"}
         >
           {sidebarOpen ? "←" : "☰"}
@@ -286,15 +286,15 @@ export default function DashboardPage() {
                   borderLeft: isActive ? "3px solid #3B82F6" : "3px solid transparent",
                   border: "none",
                   borderRight: "none",
-                  color: isActive ? "#93C5FD" : "#64748B",
+                  color: isActive ? "#93C5FD" : "#ffffff",
                   fontSize: 12.5, fontWeight: isActive ? 700 : 500,
                   fontFamily: C.font, cursor: "pointer",
                   whiteSpace: "nowrap", textAlign: "left",
                   transition: "background 0.12s, color 0.12s",
                   flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.05)"; (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8"; }}
-                onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLButtonElement).style.background = "none"; (e.currentTarget as HTMLButtonElement).style.color = "#64748B"; } }}
+                onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.08)"; }}
+                onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
               >
                 <span style={{ fontSize: 15, flexShrink: 0, width: sidebarOpen ? "auto" : 52, textAlign: "center" }}>{t.icon}</span>
                 {sidebarOpen && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</span>}
