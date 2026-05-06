@@ -546,6 +546,16 @@ export function TimeAnalysis() {
 
                                   const from = new Date(cached.rangeFrom + "T00:00:00");
                                   const to   = new Date(cached.rangeTo   + "T23:59:59");
+                                  // For in-progress periods, allocation covers the full period window
+                                  // (not capped at today) so the full week/month commitment is shown
+                                  const allocTo = (() => {
+                                    if (period === "thisWeek") {
+                                      const sun = new Date(from); sun.setDate(from.getDate() + 6); sun.setHours(23, 59, 59, 999); return sun;
+                                    }
+                                    if (period === "thisMonth") return new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59, 999);
+                                    if (period === "thisQuarter") { const q = Math.floor(from.getMonth() / 3); return new Date(from.getFullYear(), (q + 1) * 3, 0, 23, 59, 59, 999); }
+                                    return to;
+                                  })();
 
                                   const customerProjs = mgrEmp.projects.filter((proj: any) => isCustomerType(proj.projectType));
                                   const internalProjs = mgrEmp.projects.filter((proj: any) => !isCustomerType(proj.projectType));
@@ -554,7 +564,7 @@ export function TimeAnalysis() {
                                   const colVal = { fontFamily: C.mono, fontSize: 11, fontWeight: 600 as const, textAlign: "right" as const };
 
                                   const ProjAllocRow = ({ proj }: { proj: any }) => {
-                                    const alloc    = allocatedForPeriod(proj.allocations, from, to);
+                                    const alloc    = allocatedForPeriod(proj.allocations, from, allocTo);
                                     const actual   = proj.actualHours;
                                     const bill     = proj.billableHours;
                                     const nonBill  = Math.round((actual - bill) * 100) / 100;
