@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { C, EMPLOYEES } from "@/lib/constants";
+import { C } from "@/lib/constants";
 import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 import type { PTORequest } from "@/app/api/pto-requests/route";
+import type { EmployeeListItem } from "@/app/api/manager/employees/route";
 
 const MANAGER_EMAIL = "zabe@cebasolutions.com";
 
@@ -309,6 +310,7 @@ export function ManagerPTOView() {
   const [myBalance, setMyBalance]   = useState<EmployeeBalance | null>(null);
   const [myEntries, setMyEntries]   = useState<TimeEntry[]>([]);
   const [requests, setRequests]     = useState<PTORequest[]>([]);
+  const [employees, setEmployees]   = useState<EmployeeListItem[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [myTypeFilter, setMyTypeFilter] = useState<"all" | "pto" | "sick">("all");
@@ -319,20 +321,20 @@ export function ManagerPTOView() {
   const userEmail    = session?.user?.email ?? "";
   const isAuthorized = userEmail.toLowerCase() === MANAGER_EMAIL;
 
-  const employees = Object.entries(EMPLOYEES).map(([id, name]) => ({ nsId: parseInt(id), name }));
-
   async function load() {
     setLoading(true); setError(null);
     try {
-      const [meRes, reqRes] = await Promise.all([
+      const [meRes, reqRes, empRes] = await Promise.all([
         fetch("/api/employee/me"),
         fetch("/api/pto-requests"),
+        fetch("/api/manager/employees"),
       ]);
-      const [meData, reqData] = await Promise.all([meRes.json(), reqRes.json()]);
+      const [meData, reqData, empData] = await Promise.all([meRes.json(), reqRes.json(), empRes.json()]);
       if (meData.error) throw new Error(meData.error);
       setMyBalance(meData.balance);
       setMyEntries(meData.entries ?? []);
       setRequests(reqData.requests ?? []);
+      setEmployees(empData.employees ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
