@@ -60,6 +60,27 @@ export async function GET() {
       }
     }
 
+    // Look up names for any employee IDs not in the hardcoded constant
+    const unknownEmpIds = [...new Set(
+      rows.map(r => parseInt(r.employee_id)).filter(id => !EMPLOYEES[id])
+    )];
+    const empNameMap: Record<number, string> = { ...EMPLOYEES };
+    if (unknownEmpIds.length > 0) {
+      try {
+        const empRows = await runSuiteQL<{ id: string; firstname: string; lastname: string }>(`
+          SELECT id, firstname, lastname FROM employee WHERE id IN (${unknownEmpIds.join(",")})
+        `);
+        if (Array.isArray(empRows)) {
+          for (const e of empRows as any[]) {
+            const name = `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim();
+            if (name) empNameMap[parseInt(e.id)] = name;
+          }
+        }
+      } catch {
+        // Non-fatal — falls back to "Employee #ID"
+      }
+    }
+
     const allocations: NSAllocation[] = rows.map(r => {
       const empId = parseInt(r.employee_id);
       const jt = parseInt(r.jobtype ?? "0");
@@ -67,7 +88,7 @@ export async function GET() {
       return {
         id:             r.id,
         employeeId:     empId,
-        employeeName:   EMPLOYEES[empId] ?? `Employee #${r.employee_id}`,
+        employeeName:   empNameMap[empId] ?? `Employee #${r.employee_id}`,
         projectId:      parseInt(r.project_id) || 0,
         projectName:    r.project_name || "—",
         projectType,
