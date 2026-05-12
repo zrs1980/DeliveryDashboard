@@ -19,6 +19,7 @@ import { CustomersView } from "@/components/dashboard/CustomersView";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
+import { ManagerPTOView } from "@/components/dashboard/ManagerPTOView";
 import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
 
 interface NSCase {
@@ -35,7 +36,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt";
+type Tab = "projects" | "tasks" | "resources" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -52,6 +53,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "customers",        label: "Customers",        icon: "🏢" },
   { id: "projectMgmt",      label: "PM",               icon: "📋" },
   { id: "utilization",      label: "Utilization",      icon: "📈" },
+  { id: "mgr-pto",          label: "Manager PTO",      icon: "🗓️" },
 ];
 
 interface DataState {
@@ -269,7 +271,10 @@ export default function DashboardPage() {
 
         {/* Nav items */}
         <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, padding: "6px 0" }}>
-          {TABS.filter(t => t.id !== "utilization" || session?.user?.email === "zabe@cebasolutions.com").map(t => {
+          {TABS.filter(t => {
+            const zabeOnly = ["utilization", "mgr-pto"];
+            return !zabeOnly.includes(t.id) || session?.user?.email === "zabe@cebasolutions.com";
+          }).map(t => {
             const isActive = tab === t.id;
             return (
               <button
@@ -319,7 +324,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!hasLoaded && !loading && !error && tab !== "wiki" && tab !== "service-requests" && tab !== "employee" && (
+        {!hasLoaded && !loading && !error && tab !== "wiki" && tab !== "service-requests" && tab !== "employee" && tab !== "mgr-pto" && (
           <div style={{ background: "#fff", borderRadius: 16, padding: "64px 24px", textAlign: "center", border: `1px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <div style={{
               width: 64, height: 64, borderRadius: 16, margin: "0 auto 20px",
@@ -494,6 +499,13 @@ export default function DashboardPage() {
         {hasLoaded && tab === "projectMgmt" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <PMView projects={projects} />
+          </div>
+        )}
+
+        {/* Manager PTO (Zabe only) */}
+        {tab === "mgr-pto" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
+            <ManagerPTOView />
           </div>
         )}
 
