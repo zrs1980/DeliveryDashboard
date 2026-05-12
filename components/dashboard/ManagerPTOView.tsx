@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { C } from "@/lib/constants";
+import { C, EMPLOYEES } from "@/lib/constants";
 import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 import type { PTORequest } from "@/app/api/pto-requests/route";
 
@@ -11,20 +11,22 @@ const fmtDate = (s: string) => {
   const d = new Date(s);
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
 };
-
 const fmtH = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1)) + "h";
 
-function BalanceCard({
-  label, hours, icon, color, bg, bd, sub,
-}: { label: string; hours: number; icon: string; color: string; bg: string; bd: string; sub: string }) {
+// ─── Shared sub-components ────────────────────────────────────────────────────
+
+function BalanceCard({ label, hours, icon, color, bg, bd, sub }: {
+  label: string; hours: number; icon: string;
+  color: string; bg: string; bd: string; sub: string;
+}) {
   return (
-    <div style={{ background: bg, border: `1px solid ${bd}`, borderRadius: 12, padding: "20px 24px", flex: 1 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 22 }}>{icon}</span>
-        <div style={{ fontSize: 12, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+    <div style={{ background: bg, border: `1px solid ${bd}`, borderRadius: 12, padding: "18px 22px", flex: 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 20 }}>{icon}</span>
+        <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
       </div>
-      <div style={{ fontSize: 36, fontWeight: 800, color, fontFamily: C.mono, lineHeight: 1 }}>{fmtH(hours)}</div>
-      <div style={{ fontSize: 12, color, opacity: 0.7, marginTop: 6 }}>{sub}</div>
+      <div style={{ fontSize: 32, fontWeight: 800, color, fontFamily: C.mono, lineHeight: 1 }}>{fmtH(hours)}</div>
+      <div style={{ fontSize: 12, color, opacity: 0.7, marginTop: 5 }}>{sub}</div>
     </div>
   );
 }
@@ -34,118 +36,6 @@ const STATUS_STYLE: Record<string, { label: string; bg: string; color: string; b
   approved: { label: "✅ Approved", bg: C.greenBg,  color: C.green,  bd: C.greenBd  },
   rejected: { label: "❌ Rejected", bg: C.redBg,    color: C.red,    bd: C.redBd    },
 };
-
-// ─── Request Form Modal ────────────────────────────────────────────────────────
-
-function RequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: () => void }) {
-  const [type, setType]           = useState<"pto" | "sick">("pto");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate]     = useState("");
-  const [hours, setHours]         = useState("");
-  const [reason, setReason]       = useState("");
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-
-  const mdRef = { current: null as EventTarget | null };
-
-  async function submit() {
-    if (!startDate || !endDate || !hours) { setError("Please fill in all required fields."); return; }
-    setSaving(true); setError(null);
-    try {
-      const res  = await fetch("/api/pto-requests", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ type, start_date: startDate, end_date: endDate, hours: parseFloat(hours), reason }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Submit failed");
-      onSubmitted();
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Submit failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const inp: React.CSSProperties = {
-    width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
-    fontSize: 13, fontFamily: C.font, color: C.text, background: C.surface, outline: "none",
-    boxSizing: "border-box",
-  };
-
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
-      onMouseDown={e => { mdRef.current = e.target; }}
-      onClick={e => { if (e.target === e.currentTarget && mdRef.current === e.currentTarget) onClose(); }}
-    >
-      <div style={{ background: C.surface, borderRadius: 14, padding: "28px 32px", width: 480, maxWidth: "95vw", boxShadow: "0 20px 60px rgba(0,0,0,0.18)", fontFamily: C.font }}>
-        <div style={{ fontWeight: 800, fontSize: 17, color: C.text, marginBottom: 4 }}>Request Time Off</div>
-        <div style={{ fontSize: 13, color: C.textSub, marginBottom: 22 }}>Your request will be sent for approval.</div>
-
-        {/* Type */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Type</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(["pto", "sick"] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setType(t)}
-                style={{
-                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  background: type === t ? (t === "pto" ? C.greenBg : C.blueBg) : C.alt,
-                  color:      type === t ? (t === "pto" ? C.green   : C.blue)   : C.textMid,
-                  border:     `1px solid ${type === t ? (t === "pto" ? C.greenBd : C.blueBd) : C.border}`,
-                  fontFamily: C.font,
-                }}
-              >
-                {t === "pto" ? "🌴 PTO" : "🏥 Sick Leave"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Dates */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Start Date *</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inp} />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>End Date *</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inp} />
-          </div>
-        </div>
-
-        {/* Hours */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Hours *</label>
-          <input type="number" min="0.5" step="0.5" value={hours} onChange={e => setHours(e.target.value)} placeholder="e.g. 8" style={inp} />
-        </div>
-
-        {/* Reason */}
-        <div style={{ marginBottom: 22 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Reason <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
-          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} placeholder="Any context for your request…" />
-        </div>
-
-        {error && (
-          <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "8px 12px", color: C.red, fontSize: 12, marginBottom: 14 }}>⚠ {error}</div>
-        )}
-
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: C.font }}>
-            Cancel
-          </button>
-          <button onClick={submit} disabled={saving} style={{ padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.blue, color: "#fff", border: "none", fontFamily: C.font, opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Submitting…" : "Submit Request"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Review Modal ──────────────────────────────────────────────────────────────
 
@@ -158,18 +48,14 @@ function ReviewModal({ request, onClose, onDone }: { request: PTORequest; onClos
     setSaving(true); setError(null);
     try {
       const res  = await fetch(`/api/pto-requests/${request.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ status, reviewer_notes: notes }),
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, reviewer_notes: notes }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       onDone(); onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed"); }
+    finally { setSaving(false); }
   }
 
   const inp: React.CSSProperties = {
@@ -183,7 +69,6 @@ function ReviewModal({ request, onClose, onDone }: { request: PTORequest; onClos
       <div style={{ background: C.surface, borderRadius: 14, padding: "28px 32px", width: 460, maxWidth: "95vw", boxShadow: "0 20px 60px rgba(0,0,0,0.18)", fontFamily: C.font }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: C.text, marginBottom: 4 }}>Review Request</div>
         <div style={{ fontSize: 13, color: C.textSub, marginBottom: 20 }}>{request.employee_name}</div>
-
         <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", marginBottom: 18, fontSize: 13 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={{ color: C.textSub }}>Type</span>
@@ -201,27 +86,217 @@ function ReviewModal({ request, onClose, onDone }: { request: PTORequest; onClos
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}`, color: C.textMid, fontSize: 12 }}>{request.reason}</div>
           )}
         </div>
-
         <div style={{ marginBottom: 18 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Notes <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} style={inp} placeholder="Any notes for the employee…" />
         </div>
+        {error && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "8px 12px", color: C.red, fontSize: 12, marginBottom: 14 }}>⚠ {error}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: C.font }}>Cancel</button>
+          <button onClick={() => decide("rejected")} disabled={saving} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, fontFamily: C.font }}>❌ Reject</button>
+          <button onClick={() => decide("approved")} disabled={saving} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.green, color: "#fff", border: "none", fontFamily: C.font }}>✅ Approve</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        {error && (
-          <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "8px 12px", color: C.red, fontSize: 12, marginBottom: 14 }}>⚠ {error}</div>
+// ─── Request Modal (for Zabe's own requests) ───────────────────────────────────
+
+function RequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: () => void }) {
+  const [type, setType]           = useState<"pto" | "sick">("pto");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate]     = useState("");
+  const [hours, setHours]         = useState("");
+  const [reason, setReason]       = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const mdRef = { current: null as EventTarget | null };
+
+  async function submit() {
+    if (!startDate || !endDate || !hours) { setError("Please fill in all required fields."); return; }
+    setSaving(true); setError(null);
+    try {
+      const res  = await fetch("/api/pto-requests", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, start_date: startDate, end_date: endDate, hours: parseFloat(hours), reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Submit failed");
+      onSubmitted(); onClose();
+    } catch (e) { setError(e instanceof Error ? e.message : "Submit failed"); }
+    finally { setSaving(false); }
+  }
+
+  const inp: React.CSSProperties = {
+    width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
+    fontSize: 13, fontFamily: C.font, color: C.text, background: C.surface, outline: "none", boxSizing: "border-box",
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onMouseDown={e => { mdRef.current = e.target; }}
+      onClick={e => { if (e.target === e.currentTarget && mdRef.current === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: C.surface, borderRadius: 14, padding: "28px 32px", width: 480, maxWidth: "95vw", boxShadow: "0 20px 60px rgba(0,0,0,0.18)", fontFamily: C.font }}>
+        <div style={{ fontWeight: 800, fontSize: 17, color: C.text, marginBottom: 4 }}>Request Time Off</div>
+        <div style={{ fontSize: 13, color: C.textSub, marginBottom: 22 }}>Your request will be sent for approval.</div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Type</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["pto", "sick"] as const).map(t => (
+              <button key={t} onClick={() => setType(t)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: type === t ? (t === "pto" ? C.greenBg : C.blueBg) : C.alt, color: type === t ? (t === "pto" ? C.green : C.blue) : C.textMid, border: `1px solid ${type === t ? (t === "pto" ? C.greenBd : C.blueBd) : C.border}`, fontFamily: C.font }}>
+                {t === "pto" ? "🌴 PTO" : "🏥 Sick Leave"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Start Date *</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>End Date *</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inp} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Hours *</label>
+          <input type="number" min="0.5" step="0.5" value={hours} onChange={e => setHours(e.target.value)} placeholder="e.g. 8" style={inp} />
+        </div>
+        <div style={{ marginBottom: 22 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Reason <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} placeholder="Any context for your request…" />
+        </div>
+        {error && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "8px 12px", color: C.red, fontSize: 12, marginBottom: 14 }}>⚠ {error}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: C.font }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.blue, color: "#fff", border: "none", fontFamily: C.font, opacity: saving ? 0.6 : 1 }}>{saving ? "Submitting…" : "Submit Request"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Employee Detail Panel ────────────────────────────────────────────────────
+
+interface EmpData { balance: EmployeeBalance; entries: TimeEntry[]; }
+
+function EmployeeDetailPanel({ nsId, name, onClose }: { nsId: number; name: string; onClose: () => void }) {
+  const [data, setData]     = useState<EmpData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]   = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<"all" | "pto" | "sick">("all");
+
+  useEffect(() => {
+    setLoading(true); setError(null);
+    fetch(`/api/manager/employee-data?nsId=${nsId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) throw new Error(d.error);
+        setData(d);
+      })
+      .catch(e => setError(e instanceof Error ? e.message : "Failed to load"))
+      .finally(() => setLoading(false));
+  }, [nsId]);
+
+  const entries    = data?.entries ?? [];
+  const filtered   = typeFilter === "all" ? entries : entries.filter(e => e.type === typeFilter);
+  const ptoUsed    = entries.filter(e => e.type === "pto").reduce((s, e) => s + e.hours, 0);
+  const sickUsed   = entries.filter(e => e.type === "sick").reduce((s, e) => s + e.hours, 0);
+  const balance    = data?.balance;
+
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.blueBd}`, borderRadius: 12, overflow: "hidden", marginBottom: 24, boxShadow: "0 4px 16px rgba(26,86,219,0.08)" }}>
+      {/* Panel header */}
+      <div style={{ padding: "14px 20px", background: C.blueBg, borderBottom: `1px solid ${C.blueBd}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.blue, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff" }}>
+            {name.split(" ").map(w => w[0]).slice(0, 2).join("")}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{name}</div>
+            {balance && <div style={{ fontSize: 11, color: C.textSub }}>Period from {fmtDate(balance.periodStart)}</div>}
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textSub, padding: "2px 6px", borderRadius: 6, fontFamily: C.font, lineHeight: 1 }}>×</button>
+      </div>
+
+      <div style={{ padding: "18px 20px" }}>
+        {loading && (
+          <div style={{ textAlign: "center", padding: "32px 0", color: C.textSub, fontSize: 13 }}>⏳ Loading {name}'s data…</div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: C.alt, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: C.font }}>
-            Cancel
-          </button>
-          <button onClick={() => decide("rejected")} disabled={saving} style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`, fontFamily: C.font }}>
-            ❌ Reject
-          </button>
-          <button onClick={() => decide("approved")} disabled={saving} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", background: C.green, color: "#fff", border: "none", fontFamily: C.font }}>
-            ✅ Approve
-          </button>
-        </div>
+        {error && (
+          <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13 }}>⚠ {error}</div>
+        )}
+
+        {!loading && !error && balance && (
+          <>
+            {/* Balance cards */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 20 }}>
+              <BalanceCard label="PTO Remaining" hours={Math.max(0, balance.ptoHours - ptoUsed)} icon="🌴" color={C.green} bg={C.greenBg} bd={C.greenBd} sub={`${fmtH(balance.ptoHours)} allocated · ${fmtH(ptoUsed)} used`} />
+              <BalanceCard label="Sick Leave Remaining" hours={Math.max(0, balance.sickHours - sickUsed)} icon="🏥" color={C.blue} bg={C.blueBg} bd={C.blueBd} sub={`${fmtH(balance.sickHours)} allocated · ${fmtH(sickUsed)} used`} />
+              <div style={{ flex: 1, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 22px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Total Time Off Logged</div>
+                <div style={{ fontSize: 32, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1 }}>{fmtH(ptoUsed + sickUsed)}</div>
+                <div style={{ fontSize: 12, color: C.textSub, marginTop: 5 }}>{entries.length} time entries on record</div>
+              </div>
+            </div>
+
+            {/* Time entries */}
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.alt }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>Time Entries</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["all", "pto", "sick"] as const).map(f => (
+                    <button key={f} onClick={() => setTypeFilter(f)} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: typeFilter === f ? C.blue : C.alt, color: typeFilter === f ? "#fff" : C.textMid, border: `1px solid ${typeFilter === f ? C.blue : C.border}`, textTransform: "capitalize" }}>
+                      {f === "all" ? "All" : f === "pto" ? "🌴 PTO" : "🏥 Sick"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div style={{ padding: "28px 16px", textAlign: "center", color: C.textSub, fontSize: 13 }}>No time entries found for this period.</div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Date", "Type", "Project", "Hours", "Notes"].map(h => (
+                        <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", background: C.alt, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((e, i) => (
+                      <tr key={e.id} style={{ background: i % 2 === 0 ? "#fff" : C.alt, borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "8px 14px", fontSize: 12, fontFamily: C.mono, color: C.text, whiteSpace: "nowrap" }}>{fmtDate(e.date)}</td>
+                        <td style={{ padding: "8px 14px" }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 9, background: e.type === "pto" ? C.greenBg : C.blueBg, color: e.type === "pto" ? C.green : C.blue, border: `1px solid ${e.type === "pto" ? C.greenBd : C.blueBd}` }}>
+                            {e.type === "pto" ? "🌴 PTO" : "🏥 Sick"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 14px", fontSize: 12, color: C.textMid }}>{e.projectName}</td>
+                        <td style={{ padding: "8px 14px", fontSize: 12, fontFamily: C.mono, fontWeight: 700, color: C.text }}>{fmtH(e.hours)}</td>
+                        <td style={{ padding: "8px 14px", fontSize: 12, color: C.textSub, maxWidth: 280 }}>{e.memo ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: C.alt, borderTop: `2px solid ${C.border}` }}>
+                      <td colSpan={3} style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total</td>
+                      <td style={{ padding: "8px 14px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.text }}>{fmtH(filtered.reduce((s, e) => s + e.hours, 0))}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -230,18 +305,21 @@ function ReviewModal({ request, onClose, onDone }: { request: PTORequest; onClos
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function ManagerPTOView() {
-  const { data: session }         = useSession();
-  const [balance, setBalance]     = useState<EmployeeBalance | null>(null);
-  const [entries, setEntries]     = useState<TimeEntry[]>([]);
-  const [requests, setRequests]   = useState<PTORequest[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [typeFilter, setTypeFilter] = useState<"all" | "pto" | "sick">("all");
-  const [showForm, setShowForm]   = useState(false);
-  const [reviewReq, setReviewReq] = useState<PTORequest | null>(null);
+  const { data: session }           = useSession();
+  const [myBalance, setMyBalance]   = useState<EmployeeBalance | null>(null);
+  const [myEntries, setMyEntries]   = useState<TimeEntry[]>([]);
+  const [requests, setRequests]     = useState<PTORequest[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [myTypeFilter, setMyTypeFilter] = useState<"all" | "pto" | "sick">("all");
+  const [showForm, setShowForm]     = useState(false);
+  const [reviewReq, setReviewReq]   = useState<PTORequest | null>(null);
+  const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
 
-  const userEmail = session?.user?.email ?? "";
+  const userEmail    = session?.user?.email ?? "";
   const isAuthorized = userEmail.toLowerCase() === MANAGER_EMAIL;
+
+  const employees = Object.entries(EMPLOYEES).map(([id, name]) => ({ nsId: parseInt(id), name }));
 
   async function load() {
     setLoading(true); setError(null);
@@ -252,8 +330,8 @@ export function ManagerPTOView() {
       ]);
       const [meData, reqData] = await Promise.all([meRes.json(), reqRes.json()]);
       if (meData.error) throw new Error(meData.error);
-      setBalance(meData.balance);
-      setEntries(meData.entries ?? []);
+      setMyBalance(meData.balance);
+      setMyEntries(meData.entries ?? []);
       setRequests(reqData.requests ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -262,22 +340,15 @@ export function ManagerPTOView() {
     }
   }
 
-  useEffect(() => {
-    if (isAuthorized) load();
-  }, [isAuthorized]);
+  useEffect(() => { if (isAuthorized) load(); }, [isAuthorized]);
 
   // ── Access guard ──────────────────────────────────────────────────────────
   if (!isAuthorized) {
     return (
-      <div style={{
-        padding: "80px 24px", textAlign: "center", fontFamily: C.font,
-        background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 12,
-      }}>
+      <div style={{ padding: "80px 24px", textAlign: "center", fontFamily: C.font, background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 12 }}>
         <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
         <div style={{ fontWeight: 800, fontSize: 18, color: C.red, marginBottom: 8 }}>Access Restricted</div>
-        <div style={{ fontSize: 14, color: C.red, opacity: 0.8 }}>
-          This section is only available to authorised managers.
-        </div>
+        <div style={{ fontSize: 14, color: C.red, opacity: 0.8 }}>This section is only available to authorised managers.</div>
       </div>
     );
   }
@@ -293,83 +364,102 @@ export function ManagerPTOView() {
 
   if (error) {
     return (
-      <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 10, padding: "14px 18px", color: C.red, fontSize: 13, fontFamily: C.font }}>
-        ⚠ {error}
-      </div>
+      <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 10, padding: "14px 18px", color: C.red, fontSize: 13, fontFamily: C.font }}>⚠ {error}</div>
     );
   }
 
-  const filtered       = typeFilter === "all" ? entries : entries.filter(e => e.type === typeFilter);
-  const ptoUsed        = entries.filter(e => e.type === "pto").reduce((s, e) => s + e.hours, 0);
-  const sickUsed       = entries.filter(e => e.type === "sick").reduce((s, e) => s + e.hours, 0);
+  const myFiltered       = myTypeFilter === "all" ? myEntries : myEntries.filter(e => e.type === myTypeFilter);
+  const myPtoUsed        = myEntries.filter(e => e.type === "pto").reduce((s, e) => s + e.hours, 0);
+  const mySickUsed       = myEntries.filter(e => e.type === "sick").reduce((s, e) => s + e.hours, 0);
   const pendingApprovals = requests.filter(r => r.status === "pending");
 
   return (
     <div style={{ fontFamily: C.font }}>
 
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 20, color: C.text, display: "flex", alignItems: "center", gap: 10 }}>
             Manager PTO
-            <span style={{ fontSize: 11, fontWeight: 700, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}`, borderRadius: 6, padding: "2px 9px", letterSpacing: "0.04em" }}>
-              Manager Only
-            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}`, borderRadius: 6, padding: "2px 9px", letterSpacing: "0.04em" }}>Manager Only</span>
           </div>
-          {balance && (
+          {myBalance && (
             <div style={{ fontSize: 13, color: C.textSub, marginTop: 3 }}>
-              {balance.name} · {balance.email}
-              {balance.periodStart && (
+              {myBalance.name} · {myBalance.email}
+              {myBalance.periodStart && (
                 <span style={{ marginLeft: 10, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 6, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}>
-                  Period from {fmtDate(balance.periodStart)}
+                  Period from {fmtDate(myBalance.periodStart)}
                 </span>
               )}
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          style={{
-            padding: "9px 20px", borderRadius: 9, fontSize: 13, fontWeight: 700,
-            background: C.blue, color: "#fff", border: "none", cursor: "pointer",
-            fontFamily: C.font, flexShrink: 0,
-            boxShadow: "0 2px 8px rgba(26,86,219,0.35)",
-          }}
-        >
+        <button onClick={() => setShowForm(true)} style={{ padding: "9px 20px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: C.blue, color: "#fff", border: "none", cursor: "pointer", fontFamily: C.font, flexShrink: 0, boxShadow: "0 2px 8px rgba(26,86,219,0.35)" }}>
           + Request Time Off
         </button>
       </div>
 
-      {/* My balance cards */}
-      {balance && (
+      {/* ── My balance cards ───────────────────────────────────────────────── */}
+      {myBalance && (
         <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
-          <BalanceCard
-            label="PTO Remaining"
-            hours={Math.max(0, balance.ptoHours - ptoUsed)}
-            icon="🌴"
-            color={C.green}
-            bg={C.greenBg}
-            bd={C.greenBd}
-            sub={`${fmtH(balance.ptoHours)} allocated · ${fmtH(ptoUsed)} used`}
-          />
-          <BalanceCard
-            label="Sick Leave Remaining"
-            hours={Math.max(0, balance.sickHours - sickUsed)}
-            icon="🏥"
-            color={C.blue}
-            bg={C.blueBg}
-            bd={C.blueBd}
-            sub={`${fmtH(balance.sickHours)} allocated · ${fmtH(sickUsed)} used`}
-          />
-          <div style={{ flex: 1, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 12, padding: "20px 24px" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Total Time Off Logged</div>
-            <div style={{ fontSize: 36, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1 }}>{fmtH(ptoUsed + sickUsed)}</div>
-            <div style={{ fontSize: 12, color: C.textSub, marginTop: 6 }}>{entries.length} time entries on record</div>
+          <BalanceCard label="PTO Remaining" hours={Math.max(0, myBalance.ptoHours - myPtoUsed)} icon="🌴" color={C.green} bg={C.greenBg} bd={C.greenBd} sub={`${fmtH(myBalance.ptoHours)} allocated · ${fmtH(myPtoUsed)} used`} />
+          <BalanceCard label="Sick Leave Remaining" hours={Math.max(0, myBalance.sickHours - mySickUsed)} icon="🏥" color={C.blue} bg={C.blueBg} bd={C.blueBd} sub={`${fmtH(myBalance.sickHours)} allocated · ${fmtH(mySickUsed)} used`} />
+          <div style={{ flex: 1, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 22px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>My Total Time Off Logged</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1 }}>{fmtH(myPtoUsed + mySickUsed)}</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginTop: 5 }}>{myEntries.length} time entries on record</div>
           </div>
         </div>
       )}
 
-      {/* ── Team Approvals ────────────────────────────────────────────────────── */}
+      {/* ── Employee toggle section ────────────────────────────────────────── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 12 }}>Employee Leave Details</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: expandedEmp !== null ? 16 : 0 }}>
+          {employees.map(({ nsId, name }) => {
+            const isActive = expandedEmp === nsId;
+            const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("");
+            return (
+              <button
+                key={nsId}
+                onClick={() => setExpandedEmp(isActive ? null : nsId)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 16px", borderRadius: 24,
+                  fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+                  background: isActive ? C.blue : C.surface,
+                  color:      isActive ? "#fff"  : C.textMid,
+                  border:     `1px solid ${isActive ? C.blue : C.border}`,
+                  boxShadow:  isActive ? "0 2px 8px rgba(26,86,219,0.25)" : "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: isActive ? "rgba(255,255,255,0.25)" : C.blueBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: isActive ? "#fff" : C.blue, flexShrink: 0 }}>
+                  {initials}
+                </div>
+                {name}
+                <span style={{ fontSize: 11, opacity: 0.7 }}>{isActive ? "▲" : "▼"}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Expanded employee panel */}
+        {expandedEmp !== null && (() => {
+          const emp = employees.find(e => e.nsId === expandedEmp);
+          if (!emp) return null;
+          return (
+            <EmployeeDetailPanel
+              key={expandedEmp}
+              nsId={expandedEmp}
+              name={emp.name}
+              onClose={() => setExpandedEmp(null)}
+            />
+          );
+        })()}
+      </div>
+
+      {/* ── Team Leave Requests ────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
           Team Leave Requests
@@ -419,10 +509,7 @@ export function ManagerPTOView() {
                       </td>
                       <td style={{ padding: "10px 16px" }}>
                         {r.status === "pending" && (
-                          <button
-                            onClick={() => setReviewReq(r)}
-                            style={{ padding: "4px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font, whiteSpace: "nowrap" }}
-                          >
+                          <button onClick={() => setReviewReq(r)} style={{ padding: "4px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font, whiteSpace: "nowrap" }}>
                             Review
                           </button>
                         )}
@@ -442,18 +529,13 @@ export function ManagerPTOView() {
           <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>My Time Entries</div>
           <div style={{ display: "flex", gap: 6 }}>
             {(["all", "pto", "sick"] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setTypeFilter(f)}
-                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: typeFilter === f ? C.blue : C.alt, color: typeFilter === f ? "#fff" : C.textMid, border: `1px solid ${typeFilter === f ? C.blue : C.border}`, textTransform: "capitalize" }}
-              >
+              <button key={f} onClick={() => setMyTypeFilter(f)} style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, background: myTypeFilter === f ? C.blue : C.alt, color: myTypeFilter === f ? "#fff" : C.textMid, border: `1px solid ${myTypeFilter === f ? C.blue : C.border}`, textTransform: "capitalize" }}>
                 {f === "all" ? "All" : f === "pto" ? "🌴 PTO" : "🏥 Sick"}
               </button>
             ))}
           </div>
         </div>
-
-        {filtered.length === 0 ? (
+        {myFiltered.length === 0 ? (
           <div style={{ padding: "40px 24px", textAlign: "center", color: C.textSub, fontSize: 14 }}>
             <div style={{ fontSize: 22, marginBottom: 10 }}>📋</div>
             No time entries found.
@@ -468,7 +550,7 @@ export function ManagerPTOView() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e, i) => (
+              {myFiltered.map((e, i) => (
                 <tr key={e.id} style={{ background: i % 2 === 0 ? "#fff" : C.alt, borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "10px 16px", fontSize: 13, fontFamily: C.mono, color: C.text, whiteSpace: "nowrap" }}>{fmtDate(e.date)}</td>
                   <td style={{ padding: "10px 16px" }}>
@@ -485,7 +567,7 @@ export function ManagerPTOView() {
             <tfoot>
               <tr style={{ background: C.alt, borderTop: `2px solid ${C.border}` }}>
                 <td colSpan={3} style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total</td>
-                <td style={{ padding: "9px 16px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.text }}>{fmtH(filtered.reduce((s, e) => s + e.hours, 0))}</td>
+                <td style={{ padding: "9px 16px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.text }}>{fmtH(myFiltered.reduce((s, e) => s + e.hours, 0))}</td>
                 <td />
               </tr>
             </tfoot>
@@ -494,12 +576,8 @@ export function ManagerPTOView() {
       </div>
 
       {/* Modals */}
-      {showForm && (
-        <RequestModal onClose={() => setShowForm(false)} onSubmitted={load} />
-      )}
-      {reviewReq && (
-        <ReviewModal request={reviewReq} onClose={() => setReviewReq(null)} onDone={load} />
-      )}
+      {showForm && <RequestModal onClose={() => setShowForm(false)} onSubmitted={load} />}
+      {reviewReq && <ReviewModal request={reviewReq} onClose={() => setReviewReq(null)} onDone={load} />}
     </div>
   );
 }
