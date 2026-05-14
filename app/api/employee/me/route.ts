@@ -73,6 +73,24 @@ export async function GET() {
       // SuiteQL employee lookup failed — fall through to REST API
     }
 
+    // Fallback: search by display name from the session (handles email mismatch between NS and auth)
+    if (!matchedId && session?.user?.name) {
+      const parts = session.user.name.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const first = parts[0].replace(/'/g, "''");
+        const last  = parts[parts.length - 1].replace(/'/g, "''");
+        try {
+          const nameRows = await runSuiteQL<{ id: string }>(
+            `SELECT id FROM employee WHERE LOWER(firstname) = LOWER('${first}') AND LOWER(lastname) = LOWER('${last}')`
+          );
+          if (nameRows && nameRows.length > 0) {
+            matchedId   = parseInt(nameRows[0].id);
+            matchMethod = "name-fallback";
+          }
+        } catch { /* name lookup also failed */ }
+      }
+    }
+
     if (!matchedId) {
       return NextResponse.json({ error: `No NetSuite employee found matching ${email}` }, { status: 404 });
     }
