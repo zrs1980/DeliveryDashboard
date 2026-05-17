@@ -664,7 +664,7 @@ export function TimeAnalysis() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div>
               <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                {chartEmp ? `${chartEmp.employeeName} — Weekly Utilisation Trend` : "Team — Weekly Utilisation Trend"}
+                {chartEmp ? `${chartEmp.employeeName} — Weekly Utilization Trend` : "Team — Weekly Utilization Trend"}
               </div>
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>Last 12 weeks · % of logged hours · dashed lines = targets</div>
             </div>
