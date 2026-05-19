@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { patchRecord } from "@/lib/netsuite";
 
-// NS projecttask date fields require MM/DD/YYYY — ISO variants are rejected
-function toNsDate(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${m}/${d}/${y}`;
-}
-
 // ─── PATCH /api/projects/[id]/tasks/[taskId] ──────────────────────────────────
 
 export async function PATCH(
@@ -34,11 +28,12 @@ export async function PATCH(
     fields.status = { id: String(body.status) };
   }
   if (body.startDate !== undefined) {
-    // NS projecttask date fields accept MM/DD/YYYY (native NS format); ISO variants are rejected
-    fields.startdate = body.startDate ? toNsDate(body.startDate) : null;
+    // startDate is a plain Date field in NS REST — YYYY-MM-DD
+    fields.startDate = body.startDate ?? null;
   }
   if (body.endDate !== undefined) {
-    fields.enddate = body.endDate ? toNsDate(body.endDate) : null;
+    // endDate is a LocalDateTime field — NS returns/expects ISO 8601 UTC e.g. "2026-05-22T00:00:00Z"
+    fields.endDate = body.endDate ? `${body.endDate}T00:00:00Z` : null;
   }
 
   if (Object.keys(fields).length === 0) {
