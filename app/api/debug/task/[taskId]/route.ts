@@ -13,12 +13,12 @@ export async function GET(
   const rec = await fetchRecord<Record<string, unknown>>("projecttask", tid);
   // Return only date/status fields to avoid noise
   return NextResponse.json({
-    id:        rec.id,
-    startdate: rec.startdate,
-    enddate:   rec.enddate,
-    startDate: rec.startDate,
-    endDate:   rec.endDate,
-    status:    rec.status,
-    _rawKeys:  Object.keys(rec).sort(),
+    id:             rec.id,
+    startDate:      rec.startDate,
+    endDate:        rec.endDate,
+    constraintType: rec.constraintType,
+    estimatedWork:  rec.estimatedWork,
+    status:         rec.status,
+    _rawKeys:       Object.keys(rec).sort(),
   });
 }
