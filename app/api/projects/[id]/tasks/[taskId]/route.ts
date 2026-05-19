@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { patchRecord } from "@/lib/netsuite";
 
+// NS projecttask date fields require MM/DD/YYYY — ISO variants are rejected
+function toNsDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${m}/${d}/${y}`;
+}
+
 // ─── PATCH /api/projects/[id]/tasks/[taskId] ──────────────────────────────────
 
 export async function PATCH(
@@ -28,11 +34,11 @@ export async function PATCH(
     fields.status = { id: String(body.status) };
   }
   if (body.startDate !== undefined) {
-    // NS projecttask startdate/enddate are LocalDateTime fields — requires time component
-    fields.startdate = body.startDate ? `${body.startDate}T00:00:00` : null;
+    // NS projecttask date fields accept MM/DD/YYYY (native NS format); ISO variants are rejected
+    fields.startdate = body.startDate ? toNsDate(body.startDate) : null;
   }
   if (body.endDate !== undefined) {
-    fields.enddate = body.endDate ? `${body.endDate}T00:00:00` : null;
+    fields.enddate = body.endDate ? toNsDate(body.endDate) : null;
   }
 
   if (Object.keys(fields).length === 0) {
