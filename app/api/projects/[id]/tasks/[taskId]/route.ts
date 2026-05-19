@@ -28,11 +28,11 @@ export async function PATCH(
     fields.status = { id: String(body.status) };
   }
   if (body.startDate !== undefined) {
-    // NS REST Record API accepts YYYY-MM-DD ISO format for date fields
-    fields.startdate = body.startDate ?? null;
+    // NS projecttask startdate/enddate are LocalDateTime fields — requires time component
+    fields.startdate = body.startDate ? `${body.startDate}T00:00:00` : null;
   }
   if (body.endDate !== undefined) {
-    fields.enddate = body.endDate ?? null;
+    fields.enddate = body.endDate ? `${body.endDate}T00:00:00` : null;
   }
 
   if (Object.keys(fields).length === 0) {
