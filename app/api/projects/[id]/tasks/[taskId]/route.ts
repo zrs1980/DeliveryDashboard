@@ -36,7 +36,7 @@ export async function PATCH(
     fields.endDate = body.endDate ? `${body.endDate}T00:00:00Z` : null;
     // Default constraintType is ASAP, which causes NS to recalculate endDate from startDate+work.
     // Switch to MFO (Must Finish On) so the user's chosen date actually sticks.
-    if (body.endDate) fields.constraintType = { id: "MFO" };
+    if (body.endDate) fields.constraintType = { id: "FNLT" };
   }
 
   if (Object.keys(fields).length === 0) {
