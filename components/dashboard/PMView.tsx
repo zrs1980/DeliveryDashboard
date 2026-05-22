@@ -715,6 +715,7 @@ function NativeOnlyProjectView({
     timebillWarning: false,
     notes:         [],
     clickupError:  null,
+    slackCanvasId: null,
   };
 
   return <ProjectManagementView projects={[fakeProject]} />;

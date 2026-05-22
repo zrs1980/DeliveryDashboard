@@ -201,6 +201,7 @@ export async function GET() {
           notes:         [],
           clickupError,
           isInternal:    true,
+          slackCanvasId: null,
         } satisfies Project;
       })
     );
