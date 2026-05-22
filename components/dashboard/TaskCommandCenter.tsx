@@ -6,6 +6,7 @@ import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket } from "@/lib/clickup";
 import { nsProjectUrl } from "@/lib/constants";
+import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import type { Project, CUTask, ProjectNote } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -408,6 +409,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
   // Map of task_id → scheduled_at ISO string
   const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
+  const [slackModalOpen, setSlackModalOpen]   = useState(false);
 
   useEffect(() => {
     fetch("/api/calendar/scheduled")
@@ -530,9 +532,32 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
           Group by Project
         </label>
 
-        <span style={{ marginLeft: "auto", fontSize: 12, color: C.textSub }}>
-          {totalDone} / {allRows.length} done
-        </span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: C.textSub }}>
+            {totalDone} / {allRows.length} done
+          </span>
+          <button
+            onClick={() => setSlackModalOpen(true)}
+            title="Prepend current view to Weekly Deliverables canvas in #oxide"
+            style={{
+              display:      "flex",
+              alignItems:   "center",
+              gap:          5,
+              padding:      "4px 11px",
+              fontSize:     12,
+              fontWeight:   700,
+              borderRadius: 5,
+              border:       `1px solid #3CB371`,
+              background:   "#E8F8EE",
+              color:        "#1A7A45",
+              cursor:       "pointer",
+              fontFamily:   C.font,
+              whiteSpace:   "nowrap",
+            }}
+          >
+            ↗ Post to Slack
+          </button>
+        </div>
       </div>
 
       {/* ── Tab bar ── */}
@@ -585,6 +610,20 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
       }}>
         <TaskTable rows={activeRows} groupByProject={groupByProject} scheduledMap={scheduledMap} />
       </div>
+
+      {/* ── Post to Slack modal ── */}
+      {slackModalOpen && (
+        <PostToSlackModal
+          rows={activeRows}
+          tabLabel={TAB_DEFS.find(t => t.id === tab)?.label ?? tab}
+          projectLabel={
+            selectedProject
+              ? (projects.find(p => p.id === selectedProject)?.client ?? "Selected Project")
+              : "All Projects"
+          }
+          onClose={() => setSlackModalOpen(false)}
+        />
+      )}
 
       {/* ── Notes panel (single project selected) ── */}
       {selectedProject && (() => {
