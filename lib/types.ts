@@ -71,6 +71,7 @@ export interface Project {
   notes: ProjectNote[];
   clickupError: string | null;
   isInternal?: boolean;        // true for standalone ClickUp lists with no NS project
+  slackCanvasId: string | null;
 }
 
 // ─── Phase (projecttask) ─────────────────────────────────────────────────────

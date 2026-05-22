@@ -304,6 +304,7 @@ export async function fetchActiveProjects() {
     budget_hours: string;
     remaining_hours: string;
     user_notes: string | null;
+    slack_canvas_id: string | null;
   }>(`
     SELECT
       id,
@@ -317,7 +318,8 @@ export async function fetchActiveProjects() {
       custentity20                         AS clickup_url,
       custentity_ceba_project_budget_hours AS budget_hours,
       custentity_project_remaining_hours   AS remaining_hours,
-      custentity_user_notes                AS user_notes
+      custentity_user_notes                AS user_notes,
+      custentity_slack_canvas_id           AS slack_canvas_id
     FROM job
     WHERE entitystatus = 2
       AND jobtype IN (1, 2)

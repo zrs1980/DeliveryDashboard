@@ -155,6 +155,7 @@ export async function GET() {
           timebillWarning,
           notes: parseNotes(p.user_notes),
           clickupError,
+          slackCanvasId: p.slack_canvas_id ?? null,
         } satisfies Project;
       })
     );

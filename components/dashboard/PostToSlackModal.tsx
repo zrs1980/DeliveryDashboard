@@ -15,6 +15,7 @@ interface Props {
   rows: TaskRow[];
   tabLabel: string;
   projectLabel: string;   // "All Projects" or specific client name
+  canvasId: string | null;
   onClose: () => void;
 }
 
@@ -60,7 +61,7 @@ function buildMarkdown(rows: TaskRow[], tabLabel: string, projectLabel: string):
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-export function PostToSlackModal({ rows, tabLabel, projectLabel, onClose }: Props) {
+export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClose }: Props) {
   const [posting, setPosting] = useState(false);
   const [result,  setResult]  = useState<{ ok: boolean; error?: string } | null>(null);
 
@@ -76,7 +77,7 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, onClose }: Prop
       const res  = await fetch("/api/slack/canvas", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ markdown }),
+        body:    JSON.stringify({ markdown, canvasId }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
       setResult(data.ok ? { ok: true } : { ok: false, error: data.error ?? "Unknown error" });
