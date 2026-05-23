@@ -96,6 +96,18 @@ export async function GET(req: NextRequest) {
       : allEmployees;
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const now = new Date();
+
+    // Debug: log distinct department values so we can match the right string
+    if (departmentParam && employeeIds.length === 0) {
+      const allDepts = [...new Set(Object.values(allEmployees).map(e => e.department))].sort();
+      console.warn("[time-analysis] No employees matched department filter:", departmentParam, "— available values:", allDepts);
+      return NextResponse.json({ employees: [], _deptDebug: allDepts, updatedAt: new Date().toISOString() });
+    }
+
+    if (employeeIds.length === 0) {
+      return NextResponse.json({ employees: [], updatedAt: new Date().toISOString() });
+    }
+
     const empList = employeeIds.join(", ");
 
     const [projectRows, entryRows, jobRows] = await Promise.all([
