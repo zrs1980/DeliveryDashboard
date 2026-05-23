@@ -419,7 +419,7 @@ export interface JobResource { name: string; employeeType: string; department: s
 /** Returns all active employees including custentity10 (department/role field): { id → { name, employeeType, department } } */
 export async function getActiveJobResources(): Promise<Record<number, JobResource>> {
   const rows = await runSuiteQLAll<{ id: string; firstname: string; lastname: string; employee_type: string; department: string | null }>(
-    `SELECT id, firstname, lastname, BUILTIN.DF(employeetype) AS employee_type, custentity10 AS department FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
+    `SELECT id, firstname, lastname, BUILTIN.DF(employeetype) AS employee_type, BUILTIN.DF(custentity10) AS department FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
   );
   const map: Record<number, JobResource> = {};
   for (const r of rows) {
