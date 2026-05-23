@@ -34,9 +34,6 @@ export async function PATCH(
   if (body.endDate !== undefined) {
     // endDate is a LocalDateTime field — NS returns/expects ISO 8601 UTC e.g. "2026-05-22T00:00:00Z"
     fields.endDate = body.endDate ? `${body.endDate}T00:00:00Z` : null;
-    // Default constraintType is ASAP, which causes NS to recalculate endDate from startDate+work.
-    // Switch to MFO (Must Finish On) so the user's chosen date actually sticks.
-    if (body.endDate) fields.constraintType = { id: "FNLT" };
   }
 
   if (Object.keys(fields).length === 0) {
