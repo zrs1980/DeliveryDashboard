@@ -79,10 +79,18 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const fromParam = searchParams.get("from");
-    const toParam   = searchParams.get("to");
+    const fromParam       = searchParams.get("from");
+    const toParam         = searchParams.get("to");
+    const departmentParam = searchParams.get("department"); // e.g. "Consulting"
 
-    const EMPLOYEES   = await getActiveJobResources();
+    const allEmployees = await getActiveJobResources();
+    const EMPLOYEES    = departmentParam
+      ? Object.fromEntries(
+          Object.entries(allEmployees).filter(([, v]) =>
+            v.department.toLowerCase() === departmentParam.toLowerCase()
+          )
+        )
+      : allEmployees;
     const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const now = new Date();
     const empList = employeeIds.join(", ");

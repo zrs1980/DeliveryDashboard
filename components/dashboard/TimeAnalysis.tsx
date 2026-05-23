@@ -143,7 +143,7 @@ function isCustomerType(projectType: string): boolean {
 
 interface MgrPeriodCache { employees: any[]; rangeFrom: string; rangeTo: string; }
 
-export function TimeAnalysis({ title = "Time Analysis" }: { title?: string } = {}) {
+export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { title?: string; filterDepartment?: string } = {}) {
   const [employees, setEmployees] = useState<EmployeeTimeData[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -163,7 +163,10 @@ export function TimeAnalysis({ title = "Time Analysis" }: { title?: string } = {
   async function load(from?: string, to?: string) {
     setLoading(true); setError(null);
     try {
-      const url = from && to ? `/api/time-analysis?from=${from}&to=${to}` : "/api/time-analysis";
+      const params = new URLSearchParams();
+      if (from && to) { params.set("from", from); params.set("to", to); }
+      if (filterDepartment) params.set("department", filterDepartment);
+      const url = `/api/time-analysis${params.toString() ? `?${params}` : ""}`;
       const res = await fetch(url);
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -190,9 +193,10 @@ export function TimeAnalysis({ title = "Time Analysis" }: { title?: string } = {
     if (mgrRequested.current.has(mgrCacheKey)) return;
     mgrRequested.current.add(mgrCacheKey);
     const key = mgrCacheKey;
-    const url = period === "custom" && customFrom && customTo
-      ? `/api/manager-review?period=custom&from=${customFrom}&to=${customTo}`
-      : `/api/manager-review?period=${period}`;
+    const mgrParams = new URLSearchParams({ period });
+    if (period === "custom" && customFrom && customTo) { mgrParams.set("from", customFrom); mgrParams.set("to", customTo); }
+    if (filterDepartment) mgrParams.set("department", filterDepartment);
+    const url = `/api/manager-review?${mgrParams}`;
     setMgrLoading(s => ({ ...s, [key]: true }));
     fetch(url)
       .then(r => r.json())

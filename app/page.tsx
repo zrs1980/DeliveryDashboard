@@ -384,7 +384,7 @@ export default function DashboardPage() {
         {/* Delivery Time */}
         {tab === "delivery-time" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-            <TimeAnalysis title="Delivery Time" />
+            <TimeAnalysis title="Delivery Time" filterDepartment="Consulting" />
           </div>
         )}
 
