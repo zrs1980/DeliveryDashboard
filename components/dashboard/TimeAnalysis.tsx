@@ -143,7 +143,7 @@ function isCustomerType(projectType: string): boolean {
 
 interface MgrPeriodCache { employees: any[]; rangeFrom: string; rangeTo: string; }
 
-export function TimeAnalysis() {
+export function TimeAnalysis({ title = "Time Analysis" }: { title?: string } = {}) {
   const [employees, setEmployees] = useState<EmployeeTimeData[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -231,7 +231,7 @@ export function TimeAnalysis() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17, color: C.text }}>Time Analysis</div>
+          <div style={{ fontWeight: 700, fontSize: 17, color: C.text }}>{title}</div>
           <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>Billable · Utilized · Productive — from NetSuite timebill records</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>

@@ -36,13 +36,14 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto";
+type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
   { id: "tasks",      label: "Tasks",       icon: "🗂️" },
-  { id: "resources",  label: "Resource Allocation", icon: "👥" },
-  { id: "time",        label: "Time Analysis", icon: "⏱️" },
+  { id: "resources",      label: "Resource Allocation", icon: "👥" },
+  { id: "delivery-time", label: "Delivery Time",       icon: "🚚" },
+  { id: "time",          label: "Time Analysis",       icon: "⏱️" },
   { id: "mgr-review",  label: "Manager Review", icon: "📋" },
   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
@@ -377,6 +378,13 @@ export default function DashboardPage() {
         {hasLoaded && tab === "resources" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <ResourceAllocation allocations={allocations} />
+          </div>
+        )}
+
+        {/* Delivery Time */}
+        {tab === "delivery-time" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+            <TimeAnalysis title="Delivery Time" />
           </div>
         )}
 
