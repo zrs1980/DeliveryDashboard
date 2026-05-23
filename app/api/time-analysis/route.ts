@@ -84,10 +84,13 @@ export async function GET(req: NextRequest) {
     const departmentParam = searchParams.get("department"); // e.g. "Consulting"
 
     const allEmployees = await getActiveJobResources();
-    const EMPLOYEES    = departmentParam
+    const deptFilter = departmentParam
+      ? departmentParam.split(",").map(d => d.trim().toLowerCase()).filter(Boolean)
+      : null;
+    const EMPLOYEES = deptFilter
       ? Object.fromEntries(
           Object.entries(allEmployees).filter(([, v]) =>
-            v.department.toLowerCase() === departmentParam.toLowerCase()
+            deptFilter.includes(v.department.toLowerCase())
           )
         )
       : allEmployees;
