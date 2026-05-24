@@ -406,6 +406,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
+  const [myWork, setMyWork]                   = useState<boolean>(false);
   const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
   // Map of task_id → scheduled_at ISO string
   const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
@@ -428,9 +429,14 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
     ? projects.filter(p => p.id === selectedProject)
     : projects;
 
+  const sessionName = session?.user?.name ?? "";
+
   const allRows: TaskRow[] = visibleProjects.flatMap(p =>
     p.tasks
       .filter(t => !selectedResource || t.assignees.some(a => a.username === selectedResource))
+      .filter(t => !myWork || !sessionName || t.assignees.some(a =>
+        a.username.toLowerCase() === sessionName.toLowerCase()
+      ))
       .filter(t => {
         if (scheduleFilter === "scheduled")   return scheduledMap.has(t.id);
         if (scheduleFilter === "unscheduled") return !scheduledMap.has(t.id);
@@ -521,6 +527,16 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             <option value="unscheduled">Unscheduled</option>
           </select>
         </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: myWork ? C.blue : C.textMid, cursor: "pointer", userSelect: "none", fontWeight: myWork ? 700 : 400 }}>
+          <input
+            type="checkbox"
+            checked={myWork}
+            onChange={e => setMyWork(e.target.checked)}
+            style={{ cursor: "pointer", accentColor: C.blue }}
+          />
+          My Work
+        </label>
 
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
           <input
