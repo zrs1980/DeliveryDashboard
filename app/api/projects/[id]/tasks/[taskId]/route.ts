@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { patchRecord, fetchRecord } from "@/lib/netsuite";
+import { patchRecord } from "@/lib/netsuite";
 
 // Count working days (Mon–Fri) from start to end inclusive
 function countWorkingDays(startStr: string, endStr: string): number {
@@ -66,15 +66,7 @@ export async function PATCH(
 
   try {
     await patchRecord("projecttask", tid, fields);
-    // Read back to verify
-    const after = await fetchRecord<Record<string, unknown>>("projecttask", tid);
-    return NextResponse.json({
-      ok: true,
-      sent: fields,
-      nsEndDate: after.endDate,
-      nsStartDate: after.startDate,
-      nsEstimatedWork: after.estimatedWork,
-    });
+    return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
