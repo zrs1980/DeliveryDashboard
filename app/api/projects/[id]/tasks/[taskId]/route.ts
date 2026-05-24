@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { patchRecord } from "@/lib/netsuite";
+import { patchRecord, fetchRecord } from "@/lib/netsuite";
 
 // ─── PATCH /api/projects/[id]/tasks/[taskId] ──────────────────────────────────
 
@@ -42,7 +42,16 @@ export async function PATCH(
 
   try {
     await patchRecord("projecttask", tid, fields);
-    return NextResponse.json({ ok: true });
+    // Read back the record immediately to verify what NS actually saved
+    const after = await fetchRecord<Record<string, unknown>>("projecttask", tid);
+    return NextResponse.json({
+      ok: true,
+      sent: fields,
+      nsEndDate: after.endDate,
+      nsStartDate: after.startDate,
+      nsEstimatedWork: after.estimatedWork,
+      nsConstraintType: after.constraintType,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
