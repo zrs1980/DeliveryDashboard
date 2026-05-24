@@ -130,7 +130,10 @@ function TaskRow({ task, isPhase, depth, projectId, statusOptions, onUpdate }: T
       const body: Record<string, string | null> = {};
       if (field === "status")    body.status    = draft.status;
       if (field === "startDate") body.startDate = draft.startDate || null;
-      if (field === "endDate")   body.endDate   = draft.endDate   || null;
+      if (field === "endDate") {
+        body.endDate   = draft.endDate  || null;
+        body.startDate = task.startDate || null; // server needs this to calculate estimatedWork
+      }
 
       const res = await fetch(`/api/projects/${projectId}/tasks/${task.id}`, {
         method:  "PATCH",
@@ -654,7 +657,10 @@ function PhaseBlock({ node, projectId, collapsed, statusOptions, onToggle, onUpd
       const body: Record<string, string | null> = {};
       if (field === "status")    body.status    = draft.status;
       if (field === "startDate") body.startDate = draft.startDate || null;
-      if (field === "endDate")   body.endDate   = draft.endDate   || null;
+      if (field === "endDate") {
+        body.endDate   = draft.endDate    || null;
+        body.startDate = phase.startDate  || null; // server needs this to calculate estimatedWork
+      }
 
       const res = await fetch(`/api/projects/${projectId}/tasks/${phase.id}`, {
         method:  "PATCH",
