@@ -535,12 +535,16 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       grouped[t].push(a);
                     }
                     const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
+                    const empTotalHrs = weeks.reduce((s, w) => s + emp.rows.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
                     return TYPE_ORDER.filter(t => grouped[t]?.length).flatMap(t => {
                       const style = TYPE_STYLE[t];
+                      const catTotalHrs = weeks.reduce((s, w) => s + grouped[t].reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
+                      const catPct = empTotalHrs > 0 ? Math.round((catTotalHrs / empTotalHrs) * 100) : 0;
                       return [
                         <tr key={`${emp.name}-type-${t}`}>
                           <td colSpan={weeks.length + 1} style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
                             {t}
+                            <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, opacity: 0.75 }}>{catPct}%</span>
                           </td>
                         </tr>,
                         ...grouped[t].map((a) => (
