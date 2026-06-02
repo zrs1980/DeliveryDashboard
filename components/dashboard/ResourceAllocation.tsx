@@ -506,12 +506,6 @@ export function ResourceAllocation({ allocations, error }: Props) {
                 { key: "Service",        color: C.blue,   bg: C.blueBg   },
                 { key: "Internal",       color: C.textSub, bg: C.alt     },
               ];
-              const empAllHrs = weeks.reduce((s, w) => s + emp.rows.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
-              const catBreakdown = TYPE_BADGES.map(({ key, color, bg }) => {
-                const hrs = weeks.reduce((s, w) => s + emp.rows.filter(a => (a.projectType ?? "Internal") === key).reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
-                const pct = empAllHrs > 0 ? Math.round((hrs / empAllHrs) * 100) : 0;
-                return { key, color, bg, pct };
-              }).filter(c => c.pct > 0);
 
               return (
                 <>
@@ -522,10 +516,9 @@ export function ResourceAllocation({ allocations, error }: Props) {
                     </td>
                     {weeks.map((w, wi) => {
                       const pct = weekPcts[wi];
-                      const weekEmpHrs = emp.rows.reduce((s, a) => s + hoursForWeek(a, w), 0);
                       const weekBreakdown = TYPE_BADGES.map(({ key, color }) => {
                         const hrs = emp.rows.filter(a => (a.projectType ?? "Internal") === key).reduce((s, a) => s + hoursForWeek(a, w), 0);
-                        const p = weekEmpHrs > 0 ? Math.round((hrs / weekEmpHrs) * 100) : 0;
+                        const p = Math.round((hrs / 40) * 100);
                         return { key, color, p };
                       }).filter(c => c.p > 0);
                       return (
