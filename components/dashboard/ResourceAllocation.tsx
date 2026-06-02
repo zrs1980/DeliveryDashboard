@@ -570,9 +570,16 @@ export function ResourceAllocation({ allocations, error }: Props) {
                           </td>
                           {weeks.map((w, wi) => {
                             const total = grouped[t].reduce((s, a) => s + hoursForWeek(a, w), 0);
+                            const empWeekTotal = emp.rows.reduce((s, a) => s + hoursForWeek(a, w), 0);
+                            const weekPct = empWeekTotal > 0 ? Math.round((total / empWeekTotal) * 100) : 0;
                             return (
                               <td key={wi} style={{ padding: "4px 8px", textAlign: "center", fontSize: 10, fontFamily: C.mono, fontWeight: 600, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
-                                {total > 0 ? total.toFixed(1) : <span style={{ opacity: 0.35 }}>—</span>}
+                                {total > 0 ? (
+                                  <>
+                                    {total.toFixed(1)}
+                                    <span style={{ marginLeft: 4, opacity: 0.65, fontWeight: 500 }}>{weekPct}%</span>
+                                  </>
+                                ) : <span style={{ opacity: 0.35 }}>—</span>}
                               </td>
                             );
                           })}
