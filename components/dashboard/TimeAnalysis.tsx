@@ -372,6 +372,12 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                         {g.label} <span style={{ fontWeight: 400, opacity: 0.65 }}>target {fmtPct(g.target)}</span>
                                       </div>
                                       <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 22, color: g.color, lineHeight: 1 }}>{fmtH(g.hours)}</div>
+                                      {(() => {
+                                        const gap = p.total * g.target - g.hours;
+                                        return gap > 0
+                                          ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
+                                          : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over target</div>;
+                                      })()}
                                     </div>
                                     <div style={{ flex: 1 }}>
                                       <PctBar value={g.pct} target={g.target} color={g.color} />
@@ -511,6 +517,12 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                           </div>
                                           <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.color }}>{fmtH(g.hours)}</div>
                                           <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of total</div>
+                                          {(() => {
+                                            const gap = p.total * g.target - g.hours;
+                                            return gap > 0
+                                              ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
+                                              : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over</div>;
+                                          })()}
                                         </div>
                                       ))}
                                     </div>
