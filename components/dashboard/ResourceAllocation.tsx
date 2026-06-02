@@ -531,17 +531,15 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       return (
                         <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           {pct > 0 ? (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                              <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, ...pctCellStyle(pct) }}>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(pct) }}>
                                 {Math.round(pct)}%
                               </span>
-                              <div style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
-                                {weekBreakdown.map(c => (
-                                  <span key={c.key} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: c.color }}>
-                                    {c.key === "Implementation" ? "Impl" : c.key[0].toUpperCase() + c.key.slice(1)} {c.p}%
-                                  </span>
-                                ))}
-                              </div>
+                              {weekBreakdown.length > 0 && (
+                                <span style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, color: C.textSub }}>
+                                  {weekBreakdown.map(c => `${c.p}%`).join("/")}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span style={{ color: C.mid, fontSize: 11 }}>—</span>
