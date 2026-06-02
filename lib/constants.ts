@@ -52,11 +52,21 @@ export const C = {
 export const STATUS_STYLES: Record<string, { bg: string; color: string; bd: string; label: string }> = {
   "done":                  { bg:"#E6F7F0", color:"#0C6E44", bd:"#A7E3C4", label:"Done" },
   "in progress":           { bg:"#EBF5FF", color:"#1A56DB", bd:"#93C5FD", label:"In Progress" },
+  "in review":             { bg:"#EBF5FF", color:"#1A56DB", bd:"#93C5FD", label:"In Review" },
   "on hold":               { bg:"#FEF0EF", color:"#C0392B", bd:"#F5B8B5", label:"On Hold" },
   "new":                   { bg:"#F7F9FC", color:"#4A5568", bd:"#C9CDD4", label:"New" },
   "awaiting confirmation": { bg:"#FFF7ED", color:"#B45309", bd:"#FCD38A", label:"Awaiting" },
+  "input required":        { bg:"#FFF7ED", color:"#B45309", bd:"#FCD38A", label:"Input Required" },
   "scheduled":             { bg:"#F5F0FF", color:"#6B21A8", bd:"#C4B5FD", label:"Scheduled" },
   "supplied":              { bg:"#E6F7F7", color:"#0D6E6E", bd:"#81D4D4", label:"Supplied" },
+  "code review":           { bg:"#E6F7F0", color:"#0C6E44", bd:"#A7E3C4", label:"Code Review" },
+  "ready for qa":          { bg:"#F5F0FF", color:"#6B21A8", bd:"#C4B5FD", label:"Ready for QA" },
+  "qa in progress":        { bg:"#E6F7F7", color:"#0D6E6E", bd:"#81D4D4", label:"QA In Progress" },
+  "uat in progress":       { bg:"#EBF5FF", color:"#1A56DB", bd:"#93C5FD", label:"UAT In Progress" },
+  "completed in sb":       { bg:"#E6F7F7", color:"#0D6E6E", bd:"#81D4D4", label:"Completed in SB" },
+  "requires ns support":   { bg:"#FFF7ED", color:"#B45309", bd:"#FCD38A", label:"Requires NS Support" },
+  "stuck":                 { bg:"#FEF0EF", color:"#C0392B", bd:"#F5B8B5", label:"Stuck" },
+  "moved to zendesk":      { bg:"#F7F9FC", color:"#4A5568", bd:"#C9CDD4", label:"Moved to Zendesk" },
 };
 
 // ─── ClickUp list ID overrides ────────────────────────────────────────────────

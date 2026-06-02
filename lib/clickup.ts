@@ -152,13 +152,13 @@ export async function fetchListTasks(listId: string): Promise<CUTask[]> {
 
 export function isBlocked(task: CUTask): boolean {
   const st = task.status.status.toLowerCase();
-  if (st === "on hold" || st === "blocked") return true;
+  if (st === "on hold" || st === "blocked" || st === "stuck" || st === "requires ns support") return true;
   return task.tags.some(t => t.name.toLowerCase() === "blocked");
 }
 
 export function isClientPending(task: CUTask): boolean {
   const st = task.status.status.toLowerCase();
-  if (st === "awaiting confirmation") return true;
+  if (st === "awaiting confirmation" || st === "input required") return true;
   return task.tags.some(t => t.name.toLowerCase() === "client");
 }
 
