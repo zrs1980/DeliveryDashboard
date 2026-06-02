@@ -609,6 +609,19 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                     <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, fontWeight: 700, ...(t === "Internal" ? { background: C.alt, color: C.textSub, border: `1px solid ${C.border}` } : pctCellStyle(weekPct)) }}>
                                       {weekPct}%
                                     </span>
+                                    {t === "Implementation" && (() => {
+                                      const gap = 30 - total;
+                                      return gap > 0 ? (
+                                        <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.red }}>Need {gap.toFixed(1)}h</span>
+                                      ) : (
+                                        <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.green }}>+{Math.abs(gap).toFixed(1)}h over</span>
+                                      );
+                                    })()}
+                                  </div>
+                                ) : t === "Implementation" ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <span style={{ opacity: 0.35 }}>—</span>
+                                    <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.red }}>Need 30h</span>
                                   </div>
                                 ) : <span style={{ opacity: 0.35 }}>—</span>}
                               </td>
