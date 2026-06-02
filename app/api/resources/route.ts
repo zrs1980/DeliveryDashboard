@@ -16,6 +16,7 @@ export async function GET() {
       remaining_hours: string | null;
       budget_hours: string | null;
       jobtype: string | null;
+      jobtype_name: string | null;
       startdate: string;
       enddate: string;
       allocationunit: string;
@@ -31,6 +32,7 @@ export async function GET() {
         j.custentity_project_remaining_hours           AS remaining_hours,
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         j.jobtype                                      AS jobtype,
+        BUILTIN.DF(j.jobtype)                          AS jobtype_name,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -84,7 +86,8 @@ export async function GET() {
     const allocations: NSAllocation[] = rows.map(r => {
       const empId = parseInt(r.employee_id);
       const jt = parseInt(r.jobtype ?? "0");
-      const projectType = jt === 1 ? "Implementation" : jt === 2 ? "Service" : "Internal";
+      const jtName = (r.jobtype_name ?? "").toLowerCase();
+      const projectType = (jt === 1 || jtName.includes("consulting")) ? "Implementation" : jt === 2 ? "Service" : "Internal";
       return {
         id:             r.id,
         employeeId:     empId,
