@@ -139,8 +139,9 @@ function pctCellStyle(pct: number): React.CSSProperties {
   if (pct === 0) return { background: "transparent", color: C.mid };
   if (pct > 100) return { background: C.redBg,    color: C.red,    fontWeight: 700, border: `1px solid ${C.redBd}` };
   if (pct >= 80)  return { background: C.orangeBg, color: C.orange, fontWeight: 700, border: `1px solid ${C.orangeBd}` };
+  if (pct >= 70)  return { background: C.greenBg,  color: C.green,  fontWeight: 600, border: `1px solid ${C.greenBd}` };
   if (pct >= 50)  return { background: C.yellowBg, color: C.yellow, fontWeight: 600, border: `1px solid ${C.yellowBd}` };
-  return              { background: C.greenBg,  color: C.green,  fontWeight: 600, border: `1px solid ${C.greenBd}` };
+  return              { background: C.redBg,    color: C.red,    fontWeight: 700, border: `1px solid ${C.redBd}` };
 }
 
 function gapStyle(gap: number): React.CSSProperties {
@@ -463,10 +464,11 @@ export function ResourceAllocation({ allocations, error }: Props) {
       <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: C.textSub, fontWeight: 600 }}>Allocation %:</span>
         {[
-          { label: ">100% Over",  bg: C.redBg,    color: C.red    },
-          { label: "80–100% High", bg: C.orangeBg, color: C.orange },
-          { label: "50–79% Med",  bg: C.yellowBg, color: C.yellow },
-          { label: "<50% Low",    bg: C.greenBg,  color: C.green  },
+          { label: ">100% Over",     bg: C.redBg,    color: C.red    },
+          { label: "80–100% High",  bg: C.orangeBg, color: C.orange },
+          { label: "70–79% Optimal", bg: C.greenBg,  color: C.green  },
+          { label: "50–69% Med",    bg: C.yellowBg, color: C.yellow },
+          { label: "<50% Low",      bg: C.redBg,    color: C.red    },
         ].map(l => (
           <span key={l.label} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: l.bg, color: l.color }}>
             {l.label}
