@@ -55,6 +55,20 @@ interface DayTotals {
   productive: number;
 }
 
+const HOURS_PER_DAY = 7.5;
+
+function countBusinessDays(from: Date, to: Date): number {
+  let count = 0;
+  const d = new Date(from); d.setHours(0, 0, 0, 0);
+  const e = new Date(to);   e.setHours(0, 0, 0, 0);
+  while (d <= e) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
 function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
   let total = 0, billable = 0, utilized = 0, productive = 0;
   for (const [dateStr, v] of byDate) {
@@ -188,6 +202,25 @@ export async function GET(req: NextRequest) {
     const firstOfLastQuarter  = new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1);
     const lastDayLastQuarter  = new Date(now.getFullYear(), currentQuarter * 3, 0, 23, 59, 59, 999);
 
+    // Full-period boundaries (unclipped to today) for available-hours calculation
+    const lastDayThisMonth   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const lastDayThisQuarter = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59, 999);
+    const thisFriday         = new Date(thisMonday); thisFriday.setDate(thisMonday.getDate() + 4);
+
+    const periodAvailableHours: Record<string, number> = {
+      today:       HOURS_PER_DAY,
+      yesterday:   HOURS_PER_DAY,
+      thisWeek:    countBusinessDays(thisMonday,          thisFriday)         * HOURS_PER_DAY,
+      lastWeek:    countBusinessDays(lastMonday,          lastSunday)         * HOURS_PER_DAY,
+      thisMonth:   countBusinessDays(firstOfMonth,        lastDayThisMonth)   * HOURS_PER_DAY,
+      lastMonth:   countBusinessDays(firstOfLastMonth,    lastDayLastMonth)   * HOURS_PER_DAY,
+      thisQuarter: countBusinessDays(firstOfThisQuarter,  lastDayThisQuarter) * HOURS_PER_DAY,
+      lastQuarter: countBusinessDays(firstOfLastQuarter,  lastDayLastQuarter) * HOURS_PER_DAY,
+    };
+    if (customFrom && customTo) {
+      periodAvailableHours["custom"] = countBusinessDays(customFrom, customTo) * HOURS_PER_DAY;
+    }
+
     const weeks: Date[] = [];
     for (let i = 11; i >= 0; i--) {
       const w = new Date(thisMonday);
@@ -318,7 +351,7 @@ export async function GET(req: NextRequest) {
         };
       });
 
-    return NextResponse.json({ employees: result, updatedAt: new Date().toISOString() });
+    return NextResponse.json({ employees: result, periodAvailableHours, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.error("[/api/time-analysis]", err);
     return NextResponse.json({

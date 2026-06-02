@@ -145,6 +145,7 @@ interface MgrPeriodCache { employees: any[]; rangeFrom: string; rangeTo: string;
 
 export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { title?: string; filterDepartment?: string } = {}) {
   const [employees, setEmployees] = useState<EmployeeTimeData[]>([]);
+  const [periodAvailableHours, setPeriodAvailableHours] = useState<Record<string, number>>({});
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [period, setPeriod]       = useState<PeriodKey>("thisMonth");
@@ -171,6 +172,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setEmployees(json.employees ?? []);
+      setPeriodAvailableHours(json.periodAvailableHours ?? {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally { setLoading(false); }
@@ -373,7 +375,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                       </div>
                                       <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 22, color: g.color, lineHeight: 1 }}>{fmtH(g.hours)}</div>
                                       {(() => {
-                                        const gap = p.total * g.target - g.hours;
+                                        const gap = (periodAvailableHours[period] ?? p.total) * g.target - g.hours;
                                         return gap > 0
                                           ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                           : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over target</div>;
@@ -518,7 +520,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                           <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.color }}>{fmtH(g.hours)}</div>
                                           <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of total</div>
                                           {(() => {
-                                            const gap = p.total * g.target - g.hours;
+                                            const gap = (periodAvailableHours[period] ?? p.total) * g.target - g.hours;
                                             return gap > 0
                                               ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                               : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over</div>;
