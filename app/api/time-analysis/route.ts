@@ -69,7 +69,7 @@ function countBusinessDays(from: Date, to: Date): number {
   return count;
 }
 
-function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
+function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date, availableHours?: number) {
   let total = 0, billable = 0, utilized = 0, productive = 0;
   for (const [dateStr, v] of byDate) {
     const d = parseNSDate(dateStr);
@@ -79,14 +79,15 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date) {
     utilized   += v.utilized;
     productive += v.productive;
   }
+  const denom = availableHours ?? total;
   return {
     total:         Math.round(total * 100) / 100,
     billable:      Math.round(billable * 100) / 100,
     utilized:      Math.round(utilized * 100) / 100,
     productive:    Math.round(productive * 100) / 100,
-    billablePct:   total > 0 ? billable   / total : 0,
-    utilizedPct:   total > 0 ? utilized   / total : 0,
-    productivePct: total > 0 ? productive / total : 0,
+    billablePct:   denom > 0 ? billable   / denom : 0,
+    utilizedPct:   denom > 0 ? utilized   / denom : 0,
+    productivePct: denom > 0 ? productive / denom : 0,
   };
 }
 
@@ -336,15 +337,15 @@ export async function GET(req: NextRequest) {
           employeeName: EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
           employeeType: EMPLOYEES[empId]?.employeeType ?? "",
           periods: {
-            today:       sumPeriod(byDate, todayStart,         today),
-            yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd),
-            thisWeek:    sumPeriod(byDate, thisMonday,         today),
-            lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday),
-            thisMonth:   sumPeriod(byDate, firstOfMonth,       today),
-            lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth),
-            thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today),
-            lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter),
-            ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo) } : {}),
+            today:       sumPeriod(byDate, todayStart,         today,                periodAvailableHours.today),
+            yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd,         periodAvailableHours.yesterday),
+            thisWeek:    sumPeriod(byDate, thisMonday,         today,                periodAvailableHours.thisWeek),
+            lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday,           periodAvailableHours.lastWeek),
+            thisMonth:   sumPeriod(byDate, firstOfMonth,       today,                periodAvailableHours.thisMonth),
+            lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth,     periodAvailableHours.lastMonth),
+            thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today,                periodAvailableHours.thisQuarter),
+            lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter,   periodAvailableHours.lastQuarter),
+            ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo, periodAvailableHours.custom) } : {}),
           },
           weeklyTrend,
           projectBreakdown,
