@@ -547,23 +547,30 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, opacity: 0.75 }}>{catPct}%</span>
                           </td>
                         </tr>,
-                        ...grouped[t].map((a) => (
-                          <tr key={`${emp.name}-${a.id}`} style={{ background: rowBgSub }}>
-                            <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: rowBgSub }} title={a.companyName ? `${a.companyName} — ${a.projectName}` : a.projectName}>
-                              <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                              {a.companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{a.companyName} —</span>}
-                              {a.projectName}
-                            </td>
-                            {weeks.map((w, wi) => {
-                              const hrs = hoursForWeek(a, w);
-                              return (
-                                <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
-                                  {hrs > 0 ? hrs.toFixed(1) : <span style={{ color: C.mid }}>—</span>}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        )),
+                        ...(() => {
+                          const byProj = new Map<number, { allocs: NSAllocation[]; name: string; companyName: string }>();
+                          for (const a of grouped[t]) {
+                            if (!byProj.has(a.projectId)) byProj.set(a.projectId, { allocs: [], name: a.projectName, companyName: a.companyName ?? "" });
+                            byProj.get(a.projectId)!.allocs.push(a);
+                          }
+                          return Array.from(byProj.values()).map(({ allocs, name, companyName }) => (
+                            <tr key={`${emp.name}-${t}-${allocs[0].projectId}`} style={{ background: rowBgSub }}>
+                              <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
+                                <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                                {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
+                                {name}
+                              </td>
+                              {weeks.map((w, wi) => {
+                                const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
+                                return (
+                                  <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
+                                    {hrs > 0 ? hrs.toFixed(1) : <span style={{ color: C.mid }}>—</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ));
+                        })(),
                         <tr key={`${emp.name}-type-${t}-total`}>
                           <td style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
                             {t} Total
