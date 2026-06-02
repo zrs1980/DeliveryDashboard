@@ -501,12 +501,33 @@ export function ResourceAllocation({ allocations, error }: Props) {
               const rowBg    = ei % 2 === 0 ? C.surface : C.alt;
               const weekPcts = weeks.map(w => totalPctForWeek(emp.rows, w));
 
+              const TYPE_BADGES: Array<{ key: string; color: string; bg: string }> = [
+                { key: "Implementation", color: C.purple, bg: C.purpleBg },
+                { key: "Service",        color: C.blue,   bg: C.blueBg   },
+                { key: "Internal",       color: C.textSub, bg: C.alt     },
+              ];
+              const empAllHrs = weeks.reduce((s, w) => s + emp.rows.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
+              const catBreakdown = TYPE_BADGES.map(({ key, color, bg }) => {
+                const hrs = weeks.reduce((s, w) => s + emp.rows.filter(a => (a.projectType ?? "Internal") === key).reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
+                const pct = empAllHrs > 0 ? Math.round((hrs / empAllHrs) * 100) : 0;
+                return { key, color, bg, pct };
+              }).filter(c => c.pct > 0);
+
               return (
                 <>
                   <tr key={emp.name} style={{ background: rowBg, cursor: "pointer" }} onClick={() => toggleExpand(emp.name)}>
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
                       {emp.name}
+                      {catBreakdown.length > 0 && (
+                        <span style={{ marginLeft: 10, display: "inline-flex", gap: 4 }}>
+                          {catBreakdown.map(c => (
+                            <span key={c.key} style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: c.bg, color: c.color }}>
+                              {c.key === "Implementation" ? "Impl" : c.key} {c.pct}%
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </td>
                     {weekPcts.map((pct, wi) => (
                       <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
