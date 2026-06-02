@@ -214,9 +214,11 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
     { total: 0, billable: 0, utilized: 0, productive: 0 },
   );
   const tt = teamTotals.total;
-  const teamBillablePct   = tt > 0 ? teamTotals.billable   / tt : 0;
-  const teamUtilizedPct   = tt > 0 ? teamTotals.utilized   / tt : 0;
-  const teamProductivePct = tt > 0 ? teamTotals.productive / tt : 0;
+  const teamAvailableHours = (periodAvailableHours[period] ?? 0) * active.length;
+  const teamDenom = teamAvailableHours > 0 ? teamAvailableHours : tt;
+  const teamBillablePct   = teamDenom > 0 ? teamTotals.billable   / teamDenom : 0;
+  const teamUtilizedPct   = teamDenom > 0 ? teamTotals.utilized   / teamDenom : 0;
+  const teamProductivePct = teamDenom > 0 ? teamTotals.productive / teamDenom : 0;
 
   // ── Chart data ───────────────────────────────────────────────────────────
   const chartEmp = expandedEmp !== null ? employees.find(e => e.employeeId === expandedEmp) : null;
