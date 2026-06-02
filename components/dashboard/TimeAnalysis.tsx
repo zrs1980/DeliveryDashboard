@@ -274,20 +274,40 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
       {/* Team KPI cards */}
       {hasData && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 22 }}>
+          {/* Total Hours — simple card */}
+          <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 10, padding: "14px 18px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Total Hours</div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: C.mono, color: C.blue, lineHeight: 1.1 }}>{fmtH(tt)}</div>
+            <div style={{ fontSize: 11, color: C.blue, opacity: 0.65, marginTop: 4 }}>{active.length} active consultants</div>
+          </div>
+
+          {/* Billable / Utilized / Productive — bar widgets */}
           {([
-            { label: "Total Hours", value: fmtH(tt), sub: `${active.length} active consultants`, color: C.blue, bg: C.blueBg, bd: C.blueBd, target: null },
-            { label: "Billable",    value: fmtPct(teamBillablePct),   sub: `${fmtH(teamTotals.billable)} logged`,   color: teamBillablePct   >= TARGETS.billable   ? C.green : C.red, bg: teamBillablePct   >= TARGETS.billable   ? C.greenBg : C.redBg, bd: teamBillablePct   >= TARGETS.billable   ? C.greenBd : C.redBd, target: TARGETS.billable },
-            { label: "Utilized",    value: fmtPct(teamUtilizedPct),   sub: `${fmtH(teamTotals.utilized)} logged`,   color: teamUtilizedPct   >= TARGETS.utilized   ? C.green : C.red, bg: teamUtilizedPct   >= TARGETS.utilized   ? C.greenBg : C.redBg, bd: teamUtilizedPct   >= TARGETS.utilized   ? C.greenBd : C.redBd, target: TARGETS.utilized },
-            { label: "Productive",  value: fmtPct(teamProductivePct), sub: `${fmtH(teamTotals.productive)} logged`, color: teamProductivePct >= TARGETS.productive ? C.green : C.red, bg: teamProductivePct >= TARGETS.productive ? C.greenBg : C.redBg, bd: teamProductivePct >= TARGETS.productive ? C.greenBd : C.redBd, target: TARGETS.productive },
-          ] as const).map(card => (
-            <div key={card.label} style={{ background: card.bg, border: `1px solid ${card.bd}`, borderRadius: 10, padding: "14px 18px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: card.color, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-                {card.label}{card.target !== null && <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: 6 }}>target {fmtPct(card.target)}</span>}
+            { label: "Billable",   hours: teamTotals.billable,   pct: teamBillablePct,   target: TARGETS.billable,   color: C.blue,   teal: false },
+            { label: "Utilized",   hours: teamTotals.utilized,   pct: teamUtilizedPct,   target: TARGETS.utilized,   color: C.teal,   teal: true  },
+            { label: "Productive", hours: teamTotals.productive, pct: teamProductivePct, target: TARGETS.productive, color: C.purple, teal: false },
+          ]).map(g => {
+            const onTarget = g.pct >= g.target;
+            const bg = onTarget ? C.greenBg : C.redBg;
+            const bd = onTarget ? C.greenBd : C.redBd;
+            const col = onTarget ? C.green : C.red;
+            const gap = teamAvailableHours * g.target - g.hours;
+            return (
+              <div key={g.label} style={{ background: bg, border: `1px solid ${bd}`, borderRadius: 10, padding: "14px 18px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: col, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  {g.label} <span style={{ fontWeight: 400, opacity: 0.65 }}>target {fmtPct(g.target)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginBottom: 8 }}>
+                  <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 24, color: col, lineHeight: 1 }}>{fmtH(g.hours)}</div>
+                  <div style={{ fontFamily: C.mono, fontSize: 13, fontWeight: 600, color: col, opacity: 0.8, paddingBottom: 2 }}>{fmtPct(g.pct)}</div>
+                </div>
+                <PctBar value={g.pct} target={g.target} color={g.color} />
+                <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, color: gap > 0 ? C.red : C.green, marginTop: 6 }}>
+                  {gap > 0 ? `Need ${fmtH(gap)} more` : `+${fmtH(Math.abs(gap))} over target`}
+                </div>
               </div>
-              <div style={{ fontSize: 28, fontWeight: 800, fontFamily: C.mono, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
-              <div style={{ fontSize: 11, color: card.color, opacity: 0.65, marginTop: 4 }}>{card.sub}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
