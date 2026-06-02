@@ -539,17 +539,9 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       const style = TYPE_STYLE[t];
                       return [
                         <tr key={`${emp.name}-type-${t}`}>
-                          <td style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
+                          <td colSpan={weeks.length + 1} style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
                             {t}
                           </td>
-                          {weeks.map((w, wi) => {
-                            const total = grouped[t].reduce((s, a) => s + hoursForWeek(a, w), 0);
-                            return (
-                              <td key={wi} style={{ padding: "4px 8px", textAlign: "center", fontSize: 10, fontFamily: C.mono, fontWeight: 600, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
-                                {total > 0 ? total.toFixed(1) : <span style={{ opacity: 0.35 }}>—</span>}
-                              </td>
-                            );
-                          })}
                         </tr>,
                         ...grouped[t].map((a) => (
                           <tr key={`${emp.name}-${a.id}`} style={{ background: rowBgSub }}>
@@ -568,6 +560,19 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             })}
                           </tr>
                         )),
+                        <tr key={`${emp.name}-type-${t}-total`}>
+                          <td style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
+                            {t} Total
+                          </td>
+                          {weeks.map((w, wi) => {
+                            const total = grouped[t].reduce((s, a) => s + hoursForWeek(a, w), 0);
+                            return (
+                              <td key={wi} style={{ padding: "4px 8px", textAlign: "center", fontSize: 10, fontFamily: C.mono, fontWeight: 600, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                                {total > 0 ? total.toFixed(1) : <span style={{ opacity: 0.35 }}>—</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>,
                       ];
                     });
                   })()}
