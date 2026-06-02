@@ -519,27 +519,36 @@ export function ResourceAllocation({ allocations, error }: Props) {
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
                       {emp.name}
-                      {catBreakdown.length > 0 && (
-                        <span style={{ marginLeft: 10, display: "inline-flex", gap: 4 }}>
-                          {catBreakdown.map(c => (
-                            <span key={c.key} style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: c.bg, color: c.color }}>
-                              {c.key === "Implementation" ? "Impl" : c.key} {c.pct}%
-                            </span>
-                          ))}
-                        </span>
-                      )}
                     </td>
-                    {weekPcts.map((pct, wi) => (
-                      <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                        {pct > 0 ? (
-                          <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, ...pctCellStyle(pct) }}>
-                            {Math.round(pct)}%
-                          </span>
-                        ) : (
-                          <span style={{ color: C.mid, fontSize: 11 }}>—</span>
-                        )}
-                      </td>
-                    ))}
+                    {weeks.map((w, wi) => {
+                      const pct = weekPcts[wi];
+                      const weekEmpHrs = emp.rows.reduce((s, a) => s + hoursForWeek(a, w), 0);
+                      const weekBreakdown = TYPE_BADGES.map(({ key, color }) => {
+                        const hrs = emp.rows.filter(a => (a.projectType ?? "Internal") === key).reduce((s, a) => s + hoursForWeek(a, w), 0);
+                        const p = weekEmpHrs > 0 ? Math.round((hrs / weekEmpHrs) * 100) : 0;
+                        return { key, color, p };
+                      }).filter(c => c.p > 0);
+                      return (
+                        <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          {pct > 0 ? (
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                              <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, ...pctCellStyle(pct) }}>
+                                {Math.round(pct)}%
+                              </span>
+                              <div style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
+                                {weekBreakdown.map(c => (
+                                  <span key={c.key} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: c.color }}>
+                                    {c.key === "Implementation" ? "Impl" : c.key[0].toUpperCase() + c.key.slice(1)} {c.p}%
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ color: C.mid, fontSize: 11 }}>—</span>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
 
                   {isExp && (() => {
