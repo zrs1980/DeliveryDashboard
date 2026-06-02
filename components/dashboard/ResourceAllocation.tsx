@@ -531,7 +531,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                 {Math.round(pct)}%
                               </span>
                               {weekBreakdown.map(c => (
-                                <span key={c.key} style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(c.p) }}>
+                                <span key={c.key} style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...(c.key === "Internal" ? { background: C.alt, color: C.textSub, border: `1px solid ${C.border}` } : pctCellStyle(c.p)) }}>
                                   {c.p}%
                                 </span>
                               ))}
@@ -606,7 +606,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                 {total > 0 ? (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                     <span style={{ fontSize: 10 }}>{total.toFixed(1)}h</span>
-                                    <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(weekPct) }}>
+                                    <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, fontWeight: 700, ...(t === "Internal" ? { background: C.alt, color: C.textSub, border: `1px solid ${C.border}` } : pctCellStyle(weekPct)) }}>
                                       {weekPct}%
                                     </span>
                                   </div>
