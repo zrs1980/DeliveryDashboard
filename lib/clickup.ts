@@ -168,7 +168,7 @@ export function isMilestone(task: CUTask): boolean {
 
 export function isDone(task: CUTask): boolean {
   const st = task.status.status.toLowerCase();
-  return st === "done" || st === "complete" || st === "supplied";
+  return st === "done" || st === "complete";
 }
 
 export function isOverdueTask(task: CUTask): boolean {
