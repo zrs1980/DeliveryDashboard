@@ -524,15 +524,15 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       return (
                         <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           {pct > 0 ? (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" }}>
                               <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(pct) }}>
                                 {Math.round(pct)}%
                               </span>
-                              {weekBreakdown.length > 0 && (
-                                <span style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 600, color: C.textSub }}>
-                                  {weekBreakdown.map(c => `${c.p}%`).join("/")}
+                              {weekBreakdown.map(c => (
+                                <span key={c.key} style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(c.p) }}>
+                                  {c.p}%
                                 </span>
-                              )}
+                              ))}
                             </div>
                           ) : (
                             <span style={{ color: C.mid, fontSize: 11 }}>—</span>
