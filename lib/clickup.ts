@@ -138,14 +138,22 @@ export function matchListByCompanyName(companyName: string, lists: CUList[]): st
 // ─── Fetch tasks for a list ───────────────────────────────────────────────────
 
 export async function fetchListTasks(listId: string): Promise<CUTask[]> {
-  const url = `${BASE_URL}/list/${listId}/task?include_closed=true&subtasks=true&page=0`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`ClickUp error ${res.status}: ${text}`);
+  const all: CUTask[] = [];
+  let page = 0;
+  while (true) {
+    const url = `${BASE_URL}/list/${listId}/task?include_closed=true&subtasks=true&page=${page}`;
+    const res = await fetch(url, { headers: headers() });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`ClickUp error ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    const tasks = (data.tasks ?? []) as CUTask[];
+    all.push(...tasks);
+    if (tasks.length < 100) break; // last page
+    page++;
   }
-  const data = await res.json();
-  return (data.tasks ?? []) as CUTask[];
+  return all;
 }
 
 // ─── Task classification helpers ─────────────────────────────────────────────
