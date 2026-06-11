@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getActiveJobResources } from "@/lib/netsuite";
+import { runSuiteQLAll } from "@/lib/netsuite";
 import { PTO_APPROVER_EMAILS } from "@/lib/constants";
 
 export const revalidate = 0;
@@ -12,12 +12,26 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const allEmployees = await getActiveJobResources();
+  try {
+    const rows = await runSuiteQLAll<{
+      id: string;
+      firstname: string;
+      lastname: string;
+      custentity10: string | null;
+    }>(
+      `SELECT id, firstname, lastname, custentity10 FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
+    );
 
-  // Debug: return all employees with their raw custentity10 value
-  const all = Object.entries(allEmployees)
-    .map(([id, emp]) => ({ nsId: parseInt(id), name: emp.name, category: emp.department, employeeType: emp.employeeType }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  return NextResponse.json({ employees: all, _debug: true });
+    return NextResponse.json({
+      employees: rows.map(r => ({
+        nsId: parseInt(r.id),
+        name: `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim(),
+        custentity10_raw: r.custentity10,
+      })),
+      count: rows.length,
+      _debug: true,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: String(e), employees: [], _debug: true }, { status: 500 });
+  }
 }
