@@ -45,6 +45,7 @@ interface EmployeeTimeData {
   employeeId: number;
   employeeName: string;
   employeeType: string;
+  targetUtilization: number;  // 0-1 decimal from NS employee record
   periods: Partial<Record<PeriodKey, PeriodMetrics>>;
   weeklyTrend: WeekPoint[];
   projectBreakdown: Partial<Record<PeriodKey, ProjectBreakdown[]>>;
@@ -57,7 +58,8 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
   thisQuarter: "This Quarter", lastQuarter: "Last Quarter",
   custom: "Custom",
 };
-const TARGETS = { billable: 0.65, utilized: 0.75, productive: 0.85 };
+const PROD_TARGET = 0.85;
+const BILL_RATIO  = 0.87;  // billable target = BILL_RATIO × per-employee utilization target
 
 function fmtH(n: number) { return `${n.toFixed(2)}h`; }
 function fmtPct(n: number) { return `${Math.round(n * 100)}%`; }
@@ -220,6 +222,10 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
   const teamUtilizedPct   = teamDenom > 0 ? teamTotals.utilized   / teamDenom : 0;
   const teamProductivePct = teamDenom > 0 ? teamTotals.productive / teamDenom : 0;
 
+  // Weighted team targets: simple average since all employees share the same available hours per period
+  const teamUtilTarget = active.length > 0 ? active.reduce((s, e) => s + (e.targetUtilization ?? 0.75), 0) / active.length : 0.75;
+  const teamBillTarget = teamUtilTarget * BILL_RATIO;
+
   // ── Chart data ───────────────────────────────────────────────────────────
   const chartEmp = expandedEmp !== null ? employees.find(e => e.employeeId === expandedEmp) : null;
   const chartData = (() => {
@@ -283,9 +289,9 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
 
           {/* Billable / Utilized / Productive — bar widgets */}
           {([
-            { label: "Billable",   hours: teamTotals.billable,   pct: teamBillablePct,   target: TARGETS.billable,   color: C.blue,   teal: false },
-            { label: "Utilized",   hours: teamTotals.utilized,   pct: teamUtilizedPct,   target: TARGETS.utilized,   color: C.teal,   teal: true  },
-            { label: "Productive", hours: teamTotals.productive, pct: teamProductivePct, target: TARGETS.productive, color: C.purple, teal: false },
+            { label: "Billable",   hours: teamTotals.billable,   pct: teamBillablePct,   target: teamBillTarget,  color: C.blue,   teal: false },
+            { label: "Utilized",   hours: teamTotals.utilized,   pct: teamUtilizedPct,   target: teamUtilTarget,  color: C.teal,   teal: true  },
+            { label: "Productive", hours: teamTotals.productive, pct: teamProductivePct, target: PROD_TARGET,     color: C.purple, teal: false },
           ]).map(g => {
             const onTarget = g.pct >= g.target;
             const bg = onTarget ? C.greenBg : C.redBg;
@@ -319,9 +325,9 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
               <tr style={{ background: C.alt, borderBottom: `1px solid ${C.border}` }}>
                 <th style={{ textAlign: "left", padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>Consultant</th>
                 <th style={{ textAlign: "right", padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>Total Hours</th>
-                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Billable <span style={{ color: "#94A3B8", fontWeight: 400 }}>({fmtPct(TARGETS.billable)})</span></th>
-                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Utilized <span style={{ color: "#94A3B8", fontWeight: 400 }}>({fmtPct(TARGETS.utilized)})</span></th>
-                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Productive <span style={{ color: "#94A3B8", fontWeight: 400 }}>({fmtPct(TARGETS.productive)})</span></th>
+                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Billable <span style={{ color: "#94A3B8", fontWeight: 400 }}>(87% of util)</span></th>
+                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Utilized <span style={{ color: "#94A3B8", fontWeight: 400 }}>(per profile)</span></th>
+                <th style={{ padding: "10px 18px", fontWeight: 600, fontSize: 11, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 210 }}>Productive <span style={{ color: "#94A3B8", fontWeight: 400 }}>({fmtPct(PROD_TARGET)})</span></th>
               </tr>
             </thead>
             <tbody>
@@ -344,6 +350,8 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                     const i = rowIdx++;
 
                 const p          = emp.periods[period] ?? { total: 0, billable: 0, utilized: 0, productive: 0, billablePct: 0, utilizedPct: 0, productivePct: 0 };
+                const utilTgt    = emp.targetUtilization ?? 0.75;
+                const billTgt    = utilTgt * BILL_RATIO;
                 const isExpanded = expandedEmp === emp.employeeId;
                 const initials   = emp.employeeName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
                 return (
@@ -367,13 +375,13 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                         {p.total > 0 ? <span style={{ fontFamily: C.mono, fontWeight: 700, fontSize: 14, color: C.text }}>{fmtH(p.total)}</span> : <span style={{ color: C.textSub, fontSize: 12 }}>No data</span>}
                       </td>
                       <td style={{ padding: "10px 18px" }}>
-                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.billable)}</div><PctBar value={p.billablePct} target={TARGETS.billable} color={C.blue} /></div> : <span style={{ color: C.textSub }}>—</span>}
+                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.billable)}</div><PctBar value={p.billablePct} target={billTgt} color={C.blue} /></div> : <span style={{ color: C.textSub }}>—</span>}
                       </td>
                       <td style={{ padding: "10px 18px" }}>
-                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.utilized)}</div><PctBar value={p.utilizedPct} target={TARGETS.utilized} color={C.teal} /></div> : <span style={{ color: C.textSub }}>—</span>}
+                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.utilized)}</div><PctBar value={p.utilizedPct} target={utilTgt} color={C.teal} /></div> : <span style={{ color: C.textSub }}>—</span>}
                       </td>
                       <td style={{ padding: "10px 18px" }}>
-                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.productive)}</div><PctBar value={p.productivePct} target={TARGETS.productive} color={C.purple} /></div> : <span style={{ color: C.textSub }}>—</span>}
+                        {p.total > 0 ? <div><div style={{ fontSize: 11, color: C.textSub, marginBottom: 5 }}>{fmtH(p.productive)}</div><PctBar value={p.productivePct} target={PROD_TARGET} color={C.purple} /></div> : <span style={{ color: C.textSub }}>—</span>}
                       </td>
                     </tr>
 
@@ -387,8 +395,8 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                             {p.total > 0 && (
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 20 }}>
                                 {[
-                                  { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: TARGETS.billable,  color: C.blue, bg: p.billablePct  >= TARGETS.billable  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= TARGETS.billable  ? C.greenBd : C.blueBd  },
-                                  { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: TARGETS.utilized,  color: C.teal, bg: p.utilizedPct  >= TARGETS.utilized  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= TARGETS.utilized  ? C.greenBd : C.tealBd  },
+                                  { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: billTgt,  color: C.blue, bg: p.billablePct  >= billTgt  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= billTgt  ? C.greenBd : C.blueBd  },
+                                  { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: utilTgt,  color: C.teal, bg: p.utilizedPct  >= utilTgt  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= utilTgt  ? C.greenBd : C.tealBd  },
                                 ].map(g => (
                                   <div key={g.label} style={{ background: g.bg, border: `1px solid ${g.bd}`, borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 16 }}>
                                     <div>
@@ -532,8 +540,8 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                     {/* Positive: Billable & Utilized */}
                                     <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 8 }}>
                                       {[
-                                        { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: TARGETS.billable,  color: C.blue,   bg: p.billablePct  >= TARGETS.billable  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= TARGETS.billable  ? C.greenBd : C.blueBd  },
-                                        { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: TARGETS.utilized,  color: C.teal,   bg: p.utilizedPct  >= TARGETS.utilized  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= TARGETS.utilized  ? C.greenBd : C.tealBd  },
+                                        { label: "Billable",  hours: p.billable,  pct: p.billablePct,  target: billTgt,  color: C.blue,   bg: p.billablePct  >= billTgt  ? C.greenBg : C.blueBg,  bd: p.billablePct  >= billTgt  ? C.greenBd : C.blueBd  },
+                                        { label: "Utilized",  hours: p.utilized,  pct: p.utilizedPct,  target: utilTgt,  color: C.teal,   bg: p.utilizedPct  >= utilTgt  ? C.greenBg : C.tealBg,  bd: p.utilizedPct  >= utilTgt  ? C.greenBd : C.tealBd  },
                                       ].map(g => (
                                         <div key={g.label} style={{ background: g.bg, border: `1px solid ${g.bd}`, borderRadius: 8, padding: "10px 12px" }}>
                                           <div style={{ fontSize: 10, fontWeight: 700, color: g.color, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>
@@ -553,9 +561,9 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                     {/* Negative: Non-billable, Non-utilized, Non-productive */}
                                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                                       {[
-                                        { label: "Non-billable",   hours: p.total - p.billable,   gap: TARGETS.billable   - p.billablePct   },
-                                        { label: "Non-utilized",   hours: p.total - p.utilized,   gap: TARGETS.utilized   - p.utilizedPct   },
-                                        { label: "Non-productive", hours: p.total - p.productive, gap: TARGETS.productive - p.productivePct },
+                                        { label: "Non-billable",   hours: p.total - p.billable,   gap: billTgt      - p.billablePct   },
+                                        { label: "Non-utilized",   hours: p.total - p.utilized,   gap: utilTgt      - p.utilizedPct   },
+                                        { label: "Non-productive", hours: p.total - p.productive, gap: PROD_TARGET  - p.productivePct },
                                       ].map(g => (
                                         <div key={g.label} style={{ background: g.gap > 0 ? C.redBg : C.greenBg, border: `1px solid ${g.gap > 0 ? C.redBd : C.greenBd}`, borderRadius: 8, padding: "10px 12px" }}>
                                           <div style={{ fontSize: 10, fontWeight: 700, color: g.gap > 0 ? C.red : C.green, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{g.label}</div>
@@ -721,8 +729,8 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
               <YAxis tick={{ fontSize: 11, fill: C.textSub }} axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={v => `${v}%`} />
               <Tooltip formatter={(val) => [`${val}%`]} contentStyle={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-              <ReferenceLine y={65} stroke={C.blue}   strokeDasharray="5 4" strokeWidth={1.5} />
-              <ReferenceLine y={75} stroke={C.teal}   strokeDasharray="5 4" strokeWidth={1.5} />
+              <ReferenceLine y={Math.round((chartEmp ? (chartEmp.targetUtilization ?? 0.75) * BILL_RATIO : teamBillTarget) * 100)} stroke={C.blue}   strokeDasharray="5 4" strokeWidth={1.5} />
+              <ReferenceLine y={Math.round((chartEmp ? (chartEmp.targetUtilization ?? 0.75) : teamUtilTarget) * 100)} stroke={C.teal}   strokeDasharray="5 4" strokeWidth={1.5} />
               <ReferenceLine y={85} stroke={C.purple} strokeDasharray="5 4" strokeWidth={1.5} />
               <Bar dataKey="billable"   name="Billable %"   fill={C.blue}   radius={[3, 3, 0, 0]} />
               <Bar dataKey="utilized"   name="Utilized %"   fill={C.teal}   radius={[3, 3, 0, 0]} />

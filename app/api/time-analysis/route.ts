@@ -333,9 +333,10 @@ export async function GET(req: NextRequest) {
         );
 
         return {
-          employeeId:   empId,
-          employeeName: EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
-          employeeType: EMPLOYEES[empId]?.employeeType ?? "",
+          employeeId:        empId,
+          employeeName:      EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
+          employeeType:      EMPLOYEES[empId]?.employeeType ?? "",
+          targetUtilization: EMPLOYEES[empId]?.targetUtilization ?? 0.75,
           periods: {
             today:       sumPeriod(byDate, todayStart,         today,                periodAvailableHours.today),
             yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd,         periodAvailableHours.yesterday),
