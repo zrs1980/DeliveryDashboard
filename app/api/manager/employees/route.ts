@@ -14,10 +14,10 @@ export async function GET() {
 
   const allEmployees = await getActiveJobResources();
 
-  const consultants = Object.entries(allEmployees)
-    .filter(([, emp]) => emp.department.toLowerCase() === "consultant")
-    .map(([id, emp]) => ({ nsId: parseInt(id), name: emp.name }))
+  // Debug: return all employees with their raw custentity10 value
+  const all = Object.entries(allEmployees)
+    .map(([id, emp]) => ({ nsId: parseInt(id), name: emp.name, category: emp.department, employeeType: emp.employeeType }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return NextResponse.json({ employees: consultants });
+  return NextResponse.json({ employees: all, _debug: true });
 }
