@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { C, EMPLOYEES, PTO_APPROVER_EMAILS } from "@/lib/constants";
+import { C, PTO_APPROVER_EMAILS } from "@/lib/constants";
 import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 import type { PTORequest } from "@/app/api/pto-requests/route";
 
@@ -314,27 +314,29 @@ export function ManagerPTOView() {
   const [reviewReq, setReviewReq]   = useState<PTORequest | null>(null);
   const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
   const [empBalances, setEmpBalances] = useState<Record<string, { ptoRemaining: number; sickRemaining: number }>>({});
+  const [consultants, setConsultants] = useState<Array<{ nsId: number; name: string }>>([]);
 
   const userEmail    = session?.user?.email ?? "";
   const isAuthorized = PTO_APPROVER_EMAILS.includes(userEmail.toLowerCase());
 
-  const employees = Object.entries(EMPLOYEES).map(([id, name]) => ({ nsId: parseInt(id), name }));
-
   async function load() {
     setLoading(true); setError(null);
     try {
-      const [meRes, reqRes] = await Promise.all([
+      const [meRes, reqRes, empRes] = await Promise.all([
         fetch("/api/employee/me"),
         fetch("/api/pto-requests"),
+        fetch("/api/manager/employees"),
       ]);
-      const [meData, reqData] = await Promise.all([meRes.json(), reqRes.json()]);
+      const [meData, reqData, empData] = await Promise.all([meRes.json(), reqRes.json(), empRes.json()]);
       if (meData.error) throw new Error(meData.error);
       setMyBalance(meData.balance);
       setMyEntries(meData.entries ?? []);
       const reqs: PTORequest[] = reqData.requests ?? [];
       setRequests(reqs);
+      const fetchedConsultants: Array<{ nsId: number; name: string }> = empData.employees ?? [];
+      setConsultants(fetchedConsultants);
 
-      // Pre-load balances for all known employees (indexed by email)
+      // Pre-load balances for all consultants (indexed by email)
       // Also seed with the logged-in manager's own balance from /api/employee/me
       const balances: Record<string, { ptoRemaining: number; sickRemaining: number }> = {};
 
@@ -348,7 +350,7 @@ export function ManagerPTOView() {
       }
 
       const balResults = await Promise.all(
-        employees.map(({ nsId }) =>
+        fetchedConsultants.map(({ nsId }) =>
           fetch(`/api/manager/employee-data?nsId=${nsId}`)
             .then(r => r.json())
             .then(d => ({ data: d }))
@@ -460,7 +462,7 @@ export function ManagerPTOView() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 12 }}>Employee Leave Details</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: expandedEmp !== null ? 16 : 0 }}>
-          {employees.map(({ nsId, name }) => {
+          {consultants.map(({ nsId, name }) => {
             const isActive = expandedEmp === nsId;
             const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("");
             return (
@@ -490,7 +492,7 @@ export function ManagerPTOView() {
 
         {/* Expanded employee panel */}
         {expandedEmp !== null && (() => {
-          const emp = employees.find(e => e.nsId === expandedEmp);
+          const emp = consultants.find(e => e.nsId === expandedEmp);
           if (!emp) return null;
           return (
             <EmployeeDetailPanel
