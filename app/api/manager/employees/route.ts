@@ -5,6 +5,11 @@ import { PTO_APPROVER_EMAILS } from "@/lib/constants";
 
 export const revalidate = 0;
 
+// custentity10 values that correspond to Consultant roles:
+//   "1" = Consultant  (Rodrigo, Sam, Jason Tutanes)
+//   "2" = Senior Consultant / PM  (Shai)
+const CONSULTANT_CATEGORY_IDS = ["1", "2"];
+
 export async function GET() {
   const session = await auth();
   const email   = session?.user?.email?.toLowerCase();
@@ -17,21 +22,20 @@ export async function GET() {
       id: string;
       firstname: string;
       lastname: string;
-      custentity10: string | null;
     }>(
-      `SELECT id, firstname, lastname, custentity10 FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
+      `SELECT id, firstname, lastname FROM employee
+       WHERE isinactive = 'F'
+         AND custentity10 IN (${CONSULTANT_CATEGORY_IDS.map(v => `'${v}'`).join(", ")})
+       ORDER BY lastname, firstname`
     );
 
-    return NextResponse.json({
-      employees: rows.map(r => ({
-        nsId: parseInt(r.id),
-        name: `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim(),
-        custentity10_raw: r.custentity10,
-      })),
-      count: rows.length,
-      _debug: true,
-    });
+    const employees = rows.map(r => ({
+      nsId: parseInt(r.id),
+      name: `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim(),
+    }));
+
+    return NextResponse.json({ employees });
   } catch (e) {
-    return NextResponse.json({ error: String(e), employees: [], _debug: true }, { status: 500 });
+    return NextResponse.json({ error: String(e), employees: [] }, { status: 500 });
   }
 }
