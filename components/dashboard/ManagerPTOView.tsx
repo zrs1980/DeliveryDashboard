@@ -313,7 +313,7 @@ export function ManagerPTOView() {
   const [showForm, setShowForm]     = useState(false);
   const [reviewReq, setReviewReq]   = useState<PTORequest | null>(null);
   const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
-  const [empBalances, setEmpBalances] = useState<Record<number, { ptoRemaining: number; sickRemaining: number }>>({});
+  const [empBalances, setEmpBalances] = useState<Record<string, { ptoRemaining: number; sickRemaining: number }>>({});
 
   const userEmail    = session?.user?.email ?? "";
   const isAuthorized = PTO_APPROVER_EMAILS.includes(userEmail.toLowerCase());
@@ -334,30 +334,39 @@ export function ManagerPTOView() {
       const reqs: PTORequest[] = reqData.requests ?? [];
       setRequests(reqs);
 
-      // Fetch balances for all employees who have requests
-      const nsIds = [...new Set(reqs.map(r => r.employee_ns_id).filter((id): id is number => id !== null))];
-      if (nsIds.length > 0) {
-        const balResults = await Promise.all(
-          nsIds.map(nsId =>
-            fetch(`/api/manager/employee-data?nsId=${nsId}`)
-              .then(r => r.json())
-              .then(d => ({ nsId, data: d }))
-              .catch(() => ({ nsId, data: null as null }))
-          )
-        );
-        const balances: Record<number, { ptoRemaining: number; sickRemaining: number }> = {};
-        for (const { nsId, data } of balResults) {
-          if (data?.balance) {
-            const ptoUsed  = (data.entries ?? []).filter((e: TimeEntry) => e.type === "pto").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
-            const sickUsed = (data.entries ?? []).filter((e: TimeEntry) => e.type === "sick").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
-            balances[nsId] = {
-              ptoRemaining:  Math.max(0, data.balance.ptoHours  - ptoUsed),
-              sickRemaining: Math.max(0, data.balance.sickHours - sickUsed),
-            };
-          }
-        }
-        setEmpBalances(balances);
+      // Pre-load balances for all known employees (indexed by email)
+      // Also seed with the logged-in manager's own balance from /api/employee/me
+      const balances: Record<string, { ptoRemaining: number; sickRemaining: number }> = {};
+
+      if (meData.balance?.email) {
+        const ptoUsed  = (meData.entries ?? []).filter((e: TimeEntry) => e.type === "pto").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+        const sickUsed = (meData.entries ?? []).filter((e: TimeEntry) => e.type === "sick").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+        balances[meData.balance.email.toLowerCase()] = {
+          ptoRemaining:  Math.max(0, meData.balance.ptoHours  - ptoUsed),
+          sickRemaining: Math.max(0, meData.balance.sickHours - sickUsed),
+        };
       }
+
+      const balResults = await Promise.all(
+        employees.map(({ nsId }) =>
+          fetch(`/api/manager/employee-data?nsId=${nsId}`)
+            .then(r => r.json())
+            .then(d => ({ data: d }))
+            .catch(() => ({ data: null as null }))
+        )
+      );
+      for (const { data } of balResults) {
+        if (data?.balance?.email) {
+          const email    = (data.balance.email as string).toLowerCase();
+          const ptoUsed  = (data.entries ?? []).filter((e: TimeEntry) => e.type === "pto").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+          const sickUsed = (data.entries ?? []).filter((e: TimeEntry) => e.type === "sick").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+          balances[email] = {
+            ptoRemaining:  Math.max(0, data.balance.ptoHours  - ptoUsed),
+            sickRemaining: Math.max(0, data.balance.sickHours - sickUsed),
+          };
+        }
+      }
+      setEmpBalances(balances);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -528,8 +537,8 @@ export function ManagerPTOView() {
                       </td>
                       <td style={{ padding: "10px 16px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text }}>{r.hours}h</td>
                       <td style={{ padding: "10px 16px" }}>
-                        {r.employee_ns_id && empBalances[r.employee_ns_id] !== undefined ? (() => {
-                          const bal       = empBalances[r.employee_ns_id!]!;
+                        {empBalances[r.employee_email.toLowerCase()] ? (() => {
+                          const bal       = empBalances[r.employee_email.toLowerCase()]!;
                           const remaining = r.type === "pto" ? bal.ptoRemaining : bal.sickRemaining;
                           const enough    = remaining >= r.hours;
                           const color     = enough ? C.green : C.red;
