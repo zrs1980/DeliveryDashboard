@@ -303,7 +303,7 @@ function EmployeeDetailPanel({ nsId, name, onClose }: { nsId: number; name: stri
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function ManagerPTOView() {
-  const { data: session }           = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const [myBalance, setMyBalance]   = useState<EmployeeBalance | null>(null);
   const [myEntries, setMyEntries]   = useState<TimeEntry[]>([]);
   const [requests, setRequests]     = useState<PTORequest[]>([]);
@@ -377,12 +377,22 @@ export function ManagerPTOView() {
   useEffect(() => { if (isAuthorized) load(); }, [isAuthorized]);
 
   // ── Access guard ──────────────────────────────────────────────────────────
+  if (sessionStatus === "loading") {
+    return (
+      <div style={{ padding: "60px 24px", textAlign: "center", color: C.textSub, fontFamily: C.font }}>
+        <div style={{ fontSize: 22, marginBottom: 10 }}>⏳</div>
+        Checking access…
+      </div>
+    );
+  }
+
   if (!isAuthorized) {
     return (
       <div style={{ padding: "80px 24px", textAlign: "center", fontFamily: C.font, background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 12 }}>
         <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
         <div style={{ fontWeight: 800, fontSize: 18, color: C.red, marginBottom: 8 }}>Access Restricted</div>
         <div style={{ fontSize: 14, color: C.red, opacity: 0.8 }}>This section is only available to authorised managers.</div>
+        {userEmail && <div style={{ fontSize: 12, color: C.red, opacity: 0.5, marginTop: 8 }}>Signed in as: {userEmail}</div>}
       </div>
     );
   }
