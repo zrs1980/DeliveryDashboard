@@ -1,11 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { C, EMPLOYEES } from "@/lib/constants";
+import { C, EMPLOYEES, PTO_APPROVER_EMAILS } from "@/lib/constants";
 import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 import type { PTORequest } from "@/app/api/pto-requests/route";
-
-const MANAGER_EMAIL = "zabe@cebasolutions.com";
 
 const fmtDate = (s: string) => {
   const d = new Date(s);
@@ -315,9 +313,10 @@ export function ManagerPTOView() {
   const [showForm, setShowForm]     = useState(false);
   const [reviewReq, setReviewReq]   = useState<PTORequest | null>(null);
   const [expandedEmp, setExpandedEmp] = useState<number | null>(null);
+  const [empBalances, setEmpBalances] = useState<Record<number, { ptoRemaining: number; sickRemaining: number }>>({});
 
   const userEmail    = session?.user?.email ?? "";
-  const isAuthorized = userEmail.toLowerCase() === MANAGER_EMAIL;
+  const isAuthorized = PTO_APPROVER_EMAILS.includes(userEmail.toLowerCase());
 
   const employees = Object.entries(EMPLOYEES).map(([id, name]) => ({ nsId: parseInt(id), name }));
 
@@ -332,7 +331,33 @@ export function ManagerPTOView() {
       if (meData.error) throw new Error(meData.error);
       setMyBalance(meData.balance);
       setMyEntries(meData.entries ?? []);
-      setRequests(reqData.requests ?? []);
+      const reqs: PTORequest[] = reqData.requests ?? [];
+      setRequests(reqs);
+
+      // Fetch balances for all employees who have requests
+      const nsIds = [...new Set(reqs.map(r => r.employee_ns_id).filter((id): id is number => id !== null))];
+      if (nsIds.length > 0) {
+        const balResults = await Promise.all(
+          nsIds.map(nsId =>
+            fetch(`/api/manager/employee-data?nsId=${nsId}`)
+              .then(r => r.json())
+              .then(d => ({ nsId, data: d }))
+              .catch(() => ({ nsId, data: null as null }))
+          )
+        );
+        const balances: Record<number, { ptoRemaining: number; sickRemaining: number }> = {};
+        for (const { nsId, data } of balResults) {
+          if (data?.balance) {
+            const ptoUsed  = (data.entries ?? []).filter((e: TimeEntry) => e.type === "pto").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+            const sickUsed = (data.entries ?? []).filter((e: TimeEntry) => e.type === "sick").reduce((s: number, e: TimeEntry) => s + e.hours, 0);
+            balances[nsId] = {
+              ptoRemaining:  Math.max(0, data.balance.ptoHours  - ptoUsed),
+              sickRemaining: Math.max(0, data.balance.sickHours - sickUsed),
+            };
+          }
+        }
+        setEmpBalances(balances);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -479,7 +504,7 @@ export function ManagerPTOView() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Employee", "Type", "Dates", "Hours", "Reason", "Status", "Action"].map(h => (
+                  {["Employee", "Type", "Dates", "Hours", "Balance", "Reason", "Status", "Action"].map(h => (
                     <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", background: C.alt, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -502,6 +527,26 @@ export function ManagerPTOView() {
                         {fmtDate(r.start_date)}<br /><span style={{ color: C.textSub }}>→ {fmtDate(r.end_date)}</span>
                       </td>
                       <td style={{ padding: "10px 16px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text }}>{r.hours}h</td>
+                      <td style={{ padding: "10px 16px" }}>
+                        {r.employee_ns_id && empBalances[r.employee_ns_id] !== undefined ? (() => {
+                          const bal       = empBalances[r.employee_ns_id!]!;
+                          const remaining = r.type === "pto" ? bal.ptoRemaining : bal.sickRemaining;
+                          const enough    = remaining >= r.hours;
+                          const color     = enough ? C.green : C.red;
+                          const bg        = enough ? C.greenBg : C.redBg;
+                          const bd        = enough ? C.greenBd : C.redBd;
+                          return (
+                            <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                              <span style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 700, color }}>{fmtH(remaining)}</span>
+                              <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 6, background: bg, color, border: `1px solid ${bd}` }}>
+                                {enough ? "sufficient" : "insufficient"}
+                              </span>
+                            </div>
+                          );
+                        })() : (
+                          <span style={{ fontSize: 12, color: C.textSub }}>—</span>
+                        )}
+                      </td>
                       <td style={{ padding: "10px 16px", fontSize: 12, color: C.textSub, maxWidth: 180 }}>{r.reason || "—"}</td>
                       <td style={{ padding: "10px 16px" }}>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: st.bg, color: st.color, border: `1px solid ${st.bd}`, whiteSpace: "nowrap" }}>{st.label}</span>
