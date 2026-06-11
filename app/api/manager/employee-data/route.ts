@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSuiteQL } from "@/lib/netsuite";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { HIRE_DATES } from "@/lib/constants";
+import { HIRE_DATES, PTO_APPROVER_EMAILS } from "@/lib/constants";
 import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 
-const MANAGER_EMAIL = "zabe@cebasolutions.com";
 
 function parseNsDate(s: string): Date {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s.slice(0, 10) + "T00:00:00");
@@ -26,7 +25,7 @@ function lastAnniversary(hireDate: string): string {
 export async function GET(req: NextRequest) {
   const session = await auth();
   const callerEmail = session?.user?.email?.toLowerCase();
-  if (!callerEmail || callerEmail !== MANAGER_EMAIL) {
+  if (!callerEmail || !PTO_APPROVER_EMAILS.includes(callerEmail)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

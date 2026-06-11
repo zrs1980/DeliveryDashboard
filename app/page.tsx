@@ -273,8 +273,10 @@ export default function DashboardPage() {
         {/* Nav items */}
         <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, padding: "6px 0" }}>
           {TABS.filter(t => {
-            const zabeOnly = ["utilization", "mgr-pto"];
-            return !zabeOnly.includes(t.id) || session?.user?.email === "zabe@cebasolutions.com";
+            const email = session?.user?.email?.toLowerCase() ?? "";
+            if (t.id === "utilization") return email === "zabe@cebasolutions.com";
+            if (t.id === "mgr-pto") return ["zabe@cebasolutions.com", "rodrigo@cebasolutions.com"].includes(email);
+            return true;
           }).map(t => {
             const isActive = tab === t.id;
             return (

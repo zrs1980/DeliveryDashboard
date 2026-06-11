@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getGoogleCalendarClient } from "@/lib/google-tokens";
 import { google } from "googleapis";
+import { PTO_APPROVER_EMAILS } from "@/lib/constants";
 
 function buildMime(from: string, to: string, subject: string, body: string): string {
   const nl = "\r\n";
@@ -45,7 +46,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  if (session.user.email.toLowerCase() !== "zabe@cebasolutions.com") {
+  if (!PTO_APPROVER_EMAILS.includes(session.user.email.toLowerCase())) {
     return NextResponse.json({ error: "Not authorised" }, { status: 403 });
   }
 

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getGoogleCalendarClient } from "@/lib/google-tokens";
 import { google } from "googleapis";
+import { PTO_APPROVER_EMAILS } from "@/lib/constants";
 
 export const revalidate = 0;
 
@@ -63,7 +64,7 @@ export async function GET() {
 
   const sb = getSupabaseAdmin();
 
-  const isApprover = session.user.email.toLowerCase() === "zabe@cebasolutions.com";
+  const isApprover = PTO_APPROVER_EMAILS.includes(session.user.email.toLowerCase());
 
   // Approver sees all requests; employees see only their own
   const { data, error } = isApprover
@@ -129,12 +130,10 @@ export async function POST(req: NextRequest) {
     "Or log in to the dashboard (My Leave tab) to review all pending requests.",
   ].join("\n");
 
-  await sendEmail(
-    session.user.email,
-    "zabe@cebasolutions.com",
-    `PTO Request — ${session.user.name ?? session.user.email} — ${fmtDate(start_date)} to ${fmtDate(end_date)}`,
-    emailBody,
-  );
+  const subject = `PTO Request — ${session.user.name ?? session.user.email} — ${fmtDate(start_date)} to ${fmtDate(end_date)}`;
+  for (const approverEmail of PTO_APPROVER_EMAILS) {
+    await sendEmail(session.user.email, approverEmail, subject, emailBody);
+  }
 
   return NextResponse.json({ request: data });
 }

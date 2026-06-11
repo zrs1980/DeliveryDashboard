@@ -96,6 +96,12 @@ export const HIRE_DATES: Record<string, string> = {
   "zabe@cebasolutions.com": "2025-10-01",
 };
 
+/** Emails that can view all PTO requests and approve/reject them */
+export const PTO_APPROVER_EMAILS = [
+  "zabe@cebasolutions.com",
+  "rodrigo@cebasolutions.com",
+];
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {
