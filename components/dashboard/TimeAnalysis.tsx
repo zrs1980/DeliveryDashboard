@@ -6,7 +6,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-type PeriodKey = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter" | "custom";
+type PeriodKey = "today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter" | "wtd" | "mtd" | "qtd" | "custom";
 
 interface PeriodMetrics {
   total: number;
@@ -53,10 +53,17 @@ interface EmployeeTimeData {
 
 const PERIOD_LABELS: Record<PeriodKey, string> = {
   today: "Today", yesterday: "Yesterday",
+  wtd: "WTD", mtd: "MTD", qtd: "QTD",
   thisWeek: "This Week", lastWeek: "Last Week",
   thisMonth: "This Month", lastMonth: "Last Month",
   thisQuarter: "This Quarter", lastQuarter: "Last Quarter",
   custom: "Custom",
+};
+// WTD/MTD/QTD are UI aliases — they resolve to the same underlying period data
+const PERIOD_ALIAS: Partial<Record<PeriodKey, PeriodKey>> = {
+  wtd: "thisWeek",
+  mtd: "thisMonth",
+  qtd: "thisQuarter",
 };
 const PROD_TARGET = 0.85;
 const BILL_RATIO  = 0.87;  // billable target = BILL_RATIO × per-employee utilization target
@@ -160,6 +167,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
   const [customTo,   setCustomTo]   = useState("");
   const mgrRequested = useRef<Set<string>>(new Set());
 
+  const resolvedPeriod = (PERIOD_ALIAS[period] ?? period) as PeriodKey;
   const mgrCacheKey = period === "custom" && customFrom && customTo
     ? `custom_${customFrom}_${customTo}` : period;
 
@@ -197,7 +205,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
     if (mgrRequested.current.has(mgrCacheKey)) return;
     mgrRequested.current.add(mgrCacheKey);
     const key = mgrCacheKey;
-    const mgrParams = new URLSearchParams({ period });
+    const mgrParams = new URLSearchParams({ period: resolvedPeriod });
     if (period === "custom" && customFrom && customTo) { mgrParams.set("from", customFrom); mgrParams.set("to", customTo); }
     if (filterDepartment) mgrParams.set("department", filterDepartment);
     const url = `/api/manager-review?${mgrParams}`;
@@ -210,13 +218,13 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
   }, [expandedEmp, mgrCacheKey]);
 
   // ── Team totals ──────────────────────────────────────────────────────────
-  const active = employees.filter(e => (e.periods[period]?.total ?? 0) > 0);
+  const active = employees.filter(e => (e.periods[resolvedPeriod]?.total ?? 0) > 0);
   const teamTotals = active.reduce(
-    (acc, e) => { const p = e.periods[period]; if (!p) return acc; acc.total += p.total; acc.billable += p.billable; acc.utilized += p.utilized; acc.productive += p.productive; return acc; },
+    (acc, e) => { const p = e.periods[resolvedPeriod]; if (!p) return acc; acc.total += p.total; acc.billable += p.billable; acc.utilized += p.utilized; acc.productive += p.productive; return acc; },
     { total: 0, billable: 0, utilized: 0, productive: 0 },
   );
   const tt = teamTotals.total;
-  const teamAvailableHours = (periodAvailableHours[period] ?? 0) * active.length;
+  const teamAvailableHours = (periodAvailableHours[resolvedPeriod] ?? 0) * active.length;
   const teamDenom = teamAvailableHours > 0 ? teamAvailableHours : tt;
   const teamBillablePct   = teamDenom > 0 ? teamTotals.billable   / teamDenom : 0;
   const teamUtilizedPct   = teamDenom > 0 ? teamTotals.utilized   / teamDenom : 0;
@@ -349,7 +357,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                   ...emps.map((emp) => {
                     const i = rowIdx++;
 
-                const p          = emp.periods[period] ?? { total: 0, billable: 0, utilized: 0, productive: 0, billablePct: 0, utilizedPct: 0, productivePct: 0 };
+                const p          = emp.periods[resolvedPeriod] ?? { total: 0, billable: 0, utilized: 0, productive: 0, billablePct: 0, utilizedPct: 0, productivePct: 0 };
                 const utilTgt    = emp.targetUtilization ?? 0.75;
                 const billTgt    = utilTgt * BILL_RATIO;
                 const isExpanded = expandedEmp === emp.employeeId;
@@ -409,7 +417,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                       </div>
                                       <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 22, color: g.color, lineHeight: 1 }}>{fmtH(g.hours)}</div>
                                       {(() => {
-                                        const gap = (periodAvailableHours[period] ?? p.total) * g.target - g.hours;
+                                        const gap = (periodAvailableHours[resolvedPeriod] ?? p.total) * g.target - g.hours;
                                         return gap > 0
                                           ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                           : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over target</div>;
@@ -431,7 +439,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                   Project Breakdown <span style={{ fontWeight: 400, color: C.textSub, fontSize: 11 }}>— {PERIOD_LABELS[period]}</span>
                                 </div>
                                 {(() => {
-                                  const allProj = emp.projectBreakdown[period] ?? [];
+                                  const allProj = emp.projectBreakdown[resolvedPeriod] ?? [];
                                   if (allProj.length === 0) return <div style={{ color: C.textSub, fontSize: 13 }}>No project data for this period.</div>;
 
                                   const utilised     = allProj.filter(p => p.utilized > 0);
@@ -554,7 +562,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                           <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.color }}>{fmtH(g.hours)}</div>
                                           <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of total</div>
                                           {(() => {
-                                            const gap = (periodAvailableHours[period] ?? p.total) * g.target - g.hours;
+                                            const gap = (periodAvailableHours[resolvedPeriod] ?? p.total) * g.target - g.hours;
                                             return gap > 0
                                               ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                               : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over</div>;
