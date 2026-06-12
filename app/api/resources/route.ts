@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, postRecord } from "@/lib/netsuite";
+import { runSuiteQL, postRecord, getActiveJobResources } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSAllocation } from "@/lib/types";
 
@@ -7,7 +7,8 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
-    const rows = await runSuiteQL<{
+    const [rows, jobResources] = await Promise.all([
+      runSuiteQL<{
       id: string;
       employee_id: string;
       project_id: string;
@@ -42,7 +43,9 @@ export async function GET() {
       LEFT JOIN job j ON j.id = ra.project
       WHERE ra.endDate >= SYSDATE
       ORDER BY ra.allocationResource, ra.startDate
-    `);
+    `),
+      getActiveJobResources().catch(() => ({} as Awaited<ReturnType<typeof getActiveJobResources>>)),
+    ]);
 
     // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
@@ -101,8 +104,9 @@ export async function GET() {
         allocationUnit: r.allocationunit ?? "H",
         percentOfMax:   parseFloat(r.percentoftime) || 0,
         hoursPerDay:    parseFloat(r.numberhours) || 0,
-        remainingHours: r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
-        budgetHours:    r.budget_hours != null ? parseFloat(r.budget_hours) : null,
+        remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
+        budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
+        targetUtilization: jobResources[empId]?.targetUtilization ?? 0.75,
       };
     });
 

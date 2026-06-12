@@ -714,6 +714,19 @@ export function ResourceAllocation({ allocations, error }: Props) {
                 const grpAllocated  = grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
                 const grpGap        = grpRemaining != null ? grpRemaining - grpAllocated : null;
                 const grpWeekTotals = weeks.map(w => grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
+                // Implementation group: per-week billable target = sum of (targetUtil × 0.87 × 40) for each unique employee active that week
+                const BILL_RATIO = 0.87;
+                const grpWeekTargets = t === "Implementation" ? weeks.map(w => {
+                  const seenEmps = new Map<number, number>(); // empId → targetUtilization
+                  for (const proj of grouped["Implementation"]) {
+                    for (const a of proj.rows) {
+                      if (allocCoversWeek(a, w) && !seenEmps.has(a.employeeId)) {
+                        seenEmps.set(a.employeeId, a.targetUtilization ?? 0.75);
+                      }
+                    }
+                  }
+                  return Array.from(seenEmps.values()).reduce((s, tu) => s + tu * BILL_RATIO * 40, 0);
+                }) : null;
                 return [
                   <tr key={`type-hdr-${t}`}>
                     <td colSpan={weeks.length + 5} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
@@ -933,11 +946,37 @@ export function ResourceAllocation({ allocations, error }: Props) {
                         </span>
                       ) : <span style={{ color: style.color, fontFamily: C.mono, fontSize: 11 }}>—</span>}
                     </td>
-                    {grpWeekTotals.map((hrs, wi) => (
-                      <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: hrs > 0 ? style.color : C.mid, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
-                        {hrs > 0 ? hrs.toFixed(1) : "—"}
-                      </td>
-                    ))}
+                    {grpWeekTotals.map((hrs, wi) => {
+                      const target = grpWeekTargets?.[wi] ?? 0;
+                      // For Implementation, color by actual vs target (±10%)
+                      let cellBg    = style.bg;
+                      let cellColor = hrs > 0 ? style.color : C.mid;
+                      if (t === "Implementation" && target > 0) {
+                        const ratio = hrs / target;
+                        if (ratio < 0.90)     { cellBg = C.redBg;    cellColor = C.red;    }
+                        else if (ratio <= 1.10) { cellBg = C.purpleBg; cellColor = C.purple; }
+                        else                    { cellBg = C.greenBg;  cellColor = C.green;  }
+                      }
+                      return (
+                        <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: cellBg, color: cellColor, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                          {hrs > 0 ? (
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                              <span>{hrs.toFixed(1)}</span>
+                              {t === "Implementation" && target > 0 && (
+                                <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>/ {target.toFixed(1)} tgt</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                              <span style={{ color: C.mid }}>—</span>
+                              {t === "Implementation" && target > 0 && (
+                                <span style={{ fontSize: 9, fontWeight: 500, color: C.red, opacity: 0.7 }}>/ {target.toFixed(1)} tgt</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>,
                 ];   // end flatMap return array
               }); // end TYPE_ORDER.flatMap

@@ -123,4 +123,5 @@ export interface NSAllocation {
   companyName: string;            // from job.companyname
   remainingHours: number | null;  // from job.custentity_project_remaining_hours
   budgetHours: number | null;     // from job.custentity_ceba_project_budget_hours
+  targetUtilization?: number;     // from employee.targetutilization (0–1 decimal, default 0.75)
 }
