@@ -167,7 +167,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
   const [customTo,   setCustomTo]   = useState("");
   const mgrRequested = useRef<Set<string>>(new Set());
 
-  const resolvedPeriod = (PERIOD_ALIAS[period] ?? period) as PeriodKey;
+  const resolvedPeriod = period;  // wtd/mtd/qtd now have their own period data from the API
   const mgrCacheKey = period === "custom" && customFrom && customTo
     ? `custom_${customFrom}_${customTo}` : period;
 

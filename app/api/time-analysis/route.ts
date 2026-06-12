@@ -211,12 +211,17 @@ export async function GET(req: NextRequest) {
     const periodAvailableHours: Record<string, number> = {
       today:       HOURS_PER_DAY,
       yesterday:   HOURS_PER_DAY,
+      // Full-period denominators (used for This Week / Month / Quarter)
       thisWeek:    countBusinessDays(thisMonday,          thisFriday)         * HOURS_PER_DAY,
       lastWeek:    countBusinessDays(lastMonday,          lastSunday)         * HOURS_PER_DAY,
       thisMonth:   countBusinessDays(firstOfMonth,        lastDayThisMonth)   * HOURS_PER_DAY,
       lastMonth:   countBusinessDays(firstOfLastMonth,    lastDayLastMonth)   * HOURS_PER_DAY,
       thisQuarter: countBusinessDays(firstOfThisQuarter,  lastDayThisQuarter) * HOURS_PER_DAY,
       lastQuarter: countBusinessDays(firstOfLastQuarter,  lastDayLastQuarter) * HOURS_PER_DAY,
+      // To-date denominators (only elapsed business days — used for WTD / MTD / QTD)
+      wtd:         countBusinessDays(thisMonday,          todayStart)         * HOURS_PER_DAY,
+      mtd:         countBusinessDays(firstOfMonth,        todayStart)         * HOURS_PER_DAY,
+      qtd:         countBusinessDays(firstOfThisQuarter,  todayStart)         * HOURS_PER_DAY,
     };
     if (customFrom && customTo) {
       periodAvailableHours["custom"] = countBusinessDays(customFrom, customTo) * HOURS_PER_DAY;
@@ -271,6 +276,9 @@ export async function GET(req: NextRequest) {
           lastMonth:    [firstOfLastMonth,    lastDayLastMonth],
           thisQuarter:  [firstOfThisQuarter,  today],
           lastQuarter:  [firstOfLastQuarter,  lastDayLastQuarter],
+          wtd:          [thisMonday,          today],
+          mtd:          [firstOfMonth,        today],
+          qtd:          [firstOfThisQuarter,  today],
         };
         if (customFrom && customTo) periods2["custom"] = [customFrom, customTo];
 
@@ -346,6 +354,10 @@ export async function GET(req: NextRequest) {
             lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth,     periodAvailableHours.lastMonth),
             thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today,                periodAvailableHours.thisQuarter),
             lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter,   periodAvailableHours.lastQuarter),
+            // To-date: same date range but denominator = elapsed business days only
+            wtd:         sumPeriod(byDate, thisMonday,         today,                periodAvailableHours.wtd),
+            mtd:         sumPeriod(byDate, firstOfMonth,       today,                periodAvailableHours.mtd),
+            qtd:         sumPeriod(byDate, firstOfThisQuarter, today,                periodAvailableHours.qtd),
             ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo, periodAvailableHours.custom) } : {}),
           },
           weeklyTrend,
