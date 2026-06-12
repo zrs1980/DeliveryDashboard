@@ -708,6 +708,12 @@ export function ResourceAllocation({ allocations, error }: Props) {
               }
               return TYPE_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
                 const style = TYPE_STYLE[t];
+                // Pre-compute group totals for the summary row
+                const grpBudget     = grouped[t].some(p => p.budgetHours != null)    ? grouped[t].reduce((s, p) => s + (p.budgetHours    ?? 0), 0) : null;
+                const grpRemaining  = grouped[t].some(p => p.remainingHours != null) ? grouped[t].reduce((s, p) => s + (p.remainingHours ?? 0), 0) : null;
+                const grpAllocated  = grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
+                const grpGap        = grpRemaining != null ? grpRemaining - grpAllocated : null;
+                const grpWeekTotals = weeks.map(w => grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
                 return [
                   <tr key={`type-hdr-${t}`}>
                     <td colSpan={weeks.length + 5} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
@@ -906,6 +912,33 @@ export function ResourceAllocation({ allocations, error }: Props) {
                 </>
               );
                   }), // end grouped[t].map
+                  // ── Group total row ──────────────────────────────────────
+                  <tr key={`type-total-${t}`}>
+                    <td style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, ...stickyLeft }}>
+                      {t} Total
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                      {grpBudget != null ? `${grpBudget.toFixed(1)}h` : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                      {grpRemaining != null ? `${grpRemaining.toFixed(1)}h` : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                      {grpAllocated.toFixed(1)}h
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: style.bg, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                      {grpGap != null ? (
+                        <span style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 4, ...gapStyle(grpGap), background: grpGap < -5 ? C.redBg : grpGap < 10 ? C.yellowBg : C.greenBg, border: `1px solid ${grpGap < -5 ? C.redBd : grpGap < 10 ? C.yellowBd : C.greenBd}` }}>
+                          {grpGap >= 0 ? "+" : ""}{grpGap.toFixed(1)}h
+                        </span>
+                      ) : <span style={{ color: style.color, fontFamily: C.mono, fontSize: 11 }}>—</span>}
+                    </td>
+                    {grpWeekTotals.map((hrs, wi) => (
+                      <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: hrs > 0 ? style.color : C.mid, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
+                        {hrs > 0 ? hrs.toFixed(1) : "—"}
+                      </td>
+                    ))}
+                  </tr>,
                 ];   // end flatMap return array
               }); // end TYPE_ORDER.flatMap
             })()}
