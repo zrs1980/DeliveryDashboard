@@ -368,6 +368,10 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                             {initials}
                           </div>
                           <span style={{ fontWeight: 600, color: C.text }}>{emp.employeeName}</span>
+                          <div style={{ display: "flex", gap: 4, marginLeft: 2 }}>
+                            <span style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 700, background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}`, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>U {fmtPct(utilTgt)}</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 700, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>B {fmtPct(billTgt)}</span>
+                          </div>
                           <span style={{ fontSize: 14, color: C.textSub, marginLeft: "auto" }}>{isExpanded ? "▲" : "▼"}</span>
                         </div>
                       </td>
