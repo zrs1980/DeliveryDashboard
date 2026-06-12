@@ -693,7 +693,31 @@ export function ResourceAllocation({ allocations, error }: Props) {
             </tr>
           </thead>
           <tbody>
-            {byProject.map((proj, pi) => {
+            {(() => {
+              const TYPE_ORDER = ["Implementation", "Service", "Internal"] as const;
+              const TYPE_STYLE: Record<string, { bg: string; color: string; bd: string }> = {
+                Implementation: { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
+                Service:        { bg: C.blueBg,   color: C.blue,    bd: C.blueBd   },
+                Internal:       { bg: C.alt,      color: C.textSub, bd: C.border   },
+              };
+              const grouped: Record<string, typeof byProject> = {};
+              for (const proj of byProject) {
+                const t = proj.projectType ?? "Internal";
+                if (!grouped[t]) grouped[t] = [];
+                grouped[t].push(proj);
+              }
+              return TYPE_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
+                const style = TYPE_STYLE[t];
+                return [
+                  <tr key={`type-hdr-${t}`}>
+                    <td colSpan={weeks.length + 5} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
+                      {t}
+                      <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, opacity: 0.7 }}>
+                        {grouped[t].length} project{grouped[t].length !== 1 ? "s" : ""}
+                      </span>
+                    </td>
+                  </tr>,
+                  ...grouped[t].map((proj, pi) => {
               const isExp          = expandedProjects.has(String(proj.projectId));
               const rowBg          = pi % 2 === 0 ? C.surface : C.alt;
               const totalAllocated = proj.rows.reduce((s, a) => s + estimatedFutureHours(a, today), 0);
@@ -881,7 +905,10 @@ export function ResourceAllocation({ allocations, error }: Props) {
                   })()}
                 </>
               );
-            })}
+                  }), // end grouped[t].map
+                ];   // end flatMap return array
+              }); // end TYPE_ORDER.flatMap
+            })()}
           </tbody>
         </table>
       </div>
