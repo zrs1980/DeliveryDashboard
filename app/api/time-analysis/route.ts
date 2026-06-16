@@ -55,7 +55,7 @@ interface DayTotals {
   productive: number;
 }
 
-const HOURS_PER_DAY = 7.5;
+const HOURS_PER_DAY = 8;
 
 function countBusinessDays(from: Date, to: Date): number {
   let count = 0;
