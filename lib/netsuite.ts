@@ -60,44 +60,58 @@ function buildOAuthHeader(method: string, fullUrl: string): string {
 
 // ─── SuiteQL executor ─────────────────────────────────────────────────────────
 
+// Shared fetch with retry on 429 (concurrency-limit exceeded). Waits 1 s, 2 s, 4 s.
+async function suiteqlFetch(fullUrl: string, body: string): Promise<Response> {
+  const method = "POST";
+  const MAX_RETRIES = 3;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const auth = buildOAuthHeader(method, fullUrl); // fresh nonce + timestamp each attempt
+
+    let res: Response;
+    try {
+      res = await fetch(fullUrl, {
+        method,
+        headers: {
+          "Authorization": auth,
+          "Content-Type":  "application/json",
+          "Prefer":        "transient",
+        },
+        body,
+      });
+    } catch (err: unknown) {
+      const cause = err instanceof Error ? err.cause : err;
+      throw new Error(`SuiteQL fetch failed (network): ${String(err)} | cause: ${JSON.stringify(cause)}`);
+    }
+
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const wait = Math.min(1000 * Math.pow(2, attempt), 4000); // 1 s, 2 s, 4 s
+      console.warn(`[SuiteQL] 429 concurrency limit — retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await new Promise(r => setTimeout(r, wait));
+      continue;
+    }
+
+    return res;
+  }
+
+  throw new Error("SuiteQL retry loop exited unexpectedly");
+}
+
 export async function runSuiteQL<T = Record<string, string>>(
   query: string,
   params: (string | number)[] = []
 ): Promise<T[]> {
-  // SuiteQL REST doesn't support positional params — inline them safely
   let q = query;
   for (const p of params) {
     const safe = typeof p === "number" ? String(p) : `'${String(p).replace(/'/g, "''")}'`;
     q = q.replace("?", safe);
   }
 
-  const method  = "POST";
   const fullUrl = `${SUITEQL_URL}?limit=1000`;
-  const auth    = buildOAuthHeader(method, fullUrl);
-  const body    = JSON.stringify({ q });
-
-  let res: Response;
-  try {
-    res = await fetch(fullUrl, {
-      method,
-      headers: {
-        "Authorization": auth,
-        "Content-Type":  "application/json",
-        "Prefer":        "transient",
-      },
-      body,
-    });
-  } catch (err: unknown) {
-    const cause = err instanceof Error ? err.cause : err;
-    throw new Error(`SuiteQL fetch failed (network): ${String(err)} | cause: ${JSON.stringify(cause)}`);
-  }
+  const res = await suiteqlFetch(fullUrl, JSON.stringify({ q }));
 
   if (!res.ok) {
     const text = await res.text();
-    // Log the auth header (redact signature) to help debug
-    const redacted = auth.replace(/oauth_signature="[^"]*"/, 'oauth_signature="[redacted]"');
-    console.error("[SuiteQL] 401 debug — URL:", fullUrl);
-    console.error("[SuiteQL] 401 debug — Auth header:", redacted);
     throw new Error(`SuiteQL error ${res.status}: ${text}`);
   }
 
@@ -121,25 +135,8 @@ export async function runSuiteQLAll<T = Record<string, string>>(
       q = q.replace("?", safe);
     }
 
-    const method  = "POST";
     const fullUrl = `${SUITEQL_URL}?limit=${PAGE}&offset=${offset}`;
-    const auth    = buildOAuthHeader(method, fullUrl);
-
-    let res: Response;
-    try {
-      res = await fetch(fullUrl, {
-        method,
-        headers: {
-          "Authorization": auth,
-          "Content-Type":  "application/json",
-          "Prefer":        "transient",
-        },
-        body: JSON.stringify({ q }),
-      });
-    } catch (err: unknown) {
-      const cause = err instanceof Error ? err.cause : err;
-      throw new Error(`SuiteQL fetch failed (network): ${String(err)} | cause: ${JSON.stringify(cause)}`);
-    }
+    const res = await suiteqlFetch(fullUrl, JSON.stringify({ q }));
 
     if (!res.ok) {
       const text = await res.text();
