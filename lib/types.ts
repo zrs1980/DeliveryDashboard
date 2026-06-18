@@ -44,6 +44,7 @@ export interface CUTask {
 export interface Project {
   id: number;
   entityid: string;
+  projectName: string;        // NetSuite job name e.g. "NetSuite Implementation"
   label: string;              // "Client — Project Name"
   client: string;
   projectType: "Implementation" | "Service";

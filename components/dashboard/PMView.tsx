@@ -689,6 +689,7 @@ function NativeOnlyProjectView({
   const fakeProject: Project = {
     id:            projectId as unknown as number, // UUID used as project_ns_id in phases
     entityid:      "",
+    projectName,
     label:         `${clientName} — ${projectName}`,
     client:        clientName,
     projectType:   "Implementation",

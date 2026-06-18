@@ -124,12 +124,14 @@ export async function GET() {
         const consumed = budget_hours - remaining;
         const timebillWarning = timebillTotal > consumed + 20;
 
-        const clientName = p.customer_name || p.companyname;
+        const clientName   = p.customer_name || p.companyname;
+        const projectName  = p.companyname || p.entityid;
 
         return {
           id,
           entityid:      p.entityid,
-          label:         `${clientName} — ${p.entityid}`,
+          projectName,
+          label:         `${clientName} — ${projectName}`,
           client:        clientName,
           projectType:   parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
@@ -174,6 +176,7 @@ export async function GET() {
         return {
           id:            -(idx + 1),
           entityid:      "INTERNAL",
+          projectName:   label,
           label,
           client:        "CEBA Internal",
           projectType:   "Service" as const,

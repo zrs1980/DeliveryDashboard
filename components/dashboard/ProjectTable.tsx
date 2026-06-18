@@ -714,7 +714,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                       <HealthBadge health={p.health} size="sm" />
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.client}</div>
-                        <div style={{ fontSize: 11, color: C.textSub }}># {p.entityid}</div>
+                        <div style={{ fontSize: 11, color: C.textSub }}>{p.projectName || `# ${p.entityid}`}</div>
                       </div>
                       {p.timebillWarning && (
                         <span
