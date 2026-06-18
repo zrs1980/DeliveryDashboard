@@ -75,6 +75,10 @@ export async function GET(req: NextRequest) {
     thisMonth:   [firstOfMonth,       today],
     lastMonth:   [firstOfLastMonth,   lastDayLastMonth],
     thisQuarter: [firstOfThisQuarter, today],
+    // To-date variants use the same date range (denominator differs only in time-analysis)
+    wtd:         [thisMonday,         today],
+    mtd:         [firstOfMonth,       today],
+    qtd:         [firstOfThisQuarter, today],
   };
 
   let from: Date, to: Date;
