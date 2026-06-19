@@ -66,12 +66,10 @@ function weeklyHours(a: NSAllocation): number {
 }
 
 function totalPctForWeek(allocations: NSAllocation[], weekStart: Date): number {
-  return allocations
+  const totalHrs = allocations
     .filter(a => allocCoversWeek(a, weekStart))
-    .reduce((sum, a) => {
-      if (a.percentOfMax > 0) return sum + a.percentOfMax;
-      return sum + (a.hoursPerDay / 8) * 100;
-    }, 0);
+    .reduce((sum, a) => sum + hoursForWeek(a, weekStart), 0);
+  return (totalHrs / 40) * 100;
 }
 
 function hoursForWeek(a: NSAllocation, weekStart: Date): number {
