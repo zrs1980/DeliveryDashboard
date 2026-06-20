@@ -36,7 +36,8 @@ export async function GET() {
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10, o.custbody9,
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             BUILTIN.DF(o.custbody_sr_indentified_by) AS identified_by
+             BUILTIN.DF(o.custbody_sr_indentified_by) AS identified_by_df,
+             o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -78,6 +79,11 @@ export async function GET() {
       }
     }
 
+    // Debug: log identifiedBy values to see what NS returns
+    console.log("[SR] identified_by sample:", oppsResult.slice(0, 3).map((r: any) => ({
+      id: r.id, df: r.identified_by_df, raw: r.identified_by_raw
+    })));
+
     const requests: ServiceRequest[] = oppsResult.map((r: any) => {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
@@ -106,7 +112,7 @@ export async function GET() {
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
-        identifiedBy:      r.identified_by ?? null,
+        identifiedBy:      r.identified_by_df ?? r.identified_by_raw ?? null,
       };
     });
 
