@@ -65,6 +65,54 @@ interface DataState {
   updatedAt: string | null;
 }
 
+type SRSubTab = "pipeline" | "dashboard";
+
+function ServiceRequestsShell() {
+  const [srTab, setSrTab] = useState<SRSubTab>("pipeline");
+  const SR_TABS: Array<{ id: SRSubTab; label: string }> = [
+    { id: "pipeline",  label: "SR Pipeline"  },
+    { id: "dashboard", label: "SR Dashboard" },
+  ];
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
+      {/* Sub-tab bar */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 24px" }}>
+        {SR_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSrTab(t.id)}
+            style={{
+              padding: "12px 20px",
+              fontSize: 13,
+              fontWeight: srTab === t.id ? 700 : 500,
+              color: srTab === t.id ? C.blue : C.textSub,
+              background: "transparent",
+              border: "none",
+              borderBottom: srTab === t.id ? `2px solid ${C.blue}` : "2px solid transparent",
+              cursor: "pointer",
+              fontFamily: C.font,
+              marginBottom: -1,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {/* Sub-tab content */}
+      {srTab === "pipeline" && (
+        <div style={{ padding: "24px 28px" }}>
+          <ServiceRequestsView />
+        </div>
+      )}
+      {srTab === "dashboard" && (
+        <div style={{ padding: "48px 28px", textAlign: "center", color: C.textSub, fontSize: 14 }}>
+          SR Dashboard coming soon.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
@@ -486,9 +534,7 @@ export default function DashboardPage() {
 
         {/* Service Requests */}
         {tab === "service-requests" && (
-          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
-            <ServiceRequestsView />
-          </div>
+          <ServiceRequestsShell />
         )}
 
         {/* Employee Leave */}
