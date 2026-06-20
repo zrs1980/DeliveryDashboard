@@ -65,44 +65,60 @@ interface DataState {
   updatedAt: string | null;
 }
 
-type SRSubTab = "pipeline" | "dashboard";
+type SRSubTab   = "pipeline" | "dashboard";
+type SRPipelineTab = "active" | "nurturing";
+
+function SubTabBar<T extends string>({ tabs, active, onChange }: {
+  tabs: Array<{ id: T; label: string }>;
+  active: T;
+  onChange: (id: T) => void;
+  }) {
+  return (
+    <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 24px" }}>
+      {tabs.map(t => (
+        <button key={t.id} onClick={() => onChange(t.id)} style={{
+          padding: "12px 20px", fontSize: 13,
+          fontWeight: active === t.id ? 700 : 500,
+          color: active === t.id ? C.blue : C.textSub,
+          background: "transparent", border: "none",
+          borderBottom: active === t.id ? `2px solid ${C.blue}` : "2px solid transparent",
+          cursor: "pointer", fontFamily: C.font, marginBottom: -1,
+        }}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function ServiceRequestsShell() {
-  const [srTab, setSrTab] = useState<SRSubTab>("pipeline");
+  const [srTab,       setSrTab]       = useState<SRSubTab>("pipeline");
+  const [pipelineTab, setPipelineTab] = useState<SRPipelineTab>("active");
+
   const SR_TABS: Array<{ id: SRSubTab; label: string }> = [
     { id: "pipeline",  label: "SR Pipeline"  },
     { id: "dashboard", label: "SR Dashboard" },
   ];
+  const PIPELINE_TABS: Array<{ id: SRPipelineTab; label: string }> = [
+    { id: "active",    label: "Active"    },
+    { id: "nurturing", label: "Nurturing" },
+  ];
+
   return (
     <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
-      {/* Sub-tab bar */}
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 24px" }}>
-        {SR_TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setSrTab(t.id)}
-            style={{
-              padding: "12px 20px",
-              fontSize: 13,
-              fontWeight: srTab === t.id ? 700 : 500,
-              color: srTab === t.id ? C.blue : C.textSub,
-              background: "transparent",
-              border: "none",
-              borderBottom: srTab === t.id ? `2px solid ${C.blue}` : "2px solid transparent",
-              cursor: "pointer",
-              fontFamily: C.font,
-              marginBottom: -1,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {/* Sub-tab content */}
+      {/* Top sub-tab bar: SR Pipeline / SR Dashboard */}
+      <SubTabBar tabs={SR_TABS} active={srTab} onChange={setSrTab} />
+
       {srTab === "pipeline" && (
-        <div style={{ padding: "24px 28px" }}>
-          <ServiceRequestsView />
-        </div>
+        <>
+          {/* Second-level tab bar: Active / Nurturing */}
+          <div style={{ background: C.alt, borderBottom: `1px solid ${C.border}`, padding: "0 28px" }}>
+            <SubTabBar tabs={PIPELINE_TABS} active={pipelineTab} onChange={setPipelineTab} />
+          </div>
+          <div style={{ padding: "24px 28px" }}>
+            <ServiceRequestsView filter={pipelineTab === "active" ? "Active" : "Nurturing"} />
+          </div>
+        </>
       )}
       {srTab === "dashboard" && (
         <div style={{ padding: "48px 28px", textAlign: "center", color: C.textSub, fontSize: 14 }}>

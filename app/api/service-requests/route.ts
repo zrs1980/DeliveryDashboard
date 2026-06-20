@@ -25,6 +25,7 @@ export interface ServiceRequest {
   nsUrl: string;
   salesNotes: string | null;
   customerFolder: string | null;
+  identifiedBy: string | null;  // custbody_sr_indentified_by display value e.g. "Active" | "Nurturing"
 }
 
 export async function GET() {
@@ -34,7 +35,8 @@ export async function GET() {
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10, o.custbody9,
-             BUILTIN.DF(o.entitystatus) AS entitystatus_label
+             BUILTIN.DF(o.entitystatus) AS entitystatus_label,
+             BUILTIN.DF(o.custbody_sr_indentified_by) AS identified_by
       FROM opportunity o
       WHERE o.status = 'A'
       ORDER BY o.expectedCloseDate ASC
@@ -104,6 +106,7 @@ export async function GET() {
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
+        identifiedBy:      r.identified_by ?? null,
       };
     });
 

@@ -509,11 +509,14 @@ function EmailModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest
 interface AiBrief { loading: boolean; summary?: string; nextSteps?: string[]; error?: string; }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function ServiceRequestsView() {
+export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing" }) {
   const { data: session } = useSession();
   const currentUser = session?.user?.name ?? "Dashboard User";
 
-  const [requests, setRequests]   = useState<ServiceRequest[]>([]);
+  const [allRequests, setAllRequests] = useState<ServiceRequest[]>([]);
+  const requests = filter
+    ? allRequests.filter(r => (r.identifiedBy ?? "").toLowerCase() === filter.toLowerCase())
+    : allRequests;
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [emailOpp, setEmailOpp]   = useState<ServiceRequest | null>(null);
@@ -545,7 +548,7 @@ export function ServiceRequestsView() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
-      setRequests(prev => prev.map(r =>
+      setAllRequests(prev => prev.map(r =>
         r.id === id ? { ...r, expectedCloseDate: closeDateDraft || null } : r
       ));
       setEditingCloseDate(null);
@@ -570,7 +573,7 @@ export function ServiceRequestsView() {
       const res  = await fetch("/api/service-requests");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
-      setRequests(data.requests ?? []);
+      setAllRequests(data.requests ?? []);
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
     finally { setLoading(false); }
   };
@@ -593,7 +596,7 @@ export function ServiceRequestsView() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       const emp = employees.find(e => e.id === employeeId);
-      setRequests(prev => prev.map(r =>
+      setAllRequests(prev => prev.map(r =>
         r.id === opp.id ? { ...r, assignedTo: emp?.name ?? null, assignedToId: employeeId } : r
       ));
     } catch (e) {
@@ -645,7 +648,7 @@ export function ServiceRequestsView() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Save failed");
       // Update local state
-      setRequests(prev => prev.map(req =>
+      setAllRequests(prev => prev.map(req =>
         req.id === r.id ? { ...req, salesNotes: data.salesNotes } : req
       ));
       setNoteDraft(prev => ({ ...prev, [r.id]: "" }));
@@ -706,8 +709,8 @@ export function ServiceRequestsView() {
 
   return (
     <div style={{ fontFamily: C.font }}>
-      {emailOpp && <EmailModal opp={emailOpp} onClose={() => setEmailOpp(null)} author={currentUser} onNoteSaved={salesNotes => setRequests(prev => prev.map(r => r.id === emailOpp!.id ? { ...r, salesNotes } : r))} />}
-      {slackOpp && <SlackModal opp={slackOpp} onClose={() => setSlackOpp(null)} author={currentUser} onNoteSaved={salesNotes => setRequests(prev => prev.map(r => r.id === slackOpp!.id ? { ...r, salesNotes } : r))} />}
+      {emailOpp && <EmailModal opp={emailOpp} onClose={() => setEmailOpp(null)} author={currentUser} onNoteSaved={salesNotes => setAllRequests(prev => prev.map(r => r.id === emailOpp!.id ? { ...r, salesNotes } : r))} />}
+      {slackOpp && <SlackModal opp={slackOpp} onClose={() => setSlackOpp(null)} author={currentUser} onNoteSaved={salesNotes => setAllRequests(prev => prev.map(r => r.id === slackOpp!.id ? { ...r, salesNotes } : r))} />}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
