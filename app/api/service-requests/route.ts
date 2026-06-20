@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import { runSuiteQL, fetchRecord } from "@/lib/netsuite";
+import { runSuiteQL } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
+
+// custbody_sr_indentified_by raw list ID → display label
+const IDENTIFIED_BY: Record<string, string> = {
+  "1": "Active",
+  "2": "Nurture",
+};
 
 export interface ServiceRequest {
   id: number;
@@ -30,14 +36,14 @@ export interface ServiceRequest {
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const identifiedByFilter = searchParams.get("identifiedBy"); // raw numeric ID e.g. "50"
+  // Accept "Active" or "Nurture" label; map to raw list ID for SQL filter
+  const labelFilter = searchParams.get("identifiedBy"); // "Active" | "Nurture"
+  const rawIdFilter = Object.entries(IDENTIFIED_BY).find(([, v]) => v === labelFilter)?.[0];
 
   try {
-    // Filter by custbody_sr_indentified_by to show only SR-tagged opportunities.
-    // Optionally filter to a specific raw ID value (Active / Nurturing tab).
-    const whereClause = identifiedByFilter
-      ? `WHERE o.custbody_sr_indentified_by = ${parseInt(identifiedByFilter)}`
-      : `WHERE o.custbody_sr_indentified_by IS NOT NULL`;
+    const identifiedByClause = rawIdFilter
+      ? `AND o.custbody_sr_indentified_by = ${rawIdFilter}`
+      : `AND o.custbody_sr_indentified_by IN (1, 2)`;
 
     const oppsResult = await runSuiteQL(`
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
@@ -47,32 +53,14 @@ export async function GET(req: Request) {
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
-      ${whereClause}
+      WHERE o.status = 'A'
+      ${identifiedByClause}
       ORDER BY o.expectedCloseDate ASC
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
       return NextResponse.json({ requests: [] });
     }
-
-    // Build id → label map for custbody_sr_indentified_by by fetching one REST record per unique raw ID.
-    // The REST Record API returns select fields as {id, refName} objects with the display label.
-    const rawIdToOppId: Record<string, number> = {};
-    for (const r of oppsResult as any[]) {
-      if (r.identified_by_raw && !rawIdToOppId[r.identified_by_raw]) {
-        rawIdToOppId[r.identified_by_raw] = parseInt(r.id);
-      }
-    }
-    const identifiedByMap: Record<string, string> = {};
-    await Promise.all(
-      Object.entries(rawIdToOppId).map(async ([rawId, oppId]) => {
-        try {
-          const rec = await fetchRecord<Record<string, unknown>>("opportunity", oppId);
-          const field = rec["custbody_sr_indentified_by"] as any;
-          if (field?.refName) identifiedByMap[rawId] = field.refName;
-        } catch { /* leave unmapped — will fall back to raw id */ }
-      })
-    );
 
     const oppIds    = oppsResult.map((r: any) => parseInt(r.id));
     const entityIds = [...new Set(oppsResult.map((r: any) => r.entity).filter(Boolean))] as number[];
@@ -134,7 +122,7 @@ export async function GET(req: Request) {
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
-        identifiedBy:      r.identified_by_raw ? (identifiedByMap[r.identified_by_raw] ?? r.identified_by_raw) : null,
+        identifiedBy:      r.identified_by_raw ? (IDENTIFIED_BY[r.identified_by_raw] ?? r.identified_by_raw) : null,
       };
     });
 

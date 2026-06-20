@@ -570,7 +570,8 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const res  = await fetch("/api/service-requests");
+      const url  = filter ? `/api/service-requests?identifiedBy=${encodeURIComponent(filter)}` : "/api/service-requests";
+      const res  = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
       setAllRequests(data.requests ?? []);
@@ -584,7 +585,7 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
       .then(r => r.json())
       .then(d => setEmployees(d.employees ?? []))
       .catch(() => {});
-  }, []);
+  }, [filter]);
 
   const assignEmployee = async (opp: ServiceRequest, employeeId: number | null) => {
     setAssigning(prev => ({ ...prev, [opp.id]: true }));
