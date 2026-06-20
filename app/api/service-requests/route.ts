@@ -28,9 +28,17 @@ export interface ServiceRequest {
   identifiedBy: string | null;  // custbody_sr_indentified_by display value e.g. "Active" | "Nurturing"
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const identifiedByFilter = searchParams.get("identifiedBy"); // raw numeric ID e.g. "50"
+
   try {
-    // BUILTIN.DF() does not resolve custbody_sr_indentified_by in SuiteQL — raw value is a numeric list ID.
+    // Filter by custbody_sr_indentified_by to show only SR-tagged opportunities.
+    // Optionally filter to a specific raw ID value (Active / Nurturing tab).
+    const whereClause = identifiedByFilter
+      ? `WHERE o.custbody_sr_indentified_by = ${parseInt(identifiedByFilter)}`
+      : `WHERE o.custbody_sr_indentified_by IS NOT NULL`;
+
     const oppsResult = await runSuiteQL(`
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
@@ -39,7 +47,7 @@ export async function GET() {
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
-      WHERE o.status = 'A'
+      ${whereClause}
       ORDER BY o.expectedCloseDate ASC
     `);
 
