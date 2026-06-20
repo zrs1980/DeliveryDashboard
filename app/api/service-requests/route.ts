@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runSuiteQL } from "@/lib/netsuite";
+import { runSuiteQL, fetchFieldSelectOptions } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
 export interface ServiceRequest {
@@ -30,18 +30,26 @@ export interface ServiceRequest {
 
 export async function GET() {
   try {
-    const oppsResult = await runSuiteQL(`
-      SELECT o.id, o.tranId, o.title, o.entity, o.probability,
-             o.projectedTotal, o.expectedCloseDate, o.tranDate,
-             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10, o.custbody9,
-             BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             BUILTIN.DF(o.custbody_sr_indentified_by) AS identified_by_df,
-             o.custbody_sr_indentified_by AS identified_by_raw
-      FROM opportunity o
-      WHERE o.status = 'A'
-      ORDER BY o.expectedCloseDate ASC
-    `);
+    // Fetch the field's select options from NS metadata so we can map raw IDs → labels.
+    // BUILTIN.DF() does not resolve this custom field in SuiteQL — raw value is a numeric ID.
+    const [oppsResult, identifiedByOptions] = await Promise.all([
+      runSuiteQL(`
+        SELECT o.id, o.tranId, o.title, o.entity, o.probability,
+               o.projectedTotal, o.expectedCloseDate, o.tranDate,
+               o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
+               o.custbody10, o.custbody9,
+               BUILTIN.DF(o.entitystatus) AS entitystatus_label,
+               o.custbody_sr_indentified_by AS identified_by_raw
+        FROM opportunity o
+        WHERE o.status = 'A'
+        ORDER BY o.expectedCloseDate ASC
+      `),
+      fetchFieldSelectOptions("opportunity", "custbody_sr_indentified_by").catch(() => [] as { id: string; label: string }[]),
+    ]);
+
+    // Build id → label map from metadata, e.g. {"50": "Active", "61": "Nurturing"}
+    const identifiedByMap: Record<string, string> = {};
+    for (const opt of identifiedByOptions) identifiedByMap[opt.id] = opt.label;
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
       return NextResponse.json({ requests: [] });
@@ -79,11 +87,6 @@ export async function GET() {
       }
     }
 
-    // Debug: log identifiedBy values to see what NS returns
-    console.log("[SR] identified_by sample:", oppsResult.slice(0, 3).map((r: any) => ({
-      id: r.id, df: r.identified_by_df, raw: r.identified_by_raw
-    })));
-
     const requests: ServiceRequest[] = oppsResult.map((r: any) => {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
@@ -112,7 +115,7 @@ export async function GET() {
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
-        identifiedBy:      r.identified_by_df ?? r.identified_by_raw ?? null,
+        identifiedBy:      r.identified_by_raw ? (identifiedByMap[r.identified_by_raw] ?? r.identified_by_raw) : null,
       };
     });
 
