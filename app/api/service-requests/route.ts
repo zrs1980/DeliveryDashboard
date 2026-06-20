@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runSuiteQL, fetchFieldSelectOptions } from "@/lib/netsuite";
+import { runSuiteQL, fetchRecord } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
 export interface ServiceRequest {
@@ -30,30 +30,41 @@ export interface ServiceRequest {
 
 export async function GET() {
   try {
-    // Fetch the field's select options from NS metadata so we can map raw IDs → labels.
-    // BUILTIN.DF() does not resolve this custom field in SuiteQL — raw value is a numeric ID.
-    const [oppsResult, identifiedByOptions] = await Promise.all([
-      runSuiteQL(`
-        SELECT o.id, o.tranId, o.title, o.entity, o.probability,
-               o.projectedTotal, o.expectedCloseDate, o.tranDate,
-               o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-               o.custbody10, o.custbody9,
-               BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-               o.custbody_sr_indentified_by AS identified_by_raw
-        FROM opportunity o
-        WHERE o.status = 'A'
-        ORDER BY o.expectedCloseDate ASC
-      `),
-      fetchFieldSelectOptions("opportunity", "custbody_sr_indentified_by").catch(() => [] as { id: string; label: string }[]),
-    ]);
-
-    // Build id → label map from metadata, e.g. {"50": "Active", "61": "Nurturing"}
-    const identifiedByMap: Record<string, string> = {};
-    for (const opt of identifiedByOptions) identifiedByMap[opt.id] = opt.label;
+    // BUILTIN.DF() does not resolve custbody_sr_indentified_by in SuiteQL — raw value is a numeric list ID.
+    const oppsResult = await runSuiteQL(`
+      SELECT o.id, o.tranId, o.title, o.entity, o.probability,
+             o.projectedTotal, o.expectedCloseDate, o.tranDate,
+             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
+             o.custbody10, o.custbody9,
+             BUILTIN.DF(o.entitystatus) AS entitystatus_label,
+             o.custbody_sr_indentified_by AS identified_by_raw
+      FROM opportunity o
+      WHERE o.status = 'A'
+      ORDER BY o.expectedCloseDate ASC
+    `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
       return NextResponse.json({ requests: [] });
     }
+
+    // Build id → label map for custbody_sr_indentified_by by fetching one REST record per unique raw ID.
+    // The REST Record API returns select fields as {id, refName} objects with the display label.
+    const rawIdToOppId: Record<string, number> = {};
+    for (const r of oppsResult as any[]) {
+      if (r.identified_by_raw && !rawIdToOppId[r.identified_by_raw]) {
+        rawIdToOppId[r.identified_by_raw] = parseInt(r.id);
+      }
+    }
+    const identifiedByMap: Record<string, string> = {};
+    await Promise.all(
+      Object.entries(rawIdToOppId).map(async ([rawId, oppId]) => {
+        try {
+          const rec = await fetchRecord<Record<string, unknown>>("opportunity", oppId);
+          const field = rec["custbody_sr_indentified_by"] as any;
+          if (field?.refName) identifiedByMap[rawId] = field.refName;
+        } catch { /* leave unmapped — will fall back to raw id */ }
+      })
+    );
 
     const oppIds    = oppsResult.map((r: any) => parseInt(r.id));
     const entityIds = [...new Set(oppsResult.map((r: any) => r.entity).filter(Boolean))] as number[];
