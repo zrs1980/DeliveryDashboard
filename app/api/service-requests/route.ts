@@ -31,8 +31,10 @@ export interface ServiceRequest {
   nsUrl: string;
   salesNotes: string | null;
   customerFolder: string | null;
-  identifiedBy: string | null;    // custbody_ceba_sales_pipeline raw value
-  srIdentifiedBy: string | null;  // custbody_sr_indentified_by raw value
+  identifiedBy: string | null;    // custbody_ceba_sales_pipeline via BUILTIN.DF
+  srIdentifiedBy: string | null;  // custbody_sr_indentified_by via BUILTIN.DF
+  salesPipelineRaw: string | null; // custbody_ceba_sales_pipeline raw integer
+  srIdentifiedId: string | null;   // custbody_sr_indentified_by raw integer
 }
 
 export async function GET(req: Request) {
@@ -49,7 +51,9 @@ export async function GET(req: Request) {
              t.custbody10, t.custbody9,
              BUILTIN.DF(t.entitystatus) AS entitystatus_label,
              BUILTIN.DF(t.custbody_ceba_sales_pipeline) AS identified_by_raw,
-             BUILTIN.DF(t.custbody_sr_indentified_by) AS sr_identified_raw
+             BUILTIN.DF(t.custbody_sr_indentified_by) AS sr_identified_raw,
+             t.custbody_ceba_sales_pipeline AS sales_pipeline_raw,
+             t.custbody_sr_indentified_by AS sr_identified_id
       FROM transaction t
       WHERE t.type = 'Opprtnty'
       ORDER BY t.expectedCloseDate ASC
@@ -121,6 +125,8 @@ export async function GET(req: Request) {
         customerFolder:    cust?.customerFolder ?? null,
         identifiedBy:      r.identified_by_raw ?? null,
         srIdentifiedBy:    r.sr_identified_raw ?? null,
+        salesPipelineRaw:  r.sales_pipeline_raw ?? null,
+        srIdentifiedId:    r.sr_identified_id ?? null,
       };
     });
 
