@@ -31,7 +31,8 @@ export interface ServiceRequest {
   nsUrl: string;
   salesNotes: string | null;
   customerFolder: string | null;
-  identifiedBy: string | null;  // custbody_ceba_sales_pipeline display value e.g. "Active" | "Nurturing"
+  identifiedBy: string | null;    // custbody_ceba_sales_pipeline raw value
+  srIdentifiedBy: string | null;  // custbody_sr_indentified_by raw value
 }
 
 export async function GET(req: Request) {
@@ -47,7 +48,8 @@ export async function GET(req: Request) {
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10, o.custbody9,
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             o.custbody_ceba_sales_pipeline AS identified_by_raw
+             o.custbody_ceba_sales_pipeline AS identified_by_raw,
+             o.custbody_sr_indentified_by AS sr_identified_raw
       FROM opportunity o
       ORDER BY o.expectedCloseDate ASC
     `);
@@ -117,6 +119,7 @@ export async function GET(req: Request) {
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
         identifiedBy:      r.identified_by_raw ? (IDENTIFIED_BY[r.identified_by_raw] ?? r.identified_by_raw) : null,
+        srIdentifiedBy:    r.sr_identified_raw ?? null,
       };
     });
 
