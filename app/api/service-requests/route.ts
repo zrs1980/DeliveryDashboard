@@ -49,8 +49,7 @@ export async function GET(req: Request) {
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_ceba_sales_pipeline AS identified_by_raw
       FROM opportunity o
-      WHERE o.custbody_ceba_sales_pipeline IS NOT NULL
-      ORDER BY o.expectedCloseDate ASC
+      ORDER BY o.id DESC
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
