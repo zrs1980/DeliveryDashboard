@@ -48,8 +48,8 @@ export async function GET(req: Request) {
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10, o.custbody9,
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             o.custbody_ceba_sales_pipeline AS identified_by_raw,
-             o.custbody_sr_indentified_by AS sr_identified_raw
+             BUILTIN.DF(o.custbody_ceba_sales_pipeline) AS identified_by_raw,
+             BUILTIN.DF(o.custbody_sr_indentified_by) AS sr_identified_raw
       FROM opportunity o
       ORDER BY o.expectedCloseDate ASC
     `);
@@ -118,7 +118,7 @@ export async function GET(req: Request) {
         nsUrl:             `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${r.id}`,
         salesNotes:        r.custbody9 ?? null,
         customerFolder:    cust?.customerFolder ?? null,
-        identifiedBy:      r.identified_by_raw ? (IDENTIFIED_BY[r.identified_by_raw] ?? r.identified_by_raw) : null,
+        identifiedBy:      r.identified_by_raw ?? null,
         srIdentifiedBy:    r.sr_identified_raw ?? null,
       };
     });
