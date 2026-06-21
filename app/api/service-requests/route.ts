@@ -56,6 +56,7 @@ export async function GET(req: Request) {
              t.custbody_sr_indentified_by AS sr_identified_id
       FROM transaction t
       WHERE t.type = 'Opprtnty'
+      AND t.custbody_sr_indentified_by IS NOT NULL
       ORDER BY t.expectedCloseDate ASC
     `);
 
