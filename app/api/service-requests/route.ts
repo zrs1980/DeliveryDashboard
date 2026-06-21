@@ -41,10 +41,6 @@ export async function GET(req: Request) {
   const rawIdFilter = Object.entries(IDENTIFIED_BY).find(([, v]) => v === labelFilter)?.[0];
 
   try {
-    const identifiedByClause = rawIdFilter
-      ? `AND o.custbody_sr_indentified_by = ${rawIdFilter}`
-      : `AND o.custbody_sr_indentified_by IN (1, 2)`;
-
     const oppsResult = await runSuiteQL(`
       SELECT o.id, o.tranId, o.title, o.entity, o.probability,
              o.projectedTotal, o.expectedCloseDate, o.tranDate,
@@ -54,7 +50,6 @@ export async function GET(req: Request) {
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
       WHERE o.custbody_sr_indentified_by IS NOT NULL
-      ${identifiedByClause}
       ORDER BY o.expectedCloseDate ASC
     `);
 
