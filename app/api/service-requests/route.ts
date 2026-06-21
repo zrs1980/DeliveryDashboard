@@ -5,7 +5,7 @@ import { EMPLOYEES } from "@/lib/constants";
 // custbody_ceba_sales_pipeline raw list ID → display label
 const IDENTIFIED_BY: Record<string, string> = {
   "1": "Active",
-  "2": "Nurture",
+  "2": "Nurturing",
 };
 
 export interface ServiceRequest {
