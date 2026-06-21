@@ -53,7 +53,7 @@ export async function GET(req: Request) {
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
-      WHERE o.status = 'A'
+      WHERE o.custbody_sr_indentified_by IS NOT NULL
       ${identifiedByClause}
       ORDER BY o.expectedCloseDate ASC
     `);
