@@ -90,22 +90,23 @@ function SRRawDebug() {
   if (error)   return <div style={{ padding: 24, color: C.red }}>⚠ {error}</div>;
   if (!rows.length) return <div style={{ padding: 24, color: C.textSub }}>No rows returned.</div>;
 
-  const cols = Object.keys(rows[0]);
+  const cols = ["id", "tranid", "title", "custbody_ceba_sales_pipeline", "custbody_sr_indentified_by"];
   return (
     <div style={{ overflowX: "auto" }}>
-      <div style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>{rows.length} rows · {cols.length} columns</div>
+      <div style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>{rows.length} rows</div>
       <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: C.mono, width: "100%" }}>
         <thead>
           <tr>{cols.map(c => <th key={c} style={{ padding: "6px 10px", background: C.alt, border: `1px solid ${C.border}`, textAlign: "left", whiteSpace: "nowrap", color: C.textMid, fontWeight: 700 }}>{c}</th>)}</tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {rows.map((r: any, i: number) => (
             <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : C.alt }}>
-              {cols.map(c => <td key={c} style={{ padding: "5px 10px", border: `1px solid ${C.border}`, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r[c] == null ? C.textSub : C.text }}>{r[c] == null ? "null" : String(r[c])}</td>)}
+              {cols.map(c => <td key={c} style={{ padding: "5px 10px", border: `1px solid ${C.border}`, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r[c] == null ? C.textSub : C.text }}>{r[c] == null ? "—" : String(r[c])}</td>)}
             </tr>
           ))}
         </tbody>
       </table>
+      <pre style={{ marginTop: 16, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, fontSize: 11, fontFamily: C.mono, overflow: "auto", maxHeight: 300 }}>{JSON.stringify(rows[0], null, 2)}</pre>
     </div>
   );
 }
