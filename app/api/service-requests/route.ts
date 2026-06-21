@@ -50,6 +50,7 @@ export async function GET(req: Request) {
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
       ORDER BY o.expectedCloseDate ASC
+      FETCH FIRST 10 ROWS ONLY
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
