@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
-// custbody_sr_indentified_by raw list ID → display label
+// custbody_ceba_sales_pipeline raw list ID → display label
 const IDENTIFIED_BY: Record<string, string> = {
   "1": "Active",
   "2": "Nurture",
@@ -31,7 +31,7 @@ export interface ServiceRequest {
   nsUrl: string;
   salesNotes: string | null;
   customerFolder: string | null;
-  identifiedBy: string | null;  // custbody_sr_indentified_by display value e.g. "Active" | "Nurturing"
+  identifiedBy: string | null;  // custbody_ceba_sales_pipeline display value e.g. "Active" | "Nurturing"
 }
 
 export async function GET(req: Request) {
@@ -47,9 +47,10 @@ export async function GET(req: Request) {
              o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
              o.custbody10, o.custbody9,
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             o.custbody_sr_indentified_by AS identified_by_raw
+             o.custbody_ceba_sales_pipeline AS identified_by_raw
       FROM opportunity o
-      WHERE o.id = 219176
+      WHERE o.custbody_ceba_sales_pipeline IS NOT NULL
+      ORDER BY o.expectedCloseDate ASC
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
