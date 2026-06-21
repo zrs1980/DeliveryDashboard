@@ -514,9 +514,7 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
   const currentUser = session?.user?.name ?? "Dashboard User";
 
   const [allRequests, setAllRequests] = useState<ServiceRequest[]>([]);
-  const requests = filter
-    ? allRequests.filter(r => (r.identifiedBy ?? "").toLowerCase() === filter.toLowerCase())
-    : allRequests;
+  const requests = allRequests;
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [emailOpp, setEmailOpp]   = useState<ServiceRequest | null>(null);
