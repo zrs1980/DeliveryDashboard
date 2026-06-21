@@ -807,8 +807,8 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
                         {r.noteCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "0px 5px", borderRadius: 8, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>{r.noteCount}n</span>}
                       </div>
                       <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                        {r.identifiedBy   && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.blueBg,   color: C.blue,   border: `1px solid ${C.blueBd}`   }}>Pipeline: {r.identifiedBy}</span>}
-                        {r.srIdentifiedBy && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.tealBg,   color: C.teal,   border: `1px solid ${C.tealBd}`   }}>SR: {r.srIdentifiedBy}</span>}
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}` }}>Pipeline: {r.identifiedBy ?? "null"}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}` }}>SR: {r.srIdentifiedBy ?? "null"}</span>
                       </div>
                       {r.actionItem && <div style={{ fontSize: 11, color: C.orange, marginTop: 2, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>→ {r.actionItem}</div>}
                     </td>
