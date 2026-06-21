@@ -76,9 +76,9 @@ function SRRawDebug() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/service-requests");
+      const res = await fetch("/api/debug/sr-raw");
       const data = await res.json();
-      setRows(data.requests ?? []);
+      setRows(data.rows ?? []);
     } catch (e: any) {
       setError(e.message);
     } finally { setLoading(false); }
