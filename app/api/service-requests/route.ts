@@ -43,15 +43,16 @@ export async function GET(req: Request) {
 
   try {
     const oppsResult = await runSuiteQL(`
-      SELECT o.id, o.tranId, o.title, o.entity, o.probability,
-             o.projectedTotal, o.expectedCloseDate, o.tranDate,
-             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
-             o.custbody10, o.custbody9,
-             BUILTIN.DF(o.entitystatus) AS entitystatus_label,
-             BUILTIN.DF(o.custbody_ceba_sales_pipeline) AS identified_by_raw,
-             BUILTIN.DF(o.custbody_sr_indentified_by) AS sr_identified_raw
-      FROM opportunity o
-      ORDER BY o.expectedCloseDate ASC
+      SELECT t.id, t.tranId, t.title, t.entity, t.probability,
+             t.projectedTotal, t.expectedCloseDate, t.tranDate,
+             t.lastModifiedDate, t.daysOpen, t.memo, t.actionItem,
+             t.custbody10, t.custbody9,
+             BUILTIN.DF(t.entitystatus) AS entitystatus_label,
+             BUILTIN.DF(t.custbody_ceba_sales_pipeline) AS identified_by_raw,
+             BUILTIN.DF(t.custbody_sr_indentified_by) AS sr_identified_raw
+      FROM transaction t
+      WHERE t.type = 'Opprtnty'
+      ORDER BY t.expectedCloseDate ASC
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
