@@ -49,8 +49,7 @@ export async function GET(req: Request) {
              BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
-      ORDER BY o.expectedCloseDate ASC
-      FETCH FIRST 10 ROWS ONLY
+      WHERE ROWNUM <= 10
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
