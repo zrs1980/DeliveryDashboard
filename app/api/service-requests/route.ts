@@ -42,10 +42,15 @@ export async function GET(req: Request) {
 
   try {
     const oppsResult = await runSuiteQL(`
-      SELECT o.id, o.title, o.entity,
+      SELECT o.id, o.tranId, o.title, o.entity, o.probability,
+             o.projectedTotal, o.expectedCloseDate, o.tranDate,
+             o.lastModifiedDate, o.daysOpen, o.memo, o.actionItem,
+             o.custbody10, o.custbody9,
+             BUILTIN.DF(o.entitystatus) AS entitystatus_label,
              o.custbody_sr_indentified_by AS identified_by_raw
       FROM opportunity o
-      WHERE ROWNUM <= 10
+      WHERE o.custbody_sr_indentified_by IS NOT NULL
+      ORDER BY o.expectedCloseDate ASC
     `);
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
