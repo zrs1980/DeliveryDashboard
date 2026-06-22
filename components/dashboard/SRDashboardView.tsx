@@ -30,6 +30,7 @@ interface SRMetrics {
   attainmentPct: number;
   monthHistory: Array<{ key: string; label: string; total: number; byConsultant: Record<string, number> }>;
   employeeIds: number[];
+  months: string[];
   oppsByConsultant: Record<string, Record<string, SROpp[]>>;
 }
 
