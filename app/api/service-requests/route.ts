@@ -49,7 +49,7 @@ export async function GET(req: Request) {
              t.projectedTotal, t.expectedCloseDate, t.tranDate,
              t.lastModifiedDate, t.daysOpen, t.memo, t.actionItem,
              t.custbody10, t.custbody9,
-             t.entitystatus AS entitystatus_label,
+             BUILTIN.DF(t.entitystatus) AS entitystatus_label,
              t.custbody_ceba_sales_pipeline AS identified_by_raw,
              t.custbody_sr_indentified_by AS sr_identified_raw,
              t.custbody_ceba_sales_pipeline AS sales_pipeline_raw,
