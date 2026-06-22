@@ -14,6 +14,7 @@ import { AiInsights } from "@/components/dashboard/AiInsights";
 import { CalendarView } from "@/components/dashboard/CalendarView";
 import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
+import { SRDashboardView } from "@/components/dashboard/SRDashboardView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import { CustomersView } from "@/components/dashboard/CustomersView";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
@@ -165,8 +166,8 @@ function ServiceRequestsShell() {
         </>
       )}
       {srTab === "dashboard" && (
-        <div style={{ padding: "48px 28px", textAlign: "center", color: C.textSub, fontSize: 14 }}>
-          SR Dashboard coming soon.
+        <div style={{ padding: "24px 28px" }}>
+          <SRDashboardView />
         </div>
       )}
     </div>
