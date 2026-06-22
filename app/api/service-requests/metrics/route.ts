@@ -20,7 +20,6 @@ function monthLabel(key: string): string {
 
 export async function GET() {
   try {
-    // Fetch consulting employees dynamically (custentity10 IN (1,2) = Consultant / Senior Consultant)
     const empRows = await runSuiteQL<{ id: string; firstname: string; lastname: string }>(`
       SELECT e.id, e.firstname, e.lastname
       FROM employee e
@@ -37,19 +36,32 @@ export async function GET() {
 
     const rows = await runSuiteQL<{
       id: string;
+      tranid: string;
+      title: string;
+      entity: string;
       trandate: string;
       custbody_sr_indentified_by: string;
       custbody_ceba_sales_pipeline: string;
       projectedtotal: string;
     }>(`
-      SELECT t.id, t.tranDate, t.custbody_sr_indentified_by,
-             t.custbody_ceba_sales_pipeline, t.projectedTotal
+      SELECT t.id, t.tranId, t.title, t.entity, t.tranDate,
+             t.custbody_sr_indentified_by, t.custbody_ceba_sales_pipeline, t.projectedTotal
       FROM transaction t
       WHERE t.type = 'Opprtnty'
       AND t.custbody_sr_indentified_by IS NOT NULL
       AND t.entitystatus <> 14
       ORDER BY t.tranDate DESC
     `);
+
+    // Resolve customer names
+    const entityIds = [...new Set(rows.map(r => r.entity).filter(Boolean))];
+    const clientMap: Record<string, string> = {};
+    if (entityIds.length > 0) {
+      const custRows = await runSuiteQL<{ id: string; companyname: string }>(`
+        SELECT id, companyname FROM customer WHERE id IN (${entityIds.join(",")})
+      `);
+      for (const c of custRows) clientMap[c.id] = c.companyname ?? `Entity ${c.id}`;
+    }
 
     const now = new Date();
     const months: string[] = [];
@@ -62,7 +74,11 @@ export async function GET() {
     const thisYear  = String(now.getFullYear());
 
     const byConsultant: Record<number, Record<string, number>> = {};
-    for (const id of employeeIds) byConsultant[id] = {};
+    const oppsByConsultant: Record<number, Record<string, Array<{ id: number; title: string; client: string; nsUrl: string; date: string }>>> = {};
+    for (const id of employeeIds) {
+      byConsultant[id]  = {};
+      oppsByConsultant[id] = {};
+    }
 
     for (const row of rows) {
       const empId = parseInt(row.custbody_sr_indentified_by);
@@ -70,10 +86,18 @@ export async function GET() {
       const mk = parseMonthKey(row.trandate);
       if (!mk) continue;
       byConsultant[empId][mk] = (byConsultant[empId][mk] ?? 0) + 1;
+      if (!oppsByConsultant[empId][mk]) oppsByConsultant[empId][mk] = [];
+      oppsByConsultant[empId][mk].push({
+        id:     parseInt(row.id),
+        title:  row.title ?? "(Untitled)",
+        client: clientMap[row.entity] ?? `Entity ${row.entity}`,
+        nsUrl:  `https://3550424.app.netsuite.com/app/accounting/transactions/opprtnty.nl?id=${row.id}`,
+        date:   row.trandate,
+      });
     }
 
     const consultants = employeeIds.map(id => {
-      const monthly       = byConsultant[id];
+      const monthly        = byConsultant[id];
       const thisMonthCount = monthly[thisMonth] ?? 0;
       const lastMonthCount = monthly[lastMonth] ?? 0;
       const ytd            = Object.entries(monthly)
@@ -97,7 +121,7 @@ export async function GET() {
       byConsultant: Object.fromEntries(employeeIds.map(id => [id, byConsultant[id][m] ?? 0])),
     }));
 
-    return NextResponse.json({ consultants, teamThisMonth, teamLastMonth, teamYTD, teamQuota, attainmentPct, monthHistory, months, employeeIds });
+    return NextResponse.json({ consultants, teamThisMonth, teamLastMonth, teamYTD, teamQuota, attainmentPct, monthHistory, months, employeeIds, oppsByConsultant });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
