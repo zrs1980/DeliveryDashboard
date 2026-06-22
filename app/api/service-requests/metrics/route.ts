@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
 
 const QUOTA = 3;
 
@@ -21,6 +20,21 @@ function monthLabel(key: string): string {
 
 export async function GET() {
   try {
+    // Fetch consulting employees dynamically (custentity10 IN (1,2) = Consultant / Senior Consultant)
+    const empRows = await runSuiteQL<{ id: string; firstname: string; lastname: string }>(`
+      SELECT e.id, e.firstname, e.lastname
+      FROM employee e
+      WHERE e.custentity10 IN (1, 2)
+      AND e.isinactive = 'F'
+      ORDER BY e.lastname ASC
+    `);
+
+    const employeeMap: Record<number, string> = {};
+    for (const e of empRows) {
+      employeeMap[parseInt(e.id)] = `${e.firstname} ${e.lastname}`.trim();
+    }
+    const employeeIds = Object.keys(employeeMap).map(Number);
+
     const rows = await runSuiteQL<{
       id: string;
       trandate: string;
@@ -47,7 +61,6 @@ export async function GET() {
     const lastMonth = months[months.length - 2];
     const thisYear  = String(now.getFullYear());
 
-    const employeeIds = Object.keys(EMPLOYEES).map(Number);
     const byConsultant: Record<number, Record<string, number>> = {};
     for (const id of employeeIds) byConsultant[id] = {};
 
@@ -68,7 +81,7 @@ export async function GET() {
         .reduce((s, [, v]) => s + v, 0);
       const history = months.map(m => ({ key: m, label: monthLabel(m), count: monthly[m] ?? 0 }));
       const rag     = thisMonthCount >= QUOTA ? "green" : thisMonthCount >= 2 ? "yellow" : "red";
-      return { id, name: EMPLOYEES[id], quota: QUOTA, thisMonth: thisMonthCount, lastMonth: lastMonthCount, ytd, history, rag };
+      return { id, name: employeeMap[id] ?? `Employee ${id}`, quota: QUOTA, thisMonth: thisMonthCount, lastMonth: lastMonthCount, ytd, history, rag };
     });
 
     const teamThisMonth = consultants.reduce((s, c) => s + c.thisMonth, 0);
