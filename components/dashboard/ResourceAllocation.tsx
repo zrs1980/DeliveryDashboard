@@ -1369,12 +1369,15 @@ export function ResourceAllocation({ allocations, error }: Props) {
                                 <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(pct * 100, 100)}%`, background: ts.color, borderRadius: 2, opacity: 0.7 }} />
                               </div>
                             </td>
-                            <td colSpan={4} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}`, fontSize: 11, color: C.textSub }}>
-                              {(p.type === "Implementation" || p.type === "Service") ? (
-                                <span style={{ color: C.green, fontWeight: 600 }}>● Billable</span>
-                              ) : (
-                                <span style={{ color: C.textSub }}>○ Non-billable</span>
-                              )}
+                            <td colSpan={4} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}`, fontSize: 11 }}>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {(p.type === "Implementation" || p.type === "Service") ? (
+                                  <span style={{ color: C.green, fontWeight: 600 }}>● Billable</span>
+                                ) : (
+                                  <span style={{ color: C.textSub }}>○ Non-billable</span>
+                                )}
+                                <span style={{ color: C.blue, fontWeight: 600 }}>● Utilized</span>
+                              </div>
                             </td>
                           </tr>
                         );
