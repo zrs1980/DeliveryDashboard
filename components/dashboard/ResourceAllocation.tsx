@@ -148,6 +148,93 @@ function gapStyle(gap: number): React.CSSProperties {
   return               { color: C.green,   fontWeight: 600 };
 }
 
+// ─── Sub-tab / Forecast helpers ───────────────────────────────────────────
+
+type SubTab = "allocation" | "forecast";
+type ForecastPeriod = "week" | "month" | "quarter" | "wtd" | "mtd" | "qtd";
+
+const PERIOD_LABELS: Record<ForecastPeriod, string> = {
+  week: "Week", month: "Month", quarter: "Quarter",
+  wtd: "WTD", mtd: "MTD", qtd: "QTD",
+};
+
+const FORECAST_BILL_RATIO = 0.87;
+
+function getPeriodBounds(period: ForecastPeriod, today: Date): { start: Date; end: Date } {
+  const d = new Date(today);
+  d.setHours(0, 0, 0, 0);
+  switch (period) {
+    case "week": {
+      const s = getMondayOf(d);
+      const e = new Date(s);
+      e.setDate(s.getDate() + 6);
+      return { start: s, end: e };
+    }
+    case "wtd":  return { start: getMondayOf(d), end: d };
+    case "month": return {
+      start: new Date(d.getFullYear(), d.getMonth(), 1),
+      end:   new Date(d.getFullYear(), d.getMonth() + 1, 0),
+    };
+    case "mtd":  return { start: new Date(d.getFullYear(), d.getMonth(), 1), end: d };
+    case "quarter": {
+      const q = Math.floor(d.getMonth() / 3);
+      return { start: new Date(d.getFullYear(), q * 3, 1), end: new Date(d.getFullYear(), q * 3 + 3, 0) };
+    }
+    case "qtd": {
+      const q = Math.floor(d.getMonth() / 3);
+      return { start: new Date(d.getFullYear(), q * 3, 1), end: d };
+    }
+  }
+}
+
+function hoursInRange(a: NSAllocation, rangeStart: Date, rangeEnd: Date): number {
+  const s = parseNSDate(a.startDate);
+  const e = parseNSDate(a.endDate);
+  if (!s || !e) return 0;
+  const os = s > rangeStart ? s : new Date(rangeStart);
+  const oe = e < rangeEnd   ? e : new Date(rangeEnd);
+  if (os > oe) return 0;
+  let workDays = 0;
+  const cur = new Date(os); cur.setHours(0, 0, 0, 0);
+  const last = new Date(oe); last.setHours(0, 0, 0, 0);
+  while (cur <= last) {
+    const dow = cur.getDay();
+    if (dow >= 1 && dow <= 5) workDays++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return (weeklyHours(a) / 5) * workDays;
+}
+
+function fmtDateShort(d: Date): string {
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
+function getPeriodDisplayLabel(period: ForecastPeriod, today: Date): string {
+  const { start, end } = getPeriodBounds(period, today);
+  const q = Math.floor(today.getMonth() / 3) + 1;
+  switch (period) {
+    case "week":    return `${fmtDateShort(start)} – ${fmtDateShort(end)}`;
+    case "wtd":     return `${fmtDateShort(start)} – Today`;
+    case "month":   return today.toLocaleDateString("en-AU", { month: "long", year: "numeric" });
+    case "mtd":     return `${fmtDateShort(start)} – Today`;
+    case "quarter": return `Q${q} ${today.getFullYear()} · ${fmtDateShort(start)} – ${fmtDateShort(end)}`;
+    case "qtd":     return `Q${q} ${today.getFullYear()} – Today`;
+  }
+}
+
+// ─── Mini progress bar for forecast cells ────────────────────────────────
+
+function MiniBar({ pct, tgt, color }: { pct: number; tgt: number; color: string }) {
+  const fillW = Math.min(pct * 100, 120);
+  const tgtW  = Math.min(tgt * 100, 120);
+  return (
+    <div style={{ position: "relative", height: 5, background: C.border, borderRadius: 3, marginTop: 5, width: "100%" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${fillW}%`, background: color, borderRadius: 3, opacity: 0.85 }} />
+      <div style={{ position: "absolute", top: -2, left: `${tgtW}%`, width: 2, height: 9, background: C.textSub, borderRadius: 1, transform: "translateX(-50%)", opacity: 0.5 }} />
+    </div>
+  );
+}
+
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const thStyle: React.CSSProperties = {
@@ -188,6 +275,9 @@ export function ResourceAllocation({ allocations, error }: Props) {
   const [savingId,    setSavingId]    = useState<string | null>(null);
   const [cellError,   setCellError]   = useState<{ id: string; msg: string } | null>(null);
   const savingRef = useRef(false);
+
+  const [subTab, setSubTab] = useState<SubTab>("allocation");
+  const [forecastPeriod, setForecastPeriod] = useState<ForecastPeriod>("week");
 
   // Group by employee
   const byEmployee = useMemo(() => {
@@ -240,6 +330,60 @@ export function ResourceAllocation({ allocations, error }: Props) {
     }
     return { total: byEmployee.length, over, high, normal, light };
   }, [byEmployee, today]);
+
+  const forecastData = useMemo(() => {
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const { start, end } = getPeriodBounds(forecastPeriod, now);
+    const workDays = countWorkDays(start, end);
+    const capPerPerson = workDays * 8;
+
+    const rows = byEmployee.map(emp => {
+      const targetUtil = emp.rows.find(a => a.targetUtilization != null)?.targetUtilization ?? 0.75;
+      const billable = emp.rows
+        .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
+        .reduce((s, a) => s + hoursInRange(a, start, end), 0);
+      const utilized = emp.rows.reduce((s, a) => s + hoursInRange(a, start, end), 0);
+      const billableTarget = targetUtil * FORECAST_BILL_RATIO * capPerPerson;
+      const utilizedTarget = targetUtil * capPerPerson;
+      const billablePct    = capPerPerson > 0 ? billable / capPerPerson : 0;
+      const utilizedPct    = capPerPerson > 0 ? utilized / capPerPerson : 0;
+      const billableTgtPct = targetUtil * FORECAST_BILL_RATIO;
+      const utilizedTgtPct = targetUtil;
+      const billableRAG: "green" | "yellow" | "red" = billablePct >= billableTgtPct * 0.95 ? "green" : billablePct >= billableTgtPct * 0.8 ? "yellow" : "red";
+      const utilizedRAG: "green" | "yellow" | "red" = utilizedPct >= utilizedTgtPct * 0.95 ? "green" : utilizedPct >= utilizedTgtPct * 0.8 ? "yellow" : "red";
+      return {
+        name: emp.name, cap: capPerPerson, workDays,
+        billable, utilized, bench: capPerPerson - utilized,
+        billableTarget, utilizedTarget,
+        billablePct, utilizedPct, billableTgtPct, utilizedTgtPct,
+        billableGap: billable - billableTarget,
+        utilizedGap: utilized - utilizedTarget,
+        billableRAG, utilizedRAG, targetUtil,
+      };
+    });
+
+    const teamCap            = rows.reduce((s, r) => s + r.cap, 0);
+    const teamBillable       = rows.reduce((s, r) => s + r.billable, 0);
+    const teamUtilized       = rows.reduce((s, r) => s + r.utilized, 0);
+    const teamBillableTarget = rows.reduce((s, r) => s + r.billableTarget, 0);
+    const teamUtilizedTarget = rows.reduce((s, r) => s + r.utilizedTarget, 0);
+    const teamBillablePct    = teamCap > 0 ? teamBillable / teamCap : 0;
+    const teamUtilizedPct    = teamCap > 0 ? teamUtilized / teamCap : 0;
+    const teamBillableTgtPct = teamCap > 0 ? teamBillableTarget / teamCap : 0;
+    const teamUtilizedTgtPct = teamCap > 0 ? teamUtilizedTarget / teamCap : 0;
+    const ragFn = (pct: number, tgt: number): "green" | "yellow" | "red" => pct >= tgt * 0.95 ? "green" : pct >= tgt * 0.8 ? "yellow" : "red";
+
+    return {
+      rows, workDays, capPerPerson,
+      teamCap, teamBillable, teamUtilized,
+      teamBench: teamCap - teamUtilized,
+      teamBillableTarget, teamUtilizedTarget,
+      teamBillablePct, teamUtilizedPct,
+      teamBillableTgtPct, teamUtilizedTgtPct,
+      teamBillableRAG: ragFn(teamBillablePct, teamBillableTgtPct),
+      teamUtilizedRAG: ragFn(teamUtilizedPct, teamUtilizedTgtPct),
+    };
+  }, [byEmployee, forecastPeriod]);
 
   function toggleExpand(name: string) {
     setExpanded(prev => {
@@ -432,6 +576,33 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
   return (
     <div style={{ fontFamily: C.font, color: C.text }}>
+
+      {/* ═══ Sub-tab nav ═══════════════════════════════════════════════════════ */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 24 }}>
+        {(["allocation", "forecast"] as SubTab[]).map(t => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            style={{
+              padding: "8px 22px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              background: "none",
+              border: "none",
+              borderBottom: subTab === t ? `2px solid ${C.blue}` : "2px solid transparent",
+              color: subTab === t ? C.blue : C.textSub,
+              marginBottom: -1,
+              fontFamily: C.font,
+              transition: "all 0.15s",
+            }}
+          >
+            {t === "allocation" ? "📊 Allocation" : "📈 Forecast"}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "allocation" && (<>
 
       {/* ═══ SECTION 1: Resource View ═══════════════════════════════════════ */}
 
@@ -986,6 +1157,224 @@ export function ResourceAllocation({ allocations, error }: Props) {
       <div style={{ marginTop: 8, fontSize: 11, color: C.textSub }}>
         Allocated = estimated future hours (today → end date) at current weekly rate. Gap = Remaining Budget − Allocated. Edits write back to NetSuite immediately.
       </div>
+
+      </>)}
+
+      {subTab === "forecast" && (() => {
+        const {
+          rows, workDays, teamCap, teamBillable, teamUtilized, teamBench,
+          teamBillablePct, teamUtilizedPct, teamBillableTgtPct, teamUtilizedTgtPct,
+          teamBillableRAG, teamUtilizedRAG, teamBillableTarget, teamUtilizedTarget,
+        } = forecastData;
+        const now = new Date();
+
+        const ragColor = (r: "green" | "yellow" | "red") => r === "green" ? C.green   : r === "yellow" ? C.yellow   : C.red;
+        const ragBg    = (r: "green" | "yellow" | "red") => r === "green" ? C.greenBg : r === "yellow" ? C.yellowBg : C.redBg;
+        const ragBd    = (r: "green" | "yellow" | "red") => r === "green" ? C.greenBd : r === "yellow" ? C.yellowBd : C.redBd;
+        const ragLabel = (r: "green" | "yellow" | "red") => r === "green" ? "On Track" : r === "yellow" ? "At Risk"  : "Behind";
+
+        return (
+          <>
+            {/* Period filter */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, letterSpacing: "0.05em", textTransform: "uppercase", marginRight: 4 }}>Period</span>
+              {(Object.keys(PERIOD_LABELS) as ForecastPeriod[]).map(p => (
+                <button key={p} onClick={() => setForecastPeriod(p)} style={{
+                  padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  borderRadius: 20, border: `1.5px solid ${forecastPeriod === p ? C.blue : C.border}`,
+                  background: forecastPeriod === p ? C.blueBg : C.surface,
+                  color: forecastPeriod === p ? C.blue : C.textMid,
+                  fontFamily: C.font, transition: "all 0.15s",
+                }}>
+                  {PERIOD_LABELS[p]}
+                </button>
+              ))}
+              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 8, fontStyle: "italic" }}>
+                {getPeriodDisplayLabel(forecastPeriod, now)}
+                {" · "}{workDays} working day{workDays !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            {/* Team KPI cards */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+              {/* Capacity */}
+              <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.blue, lineHeight: 1 }}>{teamCap.toFixed(0)}h</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Team Capacity</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{workDays}d × {rows.length} people × 8h</div>
+              </div>
+              {/* Billable */}
+              <div style={{ background: ragBg(teamBillableRAG), border: `1px solid ${ragBd(teamBillableRAG)}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: ragColor(teamBillableRAG), lineHeight: 1 }}>{teamBillable.toFixed(1)}h</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Billable</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamBillablePct * 100)}% of capacity · target {Math.round(teamBillableTgtPct * 100)}%</div>
+                <MiniBar pct={teamBillablePct} tgt={teamBillableTgtPct} color={ragColor(teamBillableRAG)} />
+                <div style={{ fontSize: 10, fontFamily: C.mono, color: ragColor(teamBillableRAG), marginTop: 4, fontWeight: 600 }}>
+                  {(teamBillable - teamBillableTarget) >= 0 ? `+${(teamBillable - teamBillableTarget).toFixed(1)}h` : `${(teamBillable - teamBillableTarget).toFixed(1)}h`} vs target
+                </div>
+              </div>
+              {/* Utilized */}
+              <div style={{ background: ragBg(teamUtilizedRAG), border: `1px solid ${ragBd(teamUtilizedRAG)}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: ragColor(teamUtilizedRAG), lineHeight: 1 }}>{teamUtilized.toFixed(1)}h</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Utilized</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamUtilizedPct * 100)}% of capacity · target {Math.round(teamUtilizedTgtPct * 100)}%</div>
+                <MiniBar pct={teamUtilizedPct} tgt={teamUtilizedTgtPct} color={ragColor(teamUtilizedRAG)} />
+                <div style={{ fontSize: 10, fontFamily: C.mono, color: ragColor(teamUtilizedRAG), marginTop: 4, fontWeight: 600 }}>
+                  {(teamUtilized - teamUtilizedTarget) >= 0 ? `+${(teamUtilized - teamUtilizedTarget).toFixed(1)}h` : `${(teamUtilized - teamUtilizedTarget).toFixed(1)}h`} vs target
+                </div>
+              </div>
+              {/* Productive */}
+              <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.textMid, lineHeight: 1 }}>{teamCap.toFixed(0)}h</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Productive</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>Total working capacity</div>
+              </div>
+              {/* Bench */}
+              <div style={{ background: teamBench > teamCap * 0.25 ? C.redBg : teamBench > teamCap * 0.1 ? C.yellowBg : C.greenBg, border: `1px solid ${teamBench > teamCap * 0.25 ? C.redBd : teamBench > teamCap * 0.1 ? C.yellowBd : C.greenBd}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: teamBench > teamCap * 0.25 ? C.red : teamBench > teamCap * 0.1 ? C.yellow : C.green, lineHeight: 1 }}>{teamBench.toFixed(1)}h</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Bench</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{teamCap > 0 ? Math.round((teamBench / teamCap) * 100) : 0}% unallocated</div>
+              </div>
+            </div>
+
+            {/* Per-consultant table */}
+            <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: C.sh }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, textAlign: "left", minWidth: 180, paddingLeft: 14, ...stickyLeft, background: C.alt }}>Consultant</th>
+                    <th style={{ ...thStyle, minWidth: 90 }}>Capacity</th>
+                    <th style={{ ...thStyle, minWidth: 170 }}>Billable</th>
+                    <th style={{ ...thStyle, minWidth: 170 }}>Utilized</th>
+                    <th style={{ ...thStyle, minWidth: 100 }}>Productive</th>
+                    <th style={{ ...thStyle, minWidth: 90 }}>Bench</th>
+                    <th style={{ ...thStyle, minWidth: 100 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const rowBg = i % 2 === 0 ? C.surface : C.alt;
+                    return (
+                      <tr key={r.name} style={{ background: rowBg }}>
+                        <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: `1px solid ${C.border}`, ...stickyLeft, background: rowBg }}>
+                          {r.name}
+                          <span style={{ marginLeft: 8, fontSize: 10, fontFamily: C.mono, fontWeight: 500, color: C.textSub, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 3, padding: "1px 5px" }}>
+                            {Math.round(r.targetUtil * 100)}% tgt
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.blue }}>{r.cap}h</div>
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{r.workDays}d</div>
+                        </td>
+                        <td style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.billableRAG) }}>{r.billable.toFixed(1)}h</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.billableRAG) }}>{Math.round(r.billablePct * 100)}%</span>
+                          </div>
+                          <MiniBar pct={r.billablePct} tgt={r.billableTgtPct} color={ragColor(r.billableRAG)} />
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
+                            target {Math.round(r.billableTgtPct * 100)}%{" · "}
+                            <span style={{ color: ragColor(r.billableRAG), fontWeight: 600 }}>
+                              {r.billableGap >= 0 ? `+${r.billableGap.toFixed(1)}h` : `${r.billableGap.toFixed(1)}h`}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.utilizedRAG) }}>{r.utilized.toFixed(1)}h</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.utilizedRAG) }}>{Math.round(r.utilizedPct * 100)}%</span>
+                          </div>
+                          <MiniBar pct={r.utilizedPct} tgt={r.utilizedTgtPct} color={ragColor(r.utilizedRAG)} />
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
+                            target {Math.round(r.utilizedTgtPct * 100)}%{" · "}
+                            <span style={{ color: ragColor(r.utilizedRAG), fontWeight: 600 }}>
+                              {r.utilizedGap >= 0 ? `+${r.utilizedGap.toFixed(1)}h` : `${r.utilizedGap.toFixed(1)}h`}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{r.cap}h</div>
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>100%</div>
+                        </td>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: r.bench > r.cap * 0.25 ? C.red : r.bench > r.cap * 0.1 ? C.yellow : C.textSub }}>
+                            {r.bench.toFixed(1)}h
+                          </div>
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>
+                            {r.cap > 0 ? Math.round((r.bench / r.cap) * 100) : 0}%
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                          <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: ragBg(r.billableRAG), color: ragColor(r.billableRAG), border: `1px solid ${ragBd(r.billableRAG)}` }}>
+                            {ragLabel(r.billableRAG)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {/* Team total row */}
+                  <tr style={{ background: C.alt }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderTop: `2px solid ${C.border}`, ...stickyLeft, background: C.alt }}>
+                      Team Total
+                    </td>
+                    <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.blue }}>{teamCap.toFixed(0)}h</div>
+                    </td>
+                    <td style={{ padding: "8px 12px", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(teamBillableRAG) }}>{teamBillable.toFixed(1)}h</span>
+                        <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(teamBillableRAG) }}>{Math.round(teamBillablePct * 100)}%</span>
+                      </div>
+                      <MiniBar pct={teamBillablePct} tgt={teamBillableTgtPct} color={ragColor(teamBillableRAG)} />
+                      <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
+                        target {Math.round(teamBillableTgtPct * 100)}%{" · "}
+                        <span style={{ color: ragColor(teamBillableRAG), fontWeight: 600 }}>
+                          {(teamBillable - teamBillableTarget) >= 0 ? `+${(teamBillable - teamBillableTarget).toFixed(1)}h` : `${(teamBillable - teamBillableTarget).toFixed(1)}h`}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: "8px 12px", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(teamUtilizedRAG) }}>{teamUtilized.toFixed(1)}h</span>
+                        <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(teamUtilizedRAG) }}>{Math.round(teamUtilizedPct * 100)}%</span>
+                      </div>
+                      <MiniBar pct={teamUtilizedPct} tgt={teamUtilizedTgtPct} color={ragColor(teamUtilizedRAG)} />
+                      <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
+                        target {Math.round(teamUtilizedTgtPct * 100)}%{" · "}
+                        <span style={{ color: ragColor(teamUtilizedRAG), fontWeight: 600 }}>
+                          {(teamUtilized - teamUtilizedTarget) >= 0 ? `+${(teamUtilized - teamUtilizedTarget).toFixed(1)}h` : `${(teamUtilized - teamUtilizedTarget).toFixed(1)}h`}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{teamCap.toFixed(0)}h</div>
+                    </td>
+                    <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: teamBench > teamCap * 0.25 ? C.red : teamBench > teamCap * 0.1 ? C.yellow : C.textSub }}>
+                        {teamBench.toFixed(1)}h
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: ragBg(teamBillableRAG), color: ragColor(teamBillableRAG), border: `1px solid ${ragBd(teamBillableRAG)}` }}>
+                        {ragLabel(teamBillableRAG)}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginTop: 10, fontSize: 11, color: C.textSub }}>
+              <strong>Billable</strong>: Implementation + Service hours ·{" "}
+              <strong>Utilized</strong>: all allocated project hours ·{" "}
+              <strong>Productive</strong>: total working capacity (8h × working days) ·{" "}
+              <strong>Bench</strong>: unallocated time ·{" "}
+              Status based on Billable vs. target. Target utilization sourced from NetSuite employee record (default 75%).
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
