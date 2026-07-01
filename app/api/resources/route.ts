@@ -23,8 +23,6 @@ export async function GET() {
       allocationunit: string;
       percentoftime: string;
       numberhours: string;
-      classify_utilized: string | null;
-      classify_productive: string | null;
     }>(`
       SELECT
         ra.id,
@@ -36,8 +34,6 @@ export async function GET() {
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         j.jobtype                                      AS jobtype,
         BUILTIN.DF(j.jobtype)                          AS jobtype_name,
-        j.classifytimeasutilized                       AS classify_utilized,
-        j.classifytimeasproductive                     AS classify_productive,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -66,6 +62,33 @@ export async function GET() {
         }
       } catch {
         // Non-fatal — allocations still show without client name prefix
+      }
+    }
+
+    // Fetch classify flags from the job Preferences tab (non-fatal — defaults to true)
+    const uniqueProjectIds = [...new Set(rows.map(r => r.project_id))];
+    const classifyMap: Record<string, { utilized: boolean; productive: boolean }> = {};
+    if (uniqueProjectIds.length > 0) {
+      try {
+        const classifyRows = await runSuiteQL<{
+          id: string;
+          classifytimeasutilized:   string | null;
+          classifytimeasproductive: string | null;
+        }>(`
+          SELECT id, classifytimeasutilized, classifytimeasproductive
+          FROM job
+          WHERE id IN (${uniqueProjectIds.join(",")})
+        `);
+        if (Array.isArray(classifyRows)) {
+          for (const c of classifyRows as any[]) {
+            classifyMap[String(c.id)] = {
+              utilized:   c.classifytimeasutilized   !== "F",
+              productive: c.classifytimeasproductive !== "F",
+            };
+          }
+        }
+      } catch {
+        // Non-fatal — classify flags default to true if the fields aren't exposed
       }
     }
 
@@ -111,8 +134,8 @@ export async function GET() {
         remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
         budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
         targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
-        classifyAsUtilized:   r.classify_utilized   !== "F",  // default true if not set
-        classifyAsProductive: r.classify_productive !== "F",  // default true if not set
+        classifyAsUtilized:   classifyMap[r.project_id]?.utilized   ?? true,
+        classifyAsProductive: classifyMap[r.project_id]?.productive ?? true,
       };
     });
 
