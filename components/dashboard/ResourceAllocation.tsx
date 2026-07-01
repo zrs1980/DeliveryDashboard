@@ -278,6 +278,15 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
   const [subTab, setSubTab] = useState<SubTab>("allocation");
   const [forecastPeriod, setForecastPeriod] = useState<ForecastPeriod>("week");
+  const [expandedForecastRows, setExpandedForecastRows] = useState<Set<string>>(new Set());
+
+  function toggleForecastRow(name: string) {
+    setExpandedForecastRows(prev => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  }
 
   // Group by employee
   const byEmployee = useMemo(() => {
@@ -351,6 +360,19 @@ export function ResourceAllocation({ allocations, error }: Props) {
       const utilizedTgtPct = targetUtil;
       const billableRAG: "green" | "yellow" | "red" = billablePct >= billableTgtPct * 0.95 ? "green" : billablePct >= billableTgtPct * 0.8 ? "yellow" : "red";
       const utilizedRAG: "green" | "yellow" | "red" = utilizedPct >= utilizedTgtPct * 0.95 ? "green" : utilizedPct >= utilizedTgtPct * 0.8 ? "yellow" : "red";
+
+      // Per-project breakdown for expandable rows
+      const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number }>();
+      for (const a of emp.rows) {
+        const h = hoursInRange(a, start, end);
+        if (h === 0) continue;
+        if (!projMap.has(a.projectId)) {
+          projMap.set(a.projectId, { projectId: a.projectId, name: a.projectName, companyName: a.companyName ?? "", type: a.projectType ?? "Internal", hours: 0 });
+        }
+        projMap.get(a.projectId)!.hours += h;
+      }
+      const breakdown = Array.from(projMap.values()).sort((a, b) => b.hours - a.hours);
+
       return {
         name: emp.name, cap: capPerPerson, workDays,
         billable, utilized, bench: capPerPerson - utilized,
@@ -358,7 +380,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
         billablePct, utilizedPct, billableTgtPct, utilizedTgtPct,
         billableGap: billable - billableTarget,
         utilizedGap: utilized - utilizedTarget,
-        billableRAG, utilizedRAG, targetUtil,
+        billableRAG, utilizedRAG, targetUtil, breakdown,
       };
     });
 
@@ -1253,20 +1275,31 @@ export function ResourceAllocation({ allocations, error }: Props) {
                 </thead>
                 <tbody>
                   {rows.map((r, i) => {
-                    const rowBg = i % 2 === 0 ? C.surface : C.alt;
+                    const rowBg  = i % 2 === 0 ? C.surface : C.alt;
+                    const subBg  = i % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
+                    const isExp  = expandedForecastRows.has(r.name);
+                    const TYPE_STYLE: Record<string, { color: string; bg: string; bd: string }> = {
+                      Implementation: { color: C.purple,  bg: C.purpleBg, bd: C.purpleBd },
+                      Service:        { color: C.blue,    bg: C.blueBg,   bd: C.blueBd   },
+                      Internal:       { color: C.textSub, bg: C.alt,      bd: C.border   },
+                    };
                     return (
-                      <tr key={r.name} style={{ background: rowBg }}>
-                        <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: `1px solid ${C.border}`, ...stickyLeft, background: rowBg }}>
+                      <>
+                      <tr key={r.name} style={{ background: rowBg, cursor: r.breakdown.length > 0 ? "pointer" : "default" }} onClick={() => r.breakdown.length > 0 && toggleForecastRow(r.name)}>
+                        <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, ...stickyLeft, background: rowBg }}>
+                          {r.breakdown.length > 0 && (
+                            <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
+                          )}
                           {r.name}
                           <span style={{ marginLeft: 8, fontSize: 10, fontFamily: C.mono, fontWeight: 500, color: C.textSub, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 3, padding: "1px 5px" }}>
                             {Math.round(r.targetUtil * 100)}% tgt
                           </span>
                         </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.blue }}>{r.cap}h</div>
                           <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{r.workDays}d</div>
                         </td>
-                        <td style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "8px 12px", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                             <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.billableRAG) }}>{r.billable.toFixed(1)}h</span>
                             <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.billableRAG) }}>{Math.round(r.billablePct * 100)}%</span>
@@ -1279,7 +1312,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "8px 12px", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                             <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.utilizedRAG) }}>{r.utilized.toFixed(1)}h</span>
                             <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.utilizedRAG) }}>{Math.round(r.utilizedPct * 100)}%</span>
@@ -1292,11 +1325,11 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{r.cap}h</div>
                           <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>100%</div>
                         </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: r.bench > r.cap * 0.25 ? C.red : r.bench > r.cap * 0.1 ? C.yellow : C.textSub }}>
                             {r.bench.toFixed(1)}h
                           </div>
@@ -1304,12 +1337,49 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             {r.cap > 0 ? Math.round((r.bench / r.cap) * 100) : 0}%
                           </div>
                         </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: ragBg(r.billableRAG), color: ragColor(r.billableRAG), border: `1px solid ${ragBd(r.billableRAG)}` }}>
                             {ragLabel(r.billableRAG)}
                           </span>
                         </td>
                       </tr>
+
+                      {/* Expandable project breakdown */}
+                      {isExp && r.breakdown.map((p, pi) => {
+                        const ts = TYPE_STYLE[p.type] ?? TYPE_STYLE["Internal"];
+                        const isLast = pi === r.breakdown.length - 1;
+                        const pct = r.cap > 0 ? p.hours / r.cap : 0;
+                        return (
+                          <tr key={`${r.name}-${p.projectId}`} style={{ background: subBg }}>
+                            <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280, ...stickyLeft, background: subBg }}
+                                title={p.companyName ? `${p.companyName} — ${p.name}` : p.name}>
+                              <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                              <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.bd}`, marginRight: 6 }}>
+                                {p.type === "Implementation" ? "Impl" : p.type}
+                              </span>
+                              {p.companyName && <span style={{ color: C.textSub, marginRight: 4 }}>{p.companyName} —</span>}
+                              {p.name}
+                            </td>
+                            <td colSpan={2} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                <span style={{ fontFamily: C.mono, fontSize: 13, fontWeight: 700, color: ts.color }}>{p.hours.toFixed(1)}h</span>
+                                <span style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>{Math.round(pct * 100)}% of cap</span>
+                              </div>
+                              <div style={{ position: "relative", height: 4, background: C.border, borderRadius: 2, marginTop: 4, width: "100%" }}>
+                                <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(pct * 100, 100)}%`, background: ts.color, borderRadius: 2, opacity: 0.7 }} />
+                              </div>
+                            </td>
+                            <td colSpan={4} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}`, fontSize: 11, color: C.textSub }}>
+                              {(p.type === "Implementation" || p.type === "Service") ? (
+                                <span style={{ color: C.green, fontWeight: 600 }}>● Billable</span>
+                              ) : (
+                                <span style={{ color: C.textSub }}>○ Non-billable</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      </>
                     );
                   })}
 
