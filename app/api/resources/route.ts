@@ -23,6 +23,8 @@ export async function GET() {
       allocationunit: string;
       percentoftime: string;
       numberhours: string;
+      classify_utilized: string | null;
+      classify_productive: string | null;
     }>(`
       SELECT
         ra.id,
@@ -34,6 +36,8 @@ export async function GET() {
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         j.jobtype                                      AS jobtype,
         BUILTIN.DF(j.jobtype)                          AS jobtype_name,
+        j.classifytimeasutilized                       AS classify_utilized,
+        j.classifytimeasproductive                     AS classify_productive,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -106,7 +110,9 @@ export async function GET() {
         hoursPerDay:    parseFloat(r.numberhours) || 0,
         remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
         budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
-        targetUtilization: jobResources[empId]?.targetUtilization ?? 0.75,
+        targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
+        classifyAsUtilized:   r.classify_utilized   !== "F",  // default true if not set
+        classifyAsProductive: r.classify_productive !== "F",  // default true if not set
       };
     });
 

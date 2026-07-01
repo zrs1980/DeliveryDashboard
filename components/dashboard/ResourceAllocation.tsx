@@ -351,7 +351,13 @@ export function ResourceAllocation({ allocations, error }: Props) {
       const billable = emp.rows
         .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
         .reduce((s, a) => s + hoursInRange(a, start, end), 0);
-      const utilized = emp.rows.reduce((s, a) => s + hoursInRange(a, start, end), 0);
+      const utilized = emp.rows
+        .filter(a => a.classifyAsUtilized !== false)
+        .reduce((s, a) => s + hoursInRange(a, start, end), 0);
+      const productive = emp.rows
+        .filter(a => a.classifyAsProductive !== false)
+        .reduce((s, a) => s + hoursInRange(a, start, end), 0);
+      const totalAllocated = emp.rows.reduce((s, a) => s + hoursInRange(a, start, end), 0);
       const billableTarget = targetUtil * FORECAST_BILL_RATIO * capPerPerson;
       const utilizedTarget = targetUtil * capPerPerson;
       const billablePct    = capPerPerson > 0 ? billable / capPerPerson : 0;
@@ -362,22 +368,33 @@ export function ResourceAllocation({ allocations, error }: Props) {
       const utilizedRAG: "green" | "yellow" | "red" = utilizedPct >= utilizedTgtPct * 0.95 ? "green" : utilizedPct >= utilizedTgtPct * 0.8 ? "yellow" : "red";
 
       // Per-project breakdown for expandable rows
-      const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number }>();
+      const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number; classifyAsUtilized: boolean; classifyAsProductive: boolean }>();
       for (const a of emp.rows) {
         const h = hoursInRange(a, start, end);
         if (h === 0) continue;
         if (!projMap.has(a.projectId)) {
-          projMap.set(a.projectId, { projectId: a.projectId, name: a.projectName, companyName: a.companyName ?? "", type: a.projectType ?? "Internal", hours: 0 });
+          projMap.set(a.projectId, {
+            projectId:          a.projectId,
+            name:               a.projectName,
+            companyName:        a.companyName ?? "",
+            type:               a.projectType ?? "Internal",
+            hours:              0,
+            classifyAsUtilized:   a.classifyAsUtilized   !== false,
+            classifyAsProductive: a.classifyAsProductive !== false,
+          });
         }
         projMap.get(a.projectId)!.hours += h;
       }
       const breakdown = Array.from(projMap.values()).sort((a, b) => b.hours - a.hours);
 
+      const productivePct = capPerPerson > 0 ? productive / capPerPerson : 0;
+
       return {
         name: emp.name, cap: capPerPerson, workDays,
-        billable, utilized, bench: capPerPerson - utilized,
+        billable, utilized, productive, bench: capPerPerson - totalAllocated,
         billableTarget, utilizedTarget,
-        billablePct, utilizedPct, billableTgtPct, utilizedTgtPct,
+        billablePct, utilizedPct, productivePct,
+        billableTgtPct, utilizedTgtPct,
         billableGap: billable - billableTarget,
         utilizedGap: utilized - utilizedTarget,
         billableRAG, utilizedRAG, targetUtil, breakdown,
@@ -387,20 +404,22 @@ export function ResourceAllocation({ allocations, error }: Props) {
     const teamCap            = rows.reduce((s, r) => s + r.cap, 0);
     const teamBillable       = rows.reduce((s, r) => s + r.billable, 0);
     const teamUtilized       = rows.reduce((s, r) => s + r.utilized, 0);
+    const teamProductive     = rows.reduce((s, r) => s + r.productive, 0);
     const teamBillableTarget = rows.reduce((s, r) => s + r.billableTarget, 0);
     const teamUtilizedTarget = rows.reduce((s, r) => s + r.utilizedTarget, 0);
     const teamBillablePct    = teamCap > 0 ? teamBillable / teamCap : 0;
     const teamUtilizedPct    = teamCap > 0 ? teamUtilized / teamCap : 0;
+    const teamProductivePct  = teamCap > 0 ? teamProductive / teamCap : 0;
     const teamBillableTgtPct = teamCap > 0 ? teamBillableTarget / teamCap : 0;
     const teamUtilizedTgtPct = teamCap > 0 ? teamUtilizedTarget / teamCap : 0;
     const ragFn = (pct: number, tgt: number): "green" | "yellow" | "red" => pct >= tgt * 0.95 ? "green" : pct >= tgt * 0.8 ? "yellow" : "red";
 
     return {
       rows, workDays, capPerPerson,
-      teamCap, teamBillable, teamUtilized,
-      teamBench: teamCap - teamUtilized,
+      teamCap, teamBillable, teamUtilized, teamProductive,
+      teamBench: rows.reduce((s, r) => s + r.bench, 0),
       teamBillableTarget, teamUtilizedTarget,
-      teamBillablePct, teamUtilizedPct,
+      teamBillablePct, teamUtilizedPct, teamProductivePct,
       teamBillableTgtPct, teamUtilizedTgtPct,
       teamBillableRAG: ragFn(teamBillablePct, teamBillableTgtPct),
       teamUtilizedRAG: ragFn(teamUtilizedPct, teamUtilizedTgtPct),
@@ -1184,8 +1203,8 @@ export function ResourceAllocation({ allocations, error }: Props) {
 
       {subTab === "forecast" && (() => {
         const {
-          rows, workDays, teamCap, teamBillable, teamUtilized, teamBench,
-          teamBillablePct, teamUtilizedPct, teamBillableTgtPct, teamUtilizedTgtPct,
+          rows, workDays, teamCap, teamBillable, teamUtilized, teamProductive, teamBench,
+          teamBillablePct, teamUtilizedPct, teamProductivePct, teamBillableTgtPct, teamUtilizedTgtPct,
           teamBillableRAG, teamUtilizedRAG, teamBillableTarget, teamUtilizedTarget,
         } = forecastData;
         const now = new Date();
@@ -1247,9 +1266,10 @@ export function ResourceAllocation({ allocations, error }: Props) {
               </div>
               {/* Productive */}
               <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.textMid, lineHeight: 1 }}>{teamCap.toFixed(0)}h</div>
+                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.textMid, lineHeight: 1 }}>{teamProductive.toFixed(1)}h</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Productive</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>Total working capacity</div>
+                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamProductivePct * 100)}% of capacity · classify as productive</div>
+                <MiniBar pct={teamProductivePct} tgt={teamUtilizedTgtPct} color={C.textMid} />
               </div>
               {/* Bench */}
               <div style={{ background: teamBench > teamCap * 0.25 ? C.redBg : teamBench > teamCap * 0.1 ? C.yellowBg : C.greenBg, border: `1px solid ${teamBench > teamCap * 0.25 ? C.redBd : teamBench > teamCap * 0.1 ? C.yellowBd : C.greenBd}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
@@ -1326,8 +1346,8 @@ export function ResourceAllocation({ allocations, error }: Props) {
                           </div>
                         </td>
                         <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                          <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{r.cap}h</div>
-                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>100%</div>
+                          <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{r.productive.toFixed(1)}h</div>
+                          <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(r.productivePct * 100)}%</div>
                         </td>
                         <td style={{ padding: "10px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: r.bench > r.cap * 0.25 ? C.red : r.bench > r.cap * 0.1 ? C.yellow : C.textSub }}>
@@ -1371,12 +1391,15 @@ export function ResourceAllocation({ allocations, error }: Props) {
                             </td>
                             <td colSpan={4} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}`, fontSize: 11 }}>
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                {(p.type === "Implementation" || p.type === "Service") ? (
-                                  <span style={{ color: C.green, fontWeight: 600 }}>● Billable</span>
-                                ) : (
-                                  <span style={{ color: C.textSub }}>○ Non-billable</span>
-                                )}
-                                <span style={{ color: C.blue, fontWeight: 600 }}>● Utilized</span>
+                                {(p.type === "Implementation" || p.type === "Service")
+                                  ? <span style={{ color: C.green,   fontWeight: 600 }}>● Billable</span>
+                                  : <span style={{ color: C.textSub              }}>○ Non-billable</span>}
+                                {p.classifyAsUtilized !== false
+                                  ? <span style={{ color: C.blue,    fontWeight: 600 }}>● Utilized</span>
+                                  : <span style={{ color: C.textSub              }}>○ Not Utilized</span>}
+                                {p.classifyAsProductive !== false
+                                  ? <span style={{ color: C.textMid, fontWeight: 600 }}>● Productive</span>
+                                  : <span style={{ color: C.textSub              }}>○ Not Productive</span>}
                               </div>
                             </td>
                           </tr>
@@ -1421,7 +1444,8 @@ export function ResourceAllocation({ allocations, error }: Props) {
                       </div>
                     </td>
                     <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                      <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{teamCap.toFixed(0)}h</div>
+                      <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: C.textMid }}>{teamProductive.toFixed(1)}h</div>
+                      <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamProductivePct * 100)}%</div>
                     </td>
                     <td style={{ padding: "10px 8px", textAlign: "center", borderTop: `2px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                       <div style={{ fontFamily: C.mono, fontSize: 14, fontWeight: 700, color: teamBench > teamCap * 0.25 ? C.red : teamBench > teamCap * 0.1 ? C.yellow : C.textSub }}>
