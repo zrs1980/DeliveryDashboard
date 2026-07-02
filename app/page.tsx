@@ -21,7 +21,7 @@ import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationVie
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
 import { ManagerPTOView } from "@/components/dashboard/ManagerPTOView";
-import type { Project, ProjectPhase, NSAllocation } from "@/lib/types";
+import type { Project, ProjectPhase, NSAllocation, ConsultantRosterEntry } from "@/lib/types";
 
 interface NSCase {
   id: string;
@@ -63,6 +63,7 @@ interface DataState {
   phases: ProjectPhase[];
   cases: NSCase[];
   allocations: NSAllocation[];
+  consultantRoster: ConsultantRosterEntry[];
   updatedAt: string | null;
 }
 
@@ -183,7 +184,7 @@ export default function DashboardPage() {
   const [showCalendar, setShowCalendar] = useState(false);
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
-  const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], updatedAt: null });
+  const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], consultantRoster: [], updatedAt: null });
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -214,8 +215,9 @@ export default function DashboardPage() {
         projects:    projData.projects     ?? [],
         phases:      phaseData.phases      ?? [],
         cases:       casesData.cases       ?? [],
-        allocations: resData.allocations   ?? [],
-        updatedAt:   projData.updatedAt    ?? new Date().toISOString(),
+        allocations:      resData.allocations      ?? [],
+        consultantRoster: resData.consultantRoster ?? [],
+        updatedAt:        projData.updatedAt       ?? new Date().toISOString(),
       });
       setHasLoaded(true);
     } catch (e) {
@@ -225,7 +227,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const { projects, phases, cases, allocations, updatedAt } = data;
+  const { projects, phases, cases, allocations, consultantRoster, updatedAt } = data;
 
   const totalOverdue = projects.reduce((s, p) => s + p.tasks.filter(t => {
     const st = t.status.status.toLowerCase();
@@ -488,7 +490,7 @@ export default function DashboardPage() {
         {/* Resources */}
         {hasLoaded && tab === "resources" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
-            <ResourceAllocation allocations={allocations} />
+            <ResourceAllocation allocations={allocations} consultantRoster={consultantRoster} />
           </div>
         )}
 

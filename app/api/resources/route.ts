@@ -139,7 +139,27 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ allocations, updatedAt: new Date().toISOString() });
+    // Build consultant roster (custentity10 IN (1,2)) for Forecast team targets
+    // Includes all active consultants even if they have no current allocations
+    const consultantRoster: Array<{ employeeId: number; name: string; targetUtilization: number }> = [];
+    try {
+      const rosterRows = await runSuiteQL<{ id: string; firstname: string; lastname: string; targetutilization: string | null }>(
+        `SELECT id, firstname, lastname, targetutilization FROM employee WHERE isinactive = 'F' AND custentity10 IN (1, 2) ORDER BY lastname, firstname`
+      );
+      if (Array.isArray(rosterRows)) {
+        for (const r of rosterRows as any[]) {
+          const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
+          if (!name) continue;
+          const raw = r.targetutilization !== null && r.targetutilization !== "" ? parseFloat(r.targetutilization) : NaN;
+          const tgt = !isNaN(raw) ? (raw > 1 ? raw / 100 : raw) : 0.75;
+          consultantRoster.push({ employeeId: parseInt(r.id), name, targetUtilization: tgt });
+        }
+      }
+    } catch {
+      // Non-fatal — Forecast tab falls back to allocation-only data
+    }
+
+    return NextResponse.json({ allocations, consultantRoster, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.error("[/api/resources]", err);
     return NextResponse.json({

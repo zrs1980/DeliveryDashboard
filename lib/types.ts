@@ -109,6 +109,12 @@ export interface WeeklyAllocation {
   byProject: Record<number, Record<string, number>>;
 }
 
+export interface ConsultantRosterEntry {
+  employeeId:        number;
+  name:              string;
+  targetUtilization: number;
+}
+
 export interface NSAllocation {
   id: string;
   employeeId: number;

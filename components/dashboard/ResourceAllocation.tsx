@@ -1,10 +1,11 @@
 "use client";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { C } from "@/lib/constants";
-import type { NSAllocation } from "@/lib/types";
+import type { NSAllocation, ConsultantRosterEntry } from "@/lib/types";
 
 interface Props {
   allocations: NSAllocation[];
+  consultantRoster?: ConsultantRosterEntry[];
   error?: string | null;
 }
 
@@ -258,7 +259,7 @@ const stickyLeft: React.CSSProperties = {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ResourceAllocation({ allocations, error }: Props) {
+export function ResourceAllocation({ allocations, consultantRoster = [], error }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const weeks    = useMemo(() => generateWeeks(10), []);
   const today    = getMondayOf(new Date());
@@ -346,8 +347,17 @@ export function ResourceAllocation({ allocations, error }: Props) {
     const workDays = countWorkDays(start, end);
     const capPerPerson = workDays * 8;
 
-    const rows = byEmployee.map(emp => {
-      const targetUtil = emp.rows.find(a => a.targetUtilization != null)?.targetUtilization ?? 0.75;
+    // Merge consultantRoster so team targets include all consultants, not just those with allocations
+    const allocatedNames = new Set(byEmployee.map(e => e.name));
+    const rosterExtras = consultantRoster
+      .filter(r => !allocatedNames.has(r.name))
+      .map(r => ({ employeeId: r.employeeId, name: r.name, rows: [] as NSAllocation[], rosterTargetUtil: r.targetUtilization }));
+    type EmpEntry = typeof byEmployee[0] | typeof rosterExtras[0];
+    const allEntries: EmpEntry[] = [...byEmployee, ...rosterExtras];
+
+    const rows = allEntries.map(emp => {
+      const rosterTgt = "rosterTargetUtil" in emp ? emp.rosterTargetUtil : undefined;
+      const targetUtil = rosterTgt ?? emp.rows.find(a => a.targetUtilization != null)?.targetUtilization ?? 0.75;
       const billable = emp.rows
         .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
         .reduce((s, a) => s + hoursInRange(a, start, end), 0);
@@ -424,7 +434,7 @@ export function ResourceAllocation({ allocations, error }: Props) {
       teamBillableRAG: ragFn(teamBillablePct, teamBillableTgtPct),
       teamUtilizedRAG: ragFn(teamUtilizedPct, teamUtilizedTgtPct),
     };
-  }, [byEmployee, forecastPeriod]);
+  }, [byEmployee, forecastPeriod, consultantRoster]);
 
   function toggleExpand(name: string) {
     setExpanded(prev => {

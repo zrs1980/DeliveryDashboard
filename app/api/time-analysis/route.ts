@@ -235,7 +235,7 @@ export async function GET(req: NextRequest) {
     }
 
     const result = employeeIds
-      .filter(id => EMPLOYEES[id] && projectsByEmployee[String(id)])
+      .filter(id => EMPLOYEES[id])
       .map(empId => {
         const empProjRows = projectsByEmployee[String(empId)] ?? [];
 

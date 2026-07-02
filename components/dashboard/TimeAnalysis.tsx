@@ -224,14 +224,15 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
     { total: 0, billable: 0, utilized: 0, productive: 0 },
   );
   const tt = teamTotals.total;
-  const teamAvailableHours = (periodAvailableHours[resolvedPeriod] ?? 0) * active.length;
+  // Capacity uses all team members so new consultants (no hours yet) are counted
+  const teamAvailableHours = (periodAvailableHours[resolvedPeriod] ?? 0) * employees.length;
   const teamDenom = teamAvailableHours > 0 ? teamAvailableHours : tt;
   const teamBillablePct   = teamDenom > 0 ? teamTotals.billable   / teamDenom : 0;
   const teamUtilizedPct   = teamDenom > 0 ? teamTotals.utilized   / teamDenom : 0;
   const teamProductivePct = teamDenom > 0 ? teamTotals.productive / teamDenom : 0;
 
-  // Weighted team targets: simple average since all employees share the same available hours per period
-  const teamUtilTarget = active.length > 0 ? active.reduce((s, e) => s + (e.targetUtilization ?? 0.75), 0) / active.length : 0.75;
+  // Team targets from ALL employees so new hires immediately shift the team average
+  const teamUtilTarget = employees.length > 0 ? employees.reduce((s, e) => s + (e.targetUtilization ?? 0.75), 0) / employees.length : 0.75;
   const teamBillTarget = teamUtilTarget * BILL_RATIO;
 
   // ── Chart data ───────────────────────────────────────────────────────────
