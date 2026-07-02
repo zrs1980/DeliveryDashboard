@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, postRecord, getActiveJobResources } from "@/lib/netsuite";
+import { runSuiteQL, postRecord, getActiveJobResources, fetchRecord } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSAllocation } from "@/lib/types";
 
@@ -65,31 +65,30 @@ export async function GET() {
       }
     }
 
-    // Fetch classify flags from the job Preferences tab (non-fatal — defaults to true)
+    // Fetch classify flags via REST Record API (SuiteQL exposes these as NOT_EXPOSED for job)
+    // Parallel fetch one record per unique project — typically 5-10 projects max
     const uniqueProjectIds = [...new Set(rows.map(r => r.project_id))];
     const classifyMap: Record<string, { utilized: boolean; productive: boolean }> = {};
     if (uniqueProjectIds.length > 0) {
-      try {
-        const classifyRows = await runSuiteQL<{
-          id: string;
-          classifytimeasutilized:   string | null;
-          classifytimeasproductive: string | null;
-        }>(`
-          SELECT id, classifytimeasutilized, classifytimeasproductive
-          FROM job
-          WHERE id IN (${uniqueProjectIds.join(",")})
-        `);
-        if (Array.isArray(classifyRows)) {
-          for (const c of classifyRows as any[]) {
-            classifyMap[String(c.id)] = {
-              utilized:   c.classifytimeasutilized   !== "F",
-              productive: c.classifytimeasproductive !== "F",
-            };
+      await Promise.all(uniqueProjectIds.map(async (pid, idx) => {
+        try {
+          const rec = await fetchRecord<Record<string, unknown>>("job", parseInt(pid));
+          // Log raw field names on first project to aid debugging in Vercel logs
+          if (idx === 0) {
+            const classifyKeys = Object.keys(rec).filter(k => k.toLowerCase().includes("classify") || k.toLowerCase().includes("utilized") || k.toLowerCase().includes("productive"));
+            console.log("[resources] job REST record classify-related fields:", classifyKeys, "values:", classifyKeys.reduce((o, k) => ({ ...o, [k]: rec[k] }), {}));
           }
+          // NS REST API returns camelCase field names; checkbox values are booleans
+          const utilized   = rec["classifyTimeAsUtilized"]   ?? rec["classifytimeasutilized"];
+          const productive = rec["classifyTimeAsProductive"] ?? rec["classifytimeasproductive"];
+          classifyMap[pid] = {
+            utilized:   utilized   !== false && utilized   !== "F",
+            productive: productive !== false && productive !== "F",
+          };
+        } catch {
+          // Non-fatal — project defaults to utilized/productive = true
         }
-      } catch {
-        // Non-fatal — classify flags default to true if the fields aren't exposed
-      }
+      }));
     }
 
     // Look up names for any employee IDs not in the hardcoded constant
