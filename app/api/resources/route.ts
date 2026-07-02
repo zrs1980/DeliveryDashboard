@@ -73,20 +73,26 @@ export async function GET() {
       await Promise.all(uniqueProjectIds.map(async (pid, idx) => {
         try {
           const rec = await fetchRecord<Record<string, unknown>>("job", parseInt(pid));
-          // Log raw field names on first project to aid debugging in Vercel logs
+          // Log ALL field keys on first project so we can identify the correct classify field names
           if (idx === 0) {
-            const classifyKeys = Object.keys(rec).filter(k => k.toLowerCase().includes("classify") || k.toLowerCase().includes("utilized") || k.toLowerCase().includes("productive"));
-            console.log("[resources] job REST record classify-related fields:", classifyKeys, "values:", classifyKeys.reduce((o, k) => ({ ...o, [k]: rec[k] }), {}));
+            console.log("[resources] job REST fields (all):", Object.keys(rec).sort().join(", "));
           }
-          // NS REST API returns camelCase field names; checkbox values are booleans
-          const utilized   = rec["classifyTimeAsUtilized"]   ?? rec["classifytimeasutilized"];
-          const productive = rec["classifyTimeAsProductive"] ?? rec["classifytimeasproductive"];
-          classifyMap[pid] = {
-            utilized:   utilized   !== false && utilized   !== "F",
-            productive: productive !== false && productive !== "F",
-          };
-        } catch {
-          // Non-fatal — project defaults to utilized/productive = true
+          // Try multiple possible camelCase field names for the Preferences tab checkboxes
+          const utilizedRaw   = rec["classifyTimeAsUtilized"]   ?? rec["classifytimeasutilized"]
+                              ?? rec["classifyTimeasUtilized"]   ?? rec["classifytime"];
+          const productiveRaw = rec["classifyTimeAsProductive"] ?? rec["classifytimeasproductive"]
+                              ?? rec["classifyTimeasProductive"];
+          console.log(`[resources] project ${pid} classify fields: utilized=${utilizedRaw} productive=${productiveRaw}`);
+          // Only populate classifyMap if we actually found the fields (undefined = field not in response)
+          if (utilizedRaw !== undefined || productiveRaw !== undefined) {
+            classifyMap[pid] = {
+              utilized:   utilizedRaw   !== false && utilizedRaw   !== "F",
+              productive: productiveRaw !== false && productiveRaw !== "F",
+            };
+          }
+          // If neither field found, classifyMap stays empty for this project → falls back to project-type default below
+        } catch (e) {
+          console.warn(`[resources] REST fetch failed for job ${pid}:`, e instanceof Error ? e.message : e);
         }
       }));
     }
@@ -133,8 +139,9 @@ export async function GET() {
         remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
         budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
         targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
-        classifyAsUtilized:   classifyMap[r.project_id]?.utilized   ?? true,
-        classifyAsProductive: classifyMap[r.project_id]?.productive ?? true,
+        // Default: Internal projects are NOT utilized/productive; client projects are
+        classifyAsUtilized:   classifyMap[r.project_id]?.utilized   ?? (projectType !== "Internal"),
+        classifyAsProductive: classifyMap[r.project_id]?.productive ?? (projectType !== "Internal"),
       };
     });
 
