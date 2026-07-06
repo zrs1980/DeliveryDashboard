@@ -6,7 +6,7 @@ import type { EmployeeBalance, TimeEntry } from "@/app/api/employee/me/route";
 import type { PTORequest } from "@/app/api/pto-requests/route";
 
 const fmtDate = (s: string) => {
-  const d = new Date(s);
+  const d = new Date(s.length === 10 ? s + "T12:00:00" : s);
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
 };
 const fmtH = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1)) + "h";

@@ -31,7 +31,7 @@ async function sendEmail(userEmail: string, to: string, subject: string, body: s
 }
 
 function fmtDate(s: string) {
-  const d = new Date(s);
+  const d = new Date(s.length === 10 ? s + "T12:00:00" : s);
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
 }
 
