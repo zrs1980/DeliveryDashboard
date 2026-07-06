@@ -97,11 +97,32 @@ export async function GET() {
       }));
     }
 
-    // Look up names for any employee IDs not in the hardcoded constant
-    const unknownEmpIds = [...new Set(
-      rows.map(r => parseInt(r.employee_id)).filter(id => !EMPLOYEES[id])
-    )];
+    // Build consultant roster first — used both for Forecast team targets and to resolve employee names
+    const consultantRoster: Array<{ employeeId: number; name: string; targetUtilization: number }> = [];
     const empNameMap: Record<number, string> = { ...EMPLOYEES };
+    try {
+      const rosterRows = await runSuiteQL<{ id: string; firstname: string; lastname: string; targetutilization: string | null }>(
+        `SELECT id, firstname, lastname, targetutilization FROM employee WHERE isinactive = 'F' AND custentity10 IN (1, 2) ORDER BY lastname, firstname`
+      );
+      if (Array.isArray(rosterRows)) {
+        for (const r of rosterRows as any[]) {
+          const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
+          if (!name) continue;
+          const empId = parseInt(r.id);
+          empNameMap[empId] = name;
+          const raw = r.targetutilization !== null && r.targetutilization !== "" ? parseFloat(r.targetutilization) : NaN;
+          const tgt = !isNaN(raw) ? (raw > 1 ? raw / 100 : raw) : 0.75;
+          consultantRoster.push({ employeeId: empId, name, targetUtilization: tgt });
+        }
+      }
+    } catch {
+      // Non-fatal — falls back to EMPLOYEES constant for name lookup
+    }
+
+    // Look up names for any allocation employees still not resolved (non-consultant staff, vendors, etc.)
+    const unknownEmpIds = [...new Set(
+      rows.map(r => parseInt(r.employee_id)).filter(id => !empNameMap[id])
+    )];
     if (unknownEmpIds.length > 0) {
       try {
         const empRows = await runSuiteQL<{ id: string; firstname: string; lastname: string }>(`
@@ -144,26 +165,6 @@ export async function GET() {
         classifyAsProductive: classifyMap[r.project_id]?.productive ?? (projectType !== "Internal"),
       };
     });
-
-    // Build consultant roster (custentity10 IN (1,2)) for Forecast team targets
-    // Includes all active consultants even if they have no current allocations
-    const consultantRoster: Array<{ employeeId: number; name: string; targetUtilization: number }> = [];
-    try {
-      const rosterRows = await runSuiteQL<{ id: string; firstname: string; lastname: string; targetutilization: string | null }>(
-        `SELECT id, firstname, lastname, targetutilization FROM employee WHERE isinactive = 'F' AND custentity10 IN (1, 2) ORDER BY lastname, firstname`
-      );
-      if (Array.isArray(rosterRows)) {
-        for (const r of rosterRows as any[]) {
-          const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
-          if (!name) continue;
-          const raw = r.targetutilization !== null && r.targetutilization !== "" ? parseFloat(r.targetutilization) : NaN;
-          const tgt = !isNaN(raw) ? (raw > 1 ? raw / 100 : raw) : 0.75;
-          consultantRoster.push({ employeeId: parseInt(r.id), name, targetUtilization: tgt });
-        }
-      }
-    } catch {
-      // Non-fatal — Forecast tab falls back to allocation-only data
-    }
 
     return NextResponse.json({ allocations, consultantRoster, updatedAt: new Date().toISOString() });
   } catch (err) {
