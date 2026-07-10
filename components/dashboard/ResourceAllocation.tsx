@@ -738,23 +738,38 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     </td>
                     {weeks.map((w, wi) => {
                       const pct = weekPcts[wi];
-                      const weekBreakdown = TYPE_BADGES.map(({ key, color }) => {
-                        const hrs = emp.rows.filter(a => (a.projectType ?? "Internal") === key).reduce((s, a) => s + hoursForWeek(a, w), 0);
-                        const p = Math.round((hrs / 40) * 100);
-                        return { key, color, p };
-                      }).filter(c => c.p > 0);
+                      const billHrs = emp.rows
+                        .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
+                        .reduce((s, a) => s + hoursForWeek(a, w), 0);
+                      const intHrs = emp.rows
+                        .filter(a => (a.projectType ?? "Internal") === "Internal")
+                        .reduce((s, a) => s + hoursForWeek(a, w), 0);
+                      const billPct = Math.round((billHrs / 40) * 100);
+                      const intPct  = Math.round((intHrs  / 40) * 100);
+                      const totPct  = Math.round(pct);
                       return (
-                        <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td key={wi} style={{ padding: "5px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           {pct > 0 ? (
-                            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" }}>
-                              <span style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(pct) }}>
-                                {Math.round(pct)}%
-                              </span>
-                              {weekBreakdown.map(c => (
-                                <span key={c.key} style={{ display: "inline-block", padding: "3px 7px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...(c.key === "Internal" ? { background: C.alt, color: C.textSub, border: `1px solid ${C.border}` } : pctCellStyle(c.p)) }}>
-                                  {c.p}%
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              {/* Billable — top, bold, RAG-coloured */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Bill</span>
+                                <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(billPct) }}>
+                                  {billPct}%
                                 </span>
-                              ))}
+                              </div>
+                              {/* Internal */}
+                              {intPct > 0 && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Int</span>
+                                  <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textSub, padding: "2px 6px" }}>{intPct}%</span>
+                                </div>
+                              )}
+                              {/* Total — bottom, with divider */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 2, marginTop: 1 }}>
+                                <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Tot</span>
+                                <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textMid, fontWeight: 600, padding: "2px 6px" }}>{totPct}%</span>
+                              </div>
                             </div>
                           ) : (
                             <span style={{ color: C.mid, fontSize: 11 }}>—</span>
