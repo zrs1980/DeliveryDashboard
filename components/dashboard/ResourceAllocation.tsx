@@ -1346,8 +1346,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                         </td>
                         <td style={{ padding: "8px 12px", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.billableRAG) }}>{r.billable.toFixed(1)}h</span>
-                            <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.billableRAG) }}>{Math.round(r.billablePct * 100)}%</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 700, color: ragColor(r.billableRAG) }}>{Math.round(r.billablePct * 100)}%</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 11, color: ragColor(r.billableRAG), opacity: 0.75 }}>{r.billable.toFixed(1)}h</span>
                           </div>
                           <MiniBar pct={r.billablePct} tgt={r.billableTgtPct} color={ragColor(r.billableRAG)} />
                           <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
@@ -1359,8 +1359,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                         </td>
                         <td style={{ padding: "8px 12px", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span style={{ fontFamily: C.mono, fontSize: 16, fontWeight: 700, color: ragColor(r.utilizedRAG) }}>{r.utilized.toFixed(1)}h</span>
-                            <span style={{ fontFamily: C.mono, fontSize: 12, color: ragColor(r.utilizedRAG) }}>{Math.round(r.utilizedPct * 100)}%</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 700, color: ragColor(r.utilizedRAG) }}>{Math.round(r.utilizedPct * 100)}%</span>
+                            <span style={{ fontFamily: C.mono, fontSize: 11, color: ragColor(r.utilizedRAG), opacity: 0.75 }}>{r.utilized.toFixed(1)}h</span>
                           </div>
                           <MiniBar pct={r.utilizedPct} tgt={r.utilizedTgtPct} color={ragColor(r.utilizedRAG)} />
                           <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
