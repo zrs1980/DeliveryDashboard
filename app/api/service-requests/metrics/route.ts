@@ -45,17 +45,22 @@ export async function GET() {
       projectedtotal: string;
     }>(`
       SELECT t.id, t.tranId, t.title, t.entity, t.tranDate,
-             t.custbody_sr_indentified_by, t.custbody_ceba_sales_pipeline, t.projectedTotal
+             t.custbody_sr_indentified_by, t.custbody_ceba_sales_pipeline, t.projectedTotal,
+             BUILTIN.DF(t.entitystatus) AS entitystatus_label
       FROM transaction t
       WHERE t.type = 'Opprtnty'
       AND t.custbody_sr_indentified_by IS NOT NULL
       AND t.entitystatus <> 14
-      AND t.entitystatus <> 15
       ORDER BY t.tranDate DESC
     `);
 
+    // Filter by label — numeric entitystatus IDs vary per account; text is reliable
+    const filteredRows = rows.filter(
+      (r: any) => (r.entitystatus_label ?? "").toLowerCase() !== "closed won"
+    );
+
     // Resolve customer names
-    const entityIds = [...new Set(rows.map(r => r.entity).filter(Boolean))];
+    const entityIds = [...new Set(filteredRows.map(r => r.entity).filter(Boolean))];
     const clientMap: Record<string, string> = {};
     if (entityIds.length > 0) {
       const custRows = await runSuiteQL<{ id: string; companyname: string }>(`
@@ -81,7 +86,7 @@ export async function GET() {
       oppsByConsultant[id] = {};
     }
 
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const empId = parseInt(row.custbody_sr_indentified_by);
       if (!employeeIds.includes(empId)) continue;
       const mk = parseMonthKey(row.trandate);

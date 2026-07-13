@@ -67,8 +67,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ requests: [] });
     }
 
-    const oppIds    = oppsResult.map((r: any) => parseInt(r.id));
-    const entityIds = [...new Set(oppsResult.map((r: any) => r.entity).filter(Boolean))] as number[];
+    // Filter by label — numeric entitystatus IDs vary per account; text is reliable
+    const filteredOpps = (oppsResult as any[]).filter(
+      (r: any) => (r.entitystatus_label ?? "").toLowerCase() !== "closed won"
+    );
+
+    const oppIds    = filteredOpps.map((r: any) => parseInt(r.id));
+    const entityIds = [...new Set(filteredOpps.map((r: any) => r.entity).filter(Boolean))] as number[];
 
     // Customer names + emails
     const clientMap: Record<number, { name: string; email: string | null; customerFolder: string | null }> = {};
@@ -99,7 +104,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const requests: ServiceRequest[] = oppsResult.map((r: any) => {
+    const requests: ServiceRequest[] = filteredOpps.map((r: any) => {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
       const cust      = clientMap[r.entity];
