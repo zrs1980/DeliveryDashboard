@@ -86,21 +86,16 @@ function RequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitt
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Type</label>
           <div style={{ display: "flex", gap: 8 }}>
-            {(["pto", "sick"] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setType(t)}
-                style={{
-                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  background: type === t ? (t === "pto" ? C.greenBg : C.blueBg) : C.alt,
-                  color:      type === t ? (t === "pto" ? C.green   : C.blue)   : C.textMid,
-                  border:     `1px solid ${type === t ? (t === "pto" ? C.greenBd : C.blueBd) : C.border}`,
-                  fontFamily: C.font,
-                }}
-              >
-                {t === "pto" ? "🌴 PTO" : "🏥 Sick Leave"}
-              </button>
-            ))}
+            <button
+              onClick={() => setType("pto")}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}`,
+                fontFamily: C.font,
+              }}
+            >
+              🌴 PTO
+            </button>
           </div>
         </div>
 
