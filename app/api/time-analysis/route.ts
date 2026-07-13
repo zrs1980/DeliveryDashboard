@@ -125,40 +125,39 @@ export async function GET(req: NextRequest) {
 
     const empList = employeeIds.join(", ");
 
-    const [projectRows, entryRows, jobRows] = await Promise.all([
-      runSuiteQLAll<ProjectRow>(`
-        SELECT
-          tb.employee,
-          tb.customer                                                          AS project_id,
-          tb.trandate,
-          SUM(tb.hours)                                                        AS total_hours,
-          SUM(CASE WHEN tb.isbillable   = 'T' THEN tb.hours ELSE 0 END)       AS billable_hours,
-          SUM(CASE WHEN tb.isutilized   = 'T' THEN tb.hours ELSE 0 END)       AS utilized_hours,
-          SUM(CASE WHEN tb.isproductive = 'T' THEN tb.hours ELSE 0 END)       AS productive_hours
-        FROM timebill tb
-        WHERE tb.employee IN (${empList})
-          AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
-          AND tb.trandate <= SYSDATE
-          AND tb.approvalstatus IS NOT NULL
-        GROUP BY tb.employee, tb.customer, tb.trandate
-        ORDER BY tb.employee, tb.customer, tb.trandate
-      `),
-      runSuiteQLAll<EntryRow>(`
-        SELECT tb.id, tb.employee, tb.customer AS project_id, tb.trandate,
-               tb.hours, tb.memo, tb.isbillable, tb.isutilized
-        FROM timebill tb
-        WHERE tb.employee IN (${empList})
-          AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
-          AND tb.trandate <= SYSDATE
-          AND tb.approvalstatus IS NOT NULL
-        ORDER BY tb.employee, tb.customer, tb.trandate DESC, tb.id DESC
-      `),
-      runSuiteQL<JobRow>(`
-        SELECT id, BUILTIN.DF(customer) AS client_name, companyname AS project_name, entityid
-        FROM job
-        ORDER BY id ASC
-      `),
-    ]);
+    // Sequential queries to stay within NetSuite's concurrency limit
+    const projectRows = await runSuiteQLAll<ProjectRow>(`
+      SELECT
+        tb.employee,
+        tb.customer                                                          AS project_id,
+        tb.trandate,
+        SUM(tb.hours)                                                        AS total_hours,
+        SUM(CASE WHEN tb.isbillable   = 'T' THEN tb.hours ELSE 0 END)       AS billable_hours,
+        SUM(CASE WHEN tb.isutilized   = 'T' THEN tb.hours ELSE 0 END)       AS utilized_hours,
+        SUM(CASE WHEN tb.isproductive = 'T' THEN tb.hours ELSE 0 END)       AS productive_hours
+      FROM timebill tb
+      WHERE tb.employee IN (${empList})
+        AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
+        AND tb.trandate <= SYSDATE
+        AND tb.approvalstatus IS NOT NULL
+      GROUP BY tb.employee, tb.customer, tb.trandate
+      ORDER BY tb.employee, tb.customer, tb.trandate
+    `);
+    const entryRows = await runSuiteQLAll<EntryRow>(`
+      SELECT tb.id, tb.employee, tb.customer AS project_id, tb.trandate,
+             tb.hours, tb.memo, tb.isbillable, tb.isutilized
+      FROM timebill tb
+      WHERE tb.employee IN (${empList})
+        AND tb.trandate >= ADD_MONTHS(SYSDATE, -6)
+        AND tb.trandate <= SYSDATE
+        AND tb.approvalstatus IS NOT NULL
+      ORDER BY tb.employee, tb.customer, tb.trandate DESC, tb.id DESC
+    `);
+    const jobRows = await runSuiteQL<JobRow>(`
+      SELECT id, BUILTIN.DF(customer) AS client_name, companyname AS project_name, entityid
+      FROM job
+      ORDER BY id ASC
+    `);
 
     const jobMap: Record<string, { clientName: string; projectName: string; entityid: string }> = {};
     for (const j of jobRows) {
