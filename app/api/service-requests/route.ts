@@ -58,6 +58,7 @@ export async function GET(req: Request) {
       WHERE t.type = 'Opprtnty'
       AND t.custbody_sr_indentified_by IS NOT NULL
       AND t.entitystatus <> 14
+      AND t.entitystatus <> 15
       ${rawIdFilter ? `AND t.custbody_ceba_sales_pipeline = ${rawIdFilter}` : ""}
       ORDER BY t.expectedCloseDate ASC
     `);

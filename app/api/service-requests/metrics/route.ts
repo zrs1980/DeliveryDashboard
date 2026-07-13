@@ -50,6 +50,7 @@ export async function GET() {
       WHERE t.type = 'Opprtnty'
       AND t.custbody_sr_indentified_by IS NOT NULL
       AND t.entitystatus <> 14
+      AND t.entitystatus <> 15
       ORDER BY t.tranDate DESC
     `);
 
