@@ -171,16 +171,22 @@ WHERE tb.customer IN (?, ?, ?)   -- pass project internal IDs
 GROUP BY tb.customer, tb.employee
 ORDER BY tb.customer, total_hours DESC
 
--- ✅ VERIFIED WORKING (March 2026): Phase-level budget and actuals from projecttask
+-- ✅ VERIFIED WORKING (July 2026): Phase-level budget and actuals from projecttask
 -- WARNING: tasktype, startdate, enddate, and percentcomplete are NOT exposed in SuiteQL.
 --          Only use the fields below — anything else will return a "NOT_EXPOSED" error.
+-- IMPORTANT: Use pt.custeventceba_budget_hours for budgeted hours — NOT pt.estimatedwork.
+--            estimatedwork is NetSuite's own scheduling-engine duration estimate and gets
+--            silently recalculated whenever a task's start/end dates change (or NetSuite's
+--            date-driven scheduling logic runs), drifting away from the PM-maintained budget.
+--            custeventceba_budget_hours is the field that matches the "Budgeted Hours" column
+--            shown in the NetSuite Project Tasks/Milestones UI and is not date-driven.
 SELECT
-  pt.id            AS phase_id,
-  pt.project       AS project_id,
-  pt.title         AS phase_name,
-  pt.estimatedwork AS budgeted_hours,
-  pt.actualwork    AS actual_hours,
-  pt.status        AS phase_status
+  pt.id                          AS phase_id,
+  pt.project                     AS project_id,
+  pt.title                       AS phase_name,
+  pt.custeventceba_budget_hours  AS budgeted_hours,
+  pt.actualwork                  AS actual_hours,
+  pt.status                      AS phase_status
 FROM projecttask pt
 WHERE pt.project = ?
 ORDER BY pt.id ASC
@@ -229,6 +235,7 @@ Render the response by splitting on newlines: bullet lines (starting with `-`, `
 | `custentity_ceba_project_budget_hours` | Budget Hours | Number | **Primary source for total budgeted hours.** Always use this field — do NOT derive budget hours from `projectbudget` or the standard `enddate` field. |
 | `custentity_project_remaining_hours` | Remaining Hours | Number | Hours remaining on the project (manually maintained by PM). **Can be severely out of date** — always cross-check against timebill actuals and flag discrepancies in the UI. |
 | `custentity_project_golive_date` | Go-Live Date | Date | **Primary source for the project end/deadline date.** Use this instead of the standard `enddate` field everywhere in the dashboard — for overdue calculations, days-remaining display, and phase RAG timeline logic. |
+| `custeventceba_budget_hours` | Budget Hours (task/phase-level) | Number | **Primary source for phase/task budgeted hours** on the `projecttask` record — matches the "Budgeted Hours" column in the NetSuite Project Tasks/Milestones UI. Do NOT use `projecttask.estimatedwork` for this — that field is NetSuite's own scheduling-engine duration estimate and gets silently recalculated whenever a task's start/end dates change, drifting away from the real budget. |
 
 ### Enum Lookups
 
@@ -569,7 +576,7 @@ Each phase is evaluated on **two independent axes**:
 #### 1. Timeline RAG
 Based on phase start/end dates sourced from `projecttask.startdate` and `projecttask.enddate` in NetSuite.
 
-> ⚠️ **SuiteQL Limitation (confirmed March 2026):** `startdate`, `enddate`, `tasktype`, and `percentcomplete` are **NOT exposed** in SuiteQL for the `projecttask` record. Timeline RAG cannot be computed from SuiteQL alone. To get phase dates, use the NetSuite REST Record API (`/services/rest/record/v1/projecttask/{id}`) or the SOAP-based search. The Budget RAG dimension (from `estimatedwork` vs `actualwork`) works fine in SuiteQL.
+> ⚠️ **SuiteQL Limitation (confirmed March 2026):** `startdate`, `enddate`, `tasktype`, and `percentcomplete` are **NOT exposed** in SuiteQL for the `projecttask` record. Timeline RAG cannot be computed from SuiteQL alone. To get phase dates, use the NetSuite REST Record API (`/services/rest/record/v1/projecttask/{id}`) or the SOAP-based search. The Budget RAG dimension (from `custeventceba_budget_hours` vs `actualwork`) works fine in SuiteQL.
 
 | Status | Condition |
 |---|---|
@@ -595,7 +602,7 @@ function phaseTimelineRAG(phase: Phase, today: Date): "green" | "yellow" | "red"
 ```
 
 #### 2. Budget RAG
-Based on budgeted vs. actual hours per phase from `projecttask.estimatedwork` and `projecttask.actualwork`.
+Based on budgeted vs. actual hours per phase from `projecttask.custeventceba_budget_hours` (budgeted) and `projecttask.actualwork` (actual). Do not use `projecttask.estimatedwork` for budgeted hours — see gotchas.
 
 | Status | Condition |
 |---|---|
@@ -617,18 +624,19 @@ function phaseBudgetRAG(phase: Phase): "green" | "yellow" | "red" | "grey" {
 ### Phase RAG SuiteQL Query (Budget RAG only — verified working)
 
 ```sql
--- ✅ VERIFIED WORKING (March 2026)
+-- ✅ VERIFIED WORKING (July 2026)
 -- Returns phase rows with budget/actual hours. Does NOT include dates or % complete (not exposed).
 -- Filter phase rows by title pattern since tasktype is not available in SuiteQL.
+-- Budgeted hours MUST come from custeventceba_budget_hours, not estimatedwork (see gotchas).
 SELECT
-  pt.id            AS phase_id,
-  pt.project       AS project_id,
-  j.entityid       AS project_number,
-  j.companyname    AS client,
-  pt.title         AS phase_name,
-  pt.estimatedwork AS budgeted_hours,
-  pt.actualwork    AS actual_hours,
-  pt.status        AS phase_status
+  pt.id                          AS phase_id,
+  pt.project                     AS project_id,
+  j.entityid                     AS project_number,
+  j.companyname                  AS client,
+  pt.title                       AS phase_name,
+  pt.custeventceba_budget_hours  AS budgeted_hours,
+  pt.actualwork                  AS actual_hours,
+  pt.status                      AS phase_status
 FROM projecttask pt
 JOIN job j ON j.id = pt.project
 WHERE j.entitystatus = 2
@@ -665,7 +673,7 @@ interface ProjectPhase {
   phaseName:     string;       // e.g. "PHASE 1 - Planning and Design"
   phaseStart:    string;       // ISO date string — fetch via REST API, not SuiteQL
   phaseEnd:      string;       // ISO date string — fetch via REST API, not SuiteQL
-  budgetedHours: number;       // from projecttask.estimatedwork ✅ available in SuiteQL
+  budgetedHours: number;       // from projecttask.custeventceba_budget_hours ✅ available in SuiteQL — NOT estimatedwork (date-driven, drifts from real budget)
   actualHours:   number;       // from projecttask.actualwork ✅ available in SuiteQL
   remainingHours: number;      // budgetedHours - actualHours
   pctComplete:   number;       // 0–1 decimal — fetch via REST API, not SuiteQL
@@ -804,7 +812,8 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - **The `job` record does NOT have a `status` field in SuiteQL.** Using `status` returns "Field not found". Always use `entitystatus = 2` (integer) to filter active projects.
 - **`timebill` uses `customer` (not `job`) to reference the project.** The correct field to filter/group by project is `tb.customer`. Using `tb.job` returns "Field not found".
 - **Cannot JOIN `employee` table in SuiteQL timebill queries.** The `employee` record is not joinable via SuiteQL. Return `tb.employee` as a raw integer ID and map to names using the `EMPLOYEES` constant in code.
-- **`projecttask` has restricted fields in SuiteQL.** The following fields return "NOT_EXPOSED - Not available for channel SEARCH" errors: `tasktype`, `startdate`, `enddate`, `percentcomplete`. Only use: `id`, `project`, `title`, `estimatedwork`, `actualwork`, `status`. To get phase dates or % complete, use the NetSuite REST Record API instead.
+- **`projecttask` has restricted fields in SuiteQL.** The following fields return "NOT_EXPOSED - Not available for channel SEARCH" errors: `tasktype`, `startdate`, `enddate`, `percentcomplete`. Only use: `id`, `project`, `title`, `custeventceba_budget_hours`, `actualwork`, `status`, `parent`. To get phase dates or % complete, use the NetSuite REST Record API instead.
+- **Never use `projecttask.estimatedwork` as the budgeted-hours source.** It's NetSuite's own scheduling-engine duration field (used to auto-derive `endDate` from `startDate` + working days), not the PM-maintained budget. It gets silently recalculated whenever a task's start/end dates change via the REST API or NetSuite's own scheduling logic, drifting away from the true budget (confirmed July 2026 — a task showed `estimatedwork: 228.5` in NetSuite while its real budget field read `custeventceba_budget_hours: 174`, matching the NetSuite UI's "Budgeted Hours" column exactly). Always use `custeventceba_budget_hours` for task/phase-level budgeted hours, and never PATCH `estimatedWork` from the dashboard to "fix" an end date — just PATCH `endDate` directly and let NetSuite own any recalculation.
 - For the Phase RAG report, since `tasktype` is not available in SuiteQL, distinguish phase rows from task rows by matching `title` against known phase name patterns (e.g. title contains "Phase", "PHASE", "Planning", "Config", "Training", "UAT", "Go Live", "Project Management").
 - Filter active projects using `entitystatus = 2` (integer), not a string status value.
 - Use `jobtype = 1` for Implementation and `jobtype = 2` for Service when filtering by project type.

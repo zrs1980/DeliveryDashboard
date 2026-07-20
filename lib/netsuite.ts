@@ -368,14 +368,14 @@ export async function fetchProjectPhases(projectId: number) {
     phase_status: string;
   }>(`
     SELECT
-      pt.id            AS phase_id,
-      pt.project       AS project_id,
-      j.entityid       AS project_number,
-      j.companyname    AS client,
-      pt.title         AS phase_name,
-      pt.estimatedwork AS budgeted_hours,
-      pt.actualwork    AS actual_hours,
-      pt.status        AS phase_status
+      pt.id                          AS phase_id,
+      pt.project                     AS project_id,
+      j.entityid                     AS project_number,
+      j.companyname                  AS client,
+      pt.title                       AS phase_name,
+      pt.custeventceba_budget_hours  AS budgeted_hours,
+      pt.actualwork                  AS actual_hours,
+      pt.status                      AS phase_status
     FROM projecttask pt
     JOIN job j ON j.id = pt.project
     WHERE pt.project = ?
@@ -395,14 +395,14 @@ export async function fetchAllPhases() {
     phase_status: string;
   }>(`
     SELECT
-      pt.id            AS phase_id,
-      pt.project       AS project_id,
-      j.entityid       AS project_number,
-      j.companyname    AS client,
-      pt.title         AS phase_name,
-      pt.estimatedwork AS budgeted_hours,
-      pt.actualwork    AS actual_hours,
-      pt.status        AS phase_status
+      pt.id                          AS phase_id,
+      pt.project                     AS project_id,
+      j.entityid                     AS project_number,
+      j.companyname                  AS client,
+      pt.title                       AS phase_name,
+      pt.custeventceba_budget_hours  AS budgeted_hours,
+      pt.actualwork                  AS actual_hours,
+      pt.status                      AS phase_status
     FROM projecttask pt
     JOIN job j ON j.id = pt.project
     WHERE j.entitystatus = 2

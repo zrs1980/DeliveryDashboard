@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { patchRecord } from "@/lib/netsuite";
 
-// Count working days (Mon–Fri) from start to end inclusive
-function countWorkingDays(startStr: string, endStr: string): number {
-  const s = new Date(startStr + "T00:00:00");
-  const e = new Date(endStr   + "T00:00:00");
-  if (e < s) return 1;
-  let count = 0;
-  const d = new Date(s);
-  while (d <= e) {
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
-    d.setDate(d.getDate() + 1);
-  }
-  return Math.max(1, count);
-}
-
 // ─── PATCH /api/projects/[id]/tasks/[taskId] ──────────────────────────────────
 
 export async function PATCH(
@@ -47,17 +32,9 @@ export async function PATCH(
   }
 
   if (body.endDate !== undefined) {
-    // NS ignores a direct endDate PATCH when constraintType = ASAP — it recalculates endDate
-    // from startDate + ceil(estimatedWork / 8) working days.
-    // Fix: set estimatedWork = workingDays(startDate → desiredEndDate) * 8 so NS produces
-    // the correct endDate itself.  startDate is passed from the UI for this calculation.
-    if (body.endDate && body.startDate) {
-      const workDays = countWorkingDays(body.startDate, body.endDate);
-      fields.estimatedWork = workDays * 8;
-    } else if (body.endDate) {
-      // No startDate provided — fall back to direct endDate patch (best effort)
-      fields.endDate = `${body.endDate}T00:00:00Z`;
-    }
+    // Budgeted/actual hours are NetSuite's to own — never derive estimatedWork from dates here.
+    // NetSuite may recalculate endDate itself based on the task's constraint type; that's expected.
+    fields.endDate = body.endDate ? `${body.endDate}T00:00:00Z` : null;
   }
 
   if (Object.keys(fields).length === 0) {

@@ -62,10 +62,14 @@ export async function GET(
   }
 
   // 1. Try SuiteQL with parent column first
+  // NOTE: budgeted hours come from custeventceba_budget_hours (the PM-maintained budget field),
+  // NOT pt.estimatedwork — estimatedwork is NetSuite's own scheduling-engine duration estimate
+  // and gets silently recalculated whenever a task's start/end dates change, drifting away from
+  // the real budget.
   let rows: Array<{
     id: string;
     title: string;
-    estimatedwork: string;
+    custeventceba_budget_hours: string | null;
     actualwork: string;
     status: string;
     parent: string | null;
@@ -74,7 +78,7 @@ export async function GET(
   let hasParent = true;
   try {
     rows = await runSuiteQL(`
-      SELECT pt.id, pt.title, pt.estimatedwork, pt.actualwork, pt.status, pt.parent
+      SELECT pt.id, pt.title, pt.custeventceba_budget_hours, pt.actualwork, pt.status, pt.parent
       FROM projecttask pt
       WHERE pt.project = ?
       ORDER BY pt.id ASC
@@ -85,7 +89,7 @@ export async function GET(
     if (msg.includes("NOT_EXPOSED") || msg.includes("parent")) {
       hasParent = false;
       rows = await runSuiteQL(`
-        SELECT pt.id, pt.title, pt.estimatedwork, pt.actualwork, pt.status
+        SELECT pt.id, pt.title, pt.custeventceba_budget_hours, pt.actualwork, pt.status
         FROM projecttask pt
         WHERE pt.project = ?
         ORDER BY pt.id ASC
@@ -144,7 +148,7 @@ export async function GET(
   // 3. Build response
   const tasks: NSTask[] = rows.map(r => {
     const taskId = parseInt(r.id, 10);
-    const budgetedHours = parseFloat(r.estimatedwork ?? "0") || 0;
+    const budgetedHours = parseFloat(r.custeventceba_budget_hours ?? "0") || 0;
     const actualHours   = parseFloat(r.actualwork    ?? "0") || 0;
     const details = detailMap.get(taskId) ?? { startDate: null, endDate: null, statusRestId: r.status ?? "", statusLabel: "" };
 
