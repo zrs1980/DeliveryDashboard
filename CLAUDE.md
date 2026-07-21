@@ -1,8 +1,8 @@
-# Project: CEBA Solutions – Project Health Dashboard
+# Project: Loop Services – Project Health Dashboard
 
 ## Project Overview
 
-This is an internal project management dashboard for **CEBA Solutions** (a NetSuite Solution Partner). It is used by project managers to monitor the overall health of active client implementation projects in real time.
+This is an internal project management dashboard for **Loop Services** (a NetSuite Solution Partner). It is used by project managers to monitor the overall health of active client implementation projects in real time.
 
 Data is pulled from two sources:
 - **NetSuite** – project financials, budgets, actuals, resource allocation, billing milestones
@@ -98,7 +98,7 @@ Each project card/page should show:
 
 ---
 
-## Project Types (CEBA Context)
+## Project Types (Loop Services Context)
 
 NetSuite `jobtype` field:
 - `1` → **Implementation** — full or phased NetSuite ERP rollout
@@ -431,7 +431,7 @@ Tasks tagged as `milestone: true` → show a purple **★ Milestone** badge.
 
 **App header** (sticky, dark):
 - Background: `#0D1117`, border-bottom: `#1E2A3A`
-- CEBA logo badge: blue (`#1A56DB`) pill, white bold text
+- Loop Services logo badge: blue (`#1A56DB`) pill, white bold text
 - Title: "Project Management Dashboard", light (`#F1F5F9`)
 - Version badge: dark muted pill
 
@@ -501,7 +501,7 @@ Two dropdowns: **PROJECT** (all projects or a specific one) and **RESOURCE** (al
 ### Tab Bar (underline style)
 - 📅 Timeline — tasks grouped into: Overdue / This Week / Next Week / Upcoming buckets
 - ★ Milestones — milestone tasks only
-- 👤 By Resource — tasks grouped by assigned CEBA consultant
+- 👤 By Resource — tasks grouped by assigned Loop Services consultant
 - ⚠ Blocked (N) — all blocked/on-hold tasks
 - 🤝 Client (N) — tasks awaiting client action
 
@@ -555,7 +555,7 @@ const fmtD   = (n: number) => n < 0 ? Math.abs(n) + "d overdue" : n === 0 ? "Tod
 
 ## Design & UX Guidelines
 
-- **Audience**: Internal PMs at CEBA — not clients. Data-dense is fine.
+- **Audience**: Internal PMs at Loop Services — not clients. Data-dense is fine.
 - **Typography**: DM Sans for UI, DM Mono for all numeric metrics (hours, %, SPI, budget gap).
 - **Colors**: Green/amber/red are ONLY used for RAG status. Never decorative.
 - **Tables**: Sortable, zebra-stripe using `C.alt`. Each row clickable to project detail.
@@ -720,7 +720,7 @@ vercel.json                    → Vercel deployment config (framework detection
 
 ## Important Business Context
 
-- **CEBA Solutions** (founded 2012) is the implementation/services arm. All active client projects live here.
+- **Loop Services** (formerly CEBA Solutions, founded 2012) is the implementation/services arm. All active client projects live here.
 - **Loop ERP** (founded 2024) is a separate NetSuite SDN product company targeting the circular economy. Some projects may be Loop-related; tag them accordingly.
 - PMs should be able to filter to their own projects by default when auth is added.
 
@@ -821,15 +821,15 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 
 ---
 
-## Module: CEBA Intranet Wiki
+## Module: Loop Services Intranet Wiki
 
-This module adds an internal knowledge base and company directory to the existing CEBA Solutions dashboard. It is built as a new top-level section within the same Next.js app — no separate service required.
+This module adds an internal knowledge base and company directory to the existing Loop Services dashboard. It is built as a new top-level section within the same Next.js app — no separate service required.
 
 ---
 
 ### Overview & Goals
 
-The wiki gives CEBA staff a single place to find:
+The wiki gives Loop Services staff a single place to find:
 - **SOPs** — Standard Operating Procedures for delivery, onboarding, billing, etc.
 - **Company Directory** — Employee profiles, departments, org chart
 - **Announcements** — Internal news and updates
@@ -1204,7 +1204,7 @@ export async function searchWiki(query: string): Promise<SearchResult[]> {
 
 ### Design Guidelines (Wiki-specific)
 
-Follow all existing CEBA design system rules (`C` constants, DM Sans/DM Mono, shadow tokens). Additional wiki-specific rules:
+Follow all existing Loop Services design system rules (`C` constants, DM Sans/DM Mono, shadow tokens). Additional wiki-specific rules:
 
 - **Sidebar width**: 240px, `C.surface` bg, `C.border` right border
 - **Category active state**: `C.blueBg` bg, `C.blue` text, `C.blueBd` left border (3px)

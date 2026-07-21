@@ -1,5 +1,5 @@
 -- ============================================================
--- CEBA Company Wiki — Supabase Schema
+-- Loop Services Company Wiki — Supabase Schema
 -- Run this in your Supabase SQL Editor
 -- ============================================================
 
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS wiki_pages (
   slug        TEXT NOT NULL UNIQUE,
   body        TEXT NOT NULL DEFAULT '',
   category_id INTEGER REFERENCES wiki_categories(id) ON DELETE SET NULL,
-  author      TEXT NOT NULL DEFAULT 'CEBA Staff',
+  author      TEXT NOT NULL DEFAULT 'Loop Services Staff',
   is_pinned   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW(),
@@ -89,7 +89,7 @@ INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned)
 SELECT
   'New Hire Onboarding',
   'new-hire-onboarding',
-  E'# New Hire Onboarding\n\nWelcome to CEBA Solutions! This guide covers everything you need to get up and running.\n\n## Week 1 Checklist\n\n- Set up your CEBA email and Slack\n- Get access to NetSuite (contact Kathy Bacero)\n- Get access to ClickUp (contact your PM)\n- Join relevant project channels in Slack\n- Review CEBA Delivery Methodology\n\n## Tools You Will Use\n\n**NetSuite** — ERP platform we implement for clients. You will need a CEBA employee license.\n\n**ClickUp** — Project and task management. All client work is tracked here.\n\n**Google Workspace** — Email, calendar, and docs.\n\n## Who to Contact\n\n- **Payroll / HR** — Kathy Bacero\n- **NetSuite Access** — Kathy Bacero\n- **ClickUp Access** — Your assigned PM\n- **IT / Laptop setup** — Kathy Bacero\n\n## First Week Goals\n\n1. Shadow your assigned PM on a client call\n2. Complete the NetSuite Fundamentals course\n3. Read the CEBA Delivery Methodology doc\n4. Set up your dev/sandbox NS environment',
+  E'# New Hire Onboarding\n\nWelcome to Loop Services! This guide covers everything you need to get up and running.\n\n## Week 1 Checklist\n\n- Set up your Loop Services email and Slack\n- Get access to NetSuite (contact Kathy Bacero)\n- Get access to ClickUp (contact your PM)\n- Join relevant project channels in Slack\n- Review Loop Services Delivery Methodology\n\n## Tools You Will Use\n\n**NetSuite** — ERP platform we implement for clients. You will need a Loop Services employee license.\n\n**ClickUp** — Project and task management. All client work is tracked here.\n\n**Google Workspace** — Email, calendar, and docs.\n\n## Who to Contact\n\n- **Payroll / HR** — Kathy Bacero\n- **NetSuite Access** — Kathy Bacero\n- **ClickUp Access** — Your assigned PM\n- **IT / Laptop setup** — Kathy Bacero\n\n## First Week Goals\n\n1. Shadow your assigned PM on a client call\n2. Complete the NetSuite Fundamentals course\n3. Read the Loop Services Delivery Methodology doc\n4. Set up your dev/sandbox NS environment',
   (SELECT id FROM wiki_categories WHERE slug = 'onboarding'),
   'Kathy Bacero',
   TRUE
@@ -109,7 +109,7 @@ INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned)
 SELECT
   'Go-Live Readiness Checklist',
   'go-live-readiness',
-  E'# Go-Live Readiness Checklist\n\nComplete all items before confirming a go-live date with the client.\n\n## Technical Readiness\n\n- All Phase 1–4 tasks marked Done in ClickUp\n- UAT sign-off received from client (written confirmation)\n- Data migration validated — record counts match source system\n- All custom scripts tested in production\n- Saved searches and reports verified\n- User roles and permissions confirmed\n- Opening balances entered and reconciled\n\n## Training Readiness\n\n- All end users trained (attendance logged)\n- Training materials delivered to client\n- Quick reference guides distributed\n- Client confirms readiness to go live\n\n## Go-Live Day\n\n- Confirm go-live window with client (recommend Tuesday–Thursday)\n- CEBA consultant on standby for full first day\n- NetSuite support case open (if complex cutover)\n- Rollback plan documented\n\n## Post Go-Live (Hypercare)\n\n- Daily check-in call for first 5 business days\n- Track all issues in ClickUp as blocked/priority tasks\n- Budget 10–20 hours hypercare time\n- Formal project close when no open P1/P2 issues\n\n> **Important:** Never confirm a go-live date until UAT sign-off is received in writing.',
+  E'# Go-Live Readiness Checklist\n\nComplete all items before confirming a go-live date with the client.\n\n## Technical Readiness\n\n- All Phase 1–4 tasks marked Done in ClickUp\n- UAT sign-off received from client (written confirmation)\n- Data migration validated — record counts match source system\n- All custom scripts tested in production\n- Saved searches and reports verified\n- User roles and permissions confirmed\n- Opening balances entered and reconciled\n\n## Training Readiness\n\n- All end users trained (attendance logged)\n- Training materials delivered to client\n- Quick reference guides distributed\n- Client confirms readiness to go live\n\n## Go-Live Day\n\n- Confirm go-live window with client (recommend Tuesday–Thursday)\n- Loop Services consultant on standby for full first day\n- NetSuite support case open (if complex cutover)\n- Rollback plan documented\n\n## Post Go-Live (Hypercare)\n\n- Daily check-in call for first 5 business days\n- Track all issues in ClickUp as blocked/priority tasks\n- Budget 10–20 hours hypercare time\n- Formal project close when no open P1/P2 issues\n\n> **Important:** Never confirm a go-live date until UAT sign-off is received in writing.',
   (SELECT id FROM wiki_categories WHERE slug = 'go-live'),
   'Alecia Gilmore',
   FALSE

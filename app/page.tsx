@@ -448,7 +448,7 @@ export default function DashboardPage() {
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
             }}>📊</div>
             <div style={{ fontWeight: 800, fontSize: 20, color: C.text, marginBottom: 8 }}>
-              CEBA Solutions — Project Dashboard
+              Loop Services — Project Dashboard
             </div>
             <div style={{ color: C.textSub, fontSize: 14, marginBottom: 28, maxWidth: 420, margin: "0 auto 28px" }}>
               Real-time project health, task tracking, and resource allocation across all active NetSuite implementations.

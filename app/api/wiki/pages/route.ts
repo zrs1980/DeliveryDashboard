@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       slug:        slug.trim(),
       body:        content ?? "",
       category_id: category_id ?? null,
-      author:      author?.trim() || "CEBA Staff",
+      author:      author?.trim() || "Loop Services Staff",
       is_pinned:   is_pinned ?? false,
     })
     .select("id, title, slug, body, category_id, author, is_pinned, created_at, updated_at")

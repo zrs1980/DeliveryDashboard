@@ -1,6 +1,6 @@
-# CEBA Solutions — Delivery Dashboard
+# Loop Services — Delivery Dashboard
 
-A real-time project management dashboard for CEBA Solutions, built with Next.js 15 and deployed on Vercel. Pulls live data from NetSuite (projects, phases, support cases) and ClickUp (tasks, assignments).
+A real-time project management dashboard for Loop Services, built with Next.js 15 and deployed on Vercel. Pulls live data from NetSuite (projects, phases, support cases) and ClickUp (tasks, assignments).
 
 ---
 

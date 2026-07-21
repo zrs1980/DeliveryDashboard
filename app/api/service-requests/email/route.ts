@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
       ? `\n\nRecent activity notes on this opportunity:\n${notes.map((n: any, i: number) => `${i + 1}. ${n.text}`).join("\n")}`
       : "";
 
-    const prompt = `You are a senior business development consultant at CEBA Solutions, a NetSuite Solution Partner. Write a concise follow-up email to a prospect about an open service opportunity.
+    const prompt = `You are a senior business development consultant at Loop Services, a NetSuite Solution Partner. Write a concise follow-up email to a prospect about an open service opportunity.
 
 Opportunity details:
 - Title: ${opportunity.title}
@@ -40,11 +40,11 @@ Write a follow-up email with:
 
 Rules:
 - Reference the specific opportunity by name naturally
-- Mention CEBA Solutions and our NetSuite expertise briefly
+- Mention Loop Services and our NetSuite expertise briefly
 - Include a clear, single call-to-action
 - Keep it under 200 words total (body only)
 - Do NOT use placeholder text like [Name] — address it to the client company directly
-- Sign off as "The CEBA Solutions Team"`;
+- Sign off as "The Loop Services Team"`;
 
     const msg = await anthropic.messages.create({
       model:      "claude-sonnet-4-6",

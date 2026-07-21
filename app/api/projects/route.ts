@@ -178,7 +178,7 @@ export async function GET() {
           entityid:      "INTERNAL",
           projectName:   label,
           label,
-          client:        "CEBA Internal",
+          client:        "Loop Services Internal",
           projectType:   "Service" as const,
           pm:            "—",
           goliveDate:    null,

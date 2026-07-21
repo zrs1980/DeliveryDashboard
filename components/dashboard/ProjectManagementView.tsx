@@ -803,7 +803,7 @@ export function ProjectManagementView({ projects }: Props) {
 
   async function importFromClickUp(project: Project) {
     if (!project.clickupListId) { alert("No ClickUp list ID found for this project."); return; }
-    if (!confirm(`Import "${project.label}" tasks from ClickUp?\n\nThis creates the 5 CEBA delivery phases and migrates all current tasks. Tasks can be reorganised afterwards.`)) return;
+    if (!confirm(`Import "${project.label}" tasks from ClickUp?\n\nThis creates the 5 Loop Services delivery phases and migrates all current tasks. Tasks can be reorganised afterwards.`)) return;
     setImporting(project.id);
     try {
       const res = await fetch("/api/pm/import/clickup", {

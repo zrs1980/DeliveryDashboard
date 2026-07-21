@@ -107,7 +107,7 @@ export default function PortalProjectsPage() {
               <div style={{ background: "#fff", borderRadius: 12, padding: "48px 24px", textAlign: "center", border: "1px solid #E2E5EA" }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
                 <div style={{ fontWeight: 600, fontSize: 16, color: "#0D1117", marginBottom: 6 }}>No projects yet</div>
-                <div style={{ fontSize: 13, color: "#8A95A3" }}>Your CEBA Solutions PM will share projects with you shortly.</div>
+                <div style={{ fontSize: 13, color: "#8A95A3" }}>Your Loop Services PM will share projects with you shortly.</div>
               </div>
             )}
 

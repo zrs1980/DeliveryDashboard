@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       ? `\n\nRecent activity notes (newest first):\n${notes.map((n: any, i: number) => `${i + 1}. ${n.text}`).join("\n")}`
       : "\n\nNo recent notes on record.";
 
-    const prompt = `You are reviewing an open service opportunity for CEBA Solutions, a NetSuite Solution Partner.
+    const prompt = `You are reviewing an open service opportunity for Loop Services, a NetSuite Solution Partner.
 
 Opportunity:
 - Title: ${opp.title}

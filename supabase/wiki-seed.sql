@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- CEBA Wiki — Reset & Seed
+-- Loop Services Wiki — Reset & Seed
 -- Run in Supabase SQL Editor
 -- ═══════════════════════════════════════════════════════════════
 
@@ -14,8 +14,8 @@ INSERT INTO wiki_categories (name, slug, icon) VALUES
 
 -- ── HOME ──────────────────────────────────────────────────────
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
-'Welcome to the CEBA Wiki', 'home', $$
-<h1>Welcome to the CEBA Wiki</h1>
+'Welcome to the Loop Services Wiki', 'home', $$
+<h1>Welcome to the Loop Services Wiki</h1>
 <p>Your central hub for SOPs, policies, team info, and company resources. Use the sidebar to navigate or search above.</p>
 <blockquote>📌 <strong>New:</strong> Q1 2026 holiday schedule has been updated. See Company Holidays for details.</blockquote>
 <h2>Quick Links</h2>
@@ -23,7 +23,7 @@ INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUE
 <li><strong>SOPs</strong> — Step-by-step procedures for delivery and operations</li>
 <li><strong>Policies</strong> — Company policies all team members must know</li>
 <li><strong>Company Holidays</strong> — 2026 paid holiday schedule</li>
-<li><strong>Team Directory</strong> — Who's who at CEBA Solutions</li>
+<li><strong>Team Directory</strong> — Who's who at Loop Services</li>
 <li><strong>Onboarding</strong> — First-30-days guide for new team members</li>
 <li><strong>Tools &amp; Access</strong> — Core systems and how to request access</li>
 </ul>
@@ -56,7 +56,7 @@ $$, (SELECT id FROM wiki_categories WHERE slug = 'overview'), 'Zabe', TRUE);
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
 'Team Directory', 'team-directory', $$
 <h1>Team Directory</h1>
-<p>The full CEBA team. Roles marked with † are shared with Loop ERP.</p>
+<p>The full Loop Services team. Roles marked with † are shared with Loop ERP.</p>
 <h2>Leadership</h2>
 <ul>
 <li><strong>Zabe</strong> — Founder &amp; Managing Director</li>
@@ -148,14 +148,14 @@ INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUE
 <li><strong>📋 Meeting Notes Template</strong> — For all internal and client calls · Owner: Alecia</li>
 </ul>
 <hr>
-<blockquote>Templates are stored in Google Drive under <strong>CEBA Shared → Templates</strong>. If you need edit access contact Ryan.</blockquote>
+<blockquote>Templates are stored in Google Drive under <strong>Loop Services Shared → Templates</strong>. If you need edit access contact Ryan.</blockquote>
 $$, (SELECT id FROM wiki_categories WHERE slug = 'documents'), 'Zabe', FALSE);
 
 -- ── COMPANY HOLIDAYS ─────────────────────────────────────────
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
 '2026 Company Holidays', 'company-holidays', $$
 <h1>2026 Company Holidays</h1>
-<p>CEBA observes the following paid holidays. All dates are for the US unless noted.</p>
+<p>Loop Services observes the following paid holidays. All dates are for the US unless noted.</p>
 <h2>Q1 · January – March</h2>
 <ul>
 <li><strong>New Year's Day</strong> — Thu, Jan 1 ✓ <em>(past)</em></li>
@@ -182,14 +182,14 @@ INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUE
 <li><strong>New Year's Eve</strong> — Thu, Dec 31</li>
 </ul>
 <hr>
-<blockquote>Holiday schedule is reviewed annually. If a holiday falls on a weekend, CEBA observes the nearest weekday. Questions? Contact Angie.</blockquote>
+<blockquote>Holiday schedule is reviewed annually. If a holiday falls on a weekend, Loop Services observes the nearest weekday. Questions? Contact Angie.</blockquote>
 $$, (SELECT id FROM wiki_categories WHERE slug = 'hr-admin'), 'Angie', FALSE);
 
 -- ── BENEFITS & PTO ───────────────────────────────────────────
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
 'Benefits & PTO', 'benefits-pto', $$
 <h1>Benefits &amp; PTO</h1>
-<p>A summary of CEBA's benefits and time-off policies. Contact Angie for questions or to submit requests.</p>
+<p>A summary of Loop Services benefits and time-off policies. Contact Angie for questions or to submit requests.</p>
 <h2>Time Off</h2>
 <ul>
 <li><strong>🏖️ PTO — 15 days/year (accrued)</strong> — Must be approved by your PM or Zabe 5 business days in advance. Log in NetSuite as "PTO".</li>
@@ -236,7 +236,7 @@ $$, (SELECT id FROM wiki_categories WHERE slug = 'hr-admin'), 'Kathy Bacero', TR
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
 'Tools & System Access', 'tools-access', $$
 <h1>Tools &amp; System Access</h1>
-<p>Core tools used across CEBA. Request access through Ryan for any system you don't have.</p>
+<p>Core tools used across Loop Services. Request access through Ryan for any system you don't have.</p>
 <h2>Core Systems — Required for All Staff</h2>
 <ul>
 <li><strong>🟠 NetSuite</strong> — ERP, time tracking, project management, billing. Primary system of record.</li>
@@ -263,7 +263,7 @@ $$, (SELECT id FROM wiki_categories WHERE slug = 'ops'), 'Ryan', FALSE);
 INSERT INTO wiki_pages (title, slug, body, category_id, author, is_pinned) VALUES (
 'Client Resources', 'client-resources', $$
 <h1>Client Resources</h1>
-<p>Guides and resources for working with CEBA clients. For client-specific info, refer to the relevant project folder in Google Drive.</p>
+<p>Guides and resources for working with Loop Services clients. For client-specific info, refer to the relevant project folder in Google Drive.</p>
 <h2>Reference Documents</h2>
 <ul>
 <li><strong>🏭 Sortera — First Go-Live Lessons Learned</strong> — Key takeaways from Loop ERP's first client go-live using the Loop ERP SuiteApp. Internal use only.</li>

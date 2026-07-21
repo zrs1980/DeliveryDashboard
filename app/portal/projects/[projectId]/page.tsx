@@ -298,7 +298,7 @@ export default function PortalProjectDetailPage({ params }: { params: Promise<{ 
                                   <div key={note.id} style={{ padding: "10px 12px", background: note.author_type === "customer" ? "#EBF5FF" : "#F7F9FC", border: `1px solid ${note.author_type === "customer" ? "#93C5FD" : "#E2E5EA"}`, borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: "#4A5568", fontWeight: 600, marginBottom: 4 }}>
                                       {note.author_name} · {fmtNoteDate(note.created_at)}
-                                      {note.author_type === "staff" && <span style={{ marginLeft: 6, fontSize: 10, color: "#8A95A3", background: "#F7F9FC", border: "1px solid #E2E5EA", borderRadius: 6, padding: "1px 5px" }}>CEBA</span>}
+                                      {note.author_type === "staff" && <span style={{ marginLeft: 6, fontSize: 10, color: "#8A95A3", background: "#F7F9FC", border: "1px solid #E2E5EA", borderRadius: 6, padding: "1px 5px" }}>Loop Services</span>}
                                     </div>
                                     <div style={{ fontSize: 13, color: "#0D1117", whiteSpace: "pre-wrap" }}>{note.body}</div>
                                   </div>

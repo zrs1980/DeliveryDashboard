@@ -50,7 +50,7 @@ function LoginContent() {
           Project Dashboard
         </div>
         <div style={{ color: "#475569", fontSize: 13, marginBottom: 32 }}>
-          Sign in with your CEBA Google account
+          Sign in with your Loop Services Google account
         </div>
 
         {errorMsg && (
@@ -85,7 +85,7 @@ function LoginContent() {
         </button>
 
         <div style={{ marginTop: 20, fontSize: 11, color: "#334155" }}>
-          Access is restricted to authorised CEBA accounts
+          Access is restricted to authorised Loop Services accounts
         </div>
       </div>
     </div>

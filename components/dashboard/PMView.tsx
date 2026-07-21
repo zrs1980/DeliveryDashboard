@@ -202,7 +202,7 @@ function CreateProjectModal({
             <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, cursor: "pointer" }}>
               <input type="radio" name="setup" checked={setupPhases} onChange={() => setSetup(true)} style={{ marginTop: 2, accentColor: C.blue }} />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Create 5 CEBA delivery phases</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Create 5 Loop Services delivery phases</div>
                 <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>Planning & Design · Config & Testing · Training & UAT · Readiness · Go Live</div>
               </div>
             </label>

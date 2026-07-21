@@ -1,7 +1,7 @@
 -- ─── Native Project Management Schema ─────────────────────────────────────────
 -- Run in Supabase SQL Editor after portal-schema.sql
 
--- Phases within a project (maps to CEBA 5-phase delivery structure)
+-- Phases within a project (maps to Loop Services 5-phase delivery structure)
 CREATE TABLE IF NOT EXISTS pm_phases (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_ns_id text NOT NULL,

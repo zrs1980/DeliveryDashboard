@@ -166,7 +166,7 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
   const [savingCat, setSavingCat]     = useState(false);
   const [catError, setCatError]       = useState<string | null>(null);
 
-  const defaultAuthor = userEmail?.split("@")[0]?.replace(/\./g, " ").replace(/\b\w/g, c => c.toUpperCase()) ?? "CEBA Staff";
+  const defaultAuthor = userEmail?.split("@")[0]?.replace(/\./g, " ").replace(/\b\w/g, c => c.toUpperCase()) ?? "Loop Services Staff";
 
   const [editForm, setEditForm] = useState<EditForm>({
     title: "", slug: "", content: "", category_id: "", author: defaultAuthor, is_pinned: false,
@@ -631,7 +631,7 @@ export function WikiView({ userEmail }: { userEmail?: string | null }) {
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>📚 Company Wiki</div>
             <div style={{ fontSize: 13, color: "#94A3B8" }}>
-              CEBA Solutions internal knowledge base — SOPs, guides, and company resources.
+              Loop Services internal knowledge base — SOPs, guides, and company resources.
             </div>
           </div>
           <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>

@@ -32,7 +32,7 @@ export async function PUT(
       title:       body.title?.trim(),
       body:        body.content ?? "",
       category_id: body.category_id ?? null,
-      author:      body.author?.trim() || "CEBA Staff",
+      author:      body.author?.trim() || "Loop Services Staff",
       is_pinned:   body.is_pinned ?? false,
     })
     .eq("slug", slug)

@@ -82,7 +82,7 @@ function CallbackInner() {
         <div style={{ fontWeight: 700, fontSize: 18, color: "#0D1117", marginBottom: 8 }}>Sign-in failed</div>
         <div style={{ fontSize: 14, color: "#4A5568", marginBottom: 24 }}>{errMsg}</div>
         <p style={{ fontSize: 13, color: "#8A95A3" }}>
-          Please contact your CEBA Solutions project manager for a new invitation link.
+          Please contact your Loop Services project manager for a new invitation link.
         </p>
       </div>
     </div>
