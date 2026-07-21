@@ -38,11 +38,13 @@ function LoginContent() {
         textAlign: "center",
       }}>
 
-        <img
-          src="/ceba-logo.webp"
-          alt="CEBA Solutions"
-          style={{ height: 44, width: "auto", objectFit: "contain", marginBottom: 20 }}
-        />
+        <div style={{ background: "#fff", borderRadius: 8, padding: "8px 16px", display: "inline-flex", marginBottom: 20 }}>
+          <img
+            src="/loop-services-logo.png"
+            alt="Loop Services"
+            style={{ height: 36, width: "auto", objectFit: "contain" }}
+          />
+        </div>
 
         <div style={{ color: "#F1F5F9", fontWeight: 700, fontSize: 19, marginBottom: 6 }}>
           Project Dashboard

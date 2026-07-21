@@ -64,7 +64,9 @@ export default function PortalProjectsPage() {
       <header style={{ background: "linear-gradient(135deg,#0A0F1E,#0D1B35)", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "0 28px" }}>
         <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <img src="/ceba-logo.webp" alt="CEBA Solutions" style={{ height: 30, objectFit: "contain" }} />
+            <div style={{ background: "#fff", borderRadius: 6, padding: "4px 10px", display: "flex", alignItems: "center" }}>
+              <img src="/loop-services-logo.png" alt="Loop Services" style={{ height: 22, objectFit: "contain" }} />
+            </div>
             <span style={{ color: "#64748B", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>Client Portal</span>
           </div>
           {customerName && (

@@ -250,13 +250,15 @@ export default function DashboardPage() {
       }}>
         <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 28px", display: "flex", alignItems: "center", gap: 16, height: 60 }}>
 
-          {/* CEBA Logo */}
+          {/* Loop Services Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <img
-              src="/ceba-logo.webp"
-              alt="CEBA Solutions"
-              style={{ height: 36, width: "auto", objectFit: "contain", flexShrink: 0 }}
-            />
+            <div style={{ background: "#fff", borderRadius: 6, padding: "5px 10px", display: "flex", alignItems: "center", flexShrink: 0 }}>
+              <img
+                src="/loop-services-logo.png"
+                alt="Loop Services"
+                style={{ height: 26, width: "auto", objectFit: "contain", flexShrink: 0 }}
+              />
+            </div>
             <div style={{ color: "#64748B", fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>
               PROJECT MANAGEMENT
             </div>

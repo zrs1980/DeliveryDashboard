@@ -3,11 +3,11 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
-  title: "CEBA Solutions — Project Dashboard",
-  description: "Internal project health dashboard for CEBA Solutions",
+  title: "Loop Services — Project Dashboard",
+  description: "Internal project health dashboard for Loop Services",
   icons: {
-    icon: "/ceba-logo.webp",
-    apple: "/ceba-logo.webp",
+    icon: "/loop-services-favicon.png",
+    apple: "/loop-services-favicon-apple.png",
   },
 };
 
