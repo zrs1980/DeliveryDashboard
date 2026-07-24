@@ -6,6 +6,7 @@ export interface NSTask {
   title: string;
   budgetedHours: number;
   actualHours: number;
+  billedHours: number;
   remainingHours: number;
   status: string;        // SuiteQL raw status ID
   statusLabel: string;   // display name from REST record refName
@@ -145,11 +146,36 @@ export async function GET(
     });
   }
 
+  // 2b. Billed (billable-flagged) hours per task.
+  // timebill.casetaskevent maps directly to projecttask.id (verified), so we can
+  // attribute billable time to individual phases/tasks. timetype = 'A' restricts to
+  // actual worked time (excludes billing-schedule 'B' rows); isbillable = 'T' keeps
+  // only client-billable entries.
+  const billedMap = new Map<number, number>();
+  try {
+    const billedRows = await runSuiteQL<{ task_id: string | null; billed_hours: string }>(`
+      SELECT tb.casetaskevent AS task_id, SUM(tb.hours) AS billed_hours
+      FROM timebill tb
+      WHERE tb.customer = ?
+        AND tb.timetype = 'A'
+        AND tb.isbillable = 'T'
+        AND tb.casetaskevent IS NOT NULL
+      GROUP BY tb.casetaskevent
+    `, [projectId]);
+    for (const b of billedRows) {
+      const tid = parseInt(b.task_id ?? "", 10);
+      if (!isNaN(tid)) billedMap.set(tid, parseFloat(b.billed_hours ?? "0") || 0);
+    }
+  } catch {
+    // Non-fatal — Billed Hours falls back to 0 (e.g. fixed-fee projects with no billable-flagged time)
+  }
+
   // 3. Build response
   const tasks: NSTask[] = rows.map(r => {
     const taskId = parseInt(r.id, 10);
     const budgetedHours = parseFloat(r.custeventceba_budget_hours ?? "0") || 0;
     const actualHours   = parseFloat(r.actualwork    ?? "0") || 0;
+    const billedHours   = billedMap.get(taskId) ?? 0;
     const details = detailMap.get(taskId) ?? { startDate: null, endDate: null, statusRestId: r.status ?? "", statusLabel: "" };
 
     let parentId: number | null = null;
@@ -163,6 +189,7 @@ export async function GET(
       title:          r.title ?? "",
       budgetedHours,
       actualHours,
+      billedHours,
       remainingHours: budgetedHours - actualHours,
       status:         r.status ?? "",
       statusRestId:   details.statusRestId || r.status || "",

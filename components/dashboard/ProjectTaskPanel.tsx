@@ -10,6 +10,7 @@ export interface NSTask {
   title: string;
   budgetedHours: number;
   actualHours: number;
+  billedHours: number;
   remainingHours: number;
   status: string;
   statusLabel: string;   // display name from NS REST refName
@@ -83,6 +84,13 @@ function buildTree(tasks: NSTask[]): TreeNode[] {
     }
   }
   return roots;
+}
+
+// Sum billable hours across a node and all its descendants. Phase rows have no
+// direct time logged against them (time lands on their child tasks), so we roll
+// billed hours up — mirroring how NetSuite rolls actualwork/budget up to the phase.
+function subtreeBilled(node: TreeNode): number {
+  return node.task.billedHours + node.children.reduce((s, c) => s + subtreeBilled(c), 0);
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -330,6 +338,22 @@ function TaskRow({ task, isPhase, depth, projectId, statusOptions, onUpdate }: T
       }}>
         {noBudget ? "—" : fmtHours(task.remainingHours)}
       </td>
+
+      {/* Billed Hrs */}
+      <td style={{ ...cellSt, ...monoSt, textAlign: "right" }}>
+        {noBudget ? "—" : fmtHours(task.billedHours)}
+      </td>
+
+      {/* Remaining Budgeted Hrs (budgeted − billed) */}
+      <td style={{
+        ...cellSt,
+        ...monoSt,
+        textAlign: "right",
+        color: !noBudget && (task.budgetedHours - task.billedHours) < 0 ? C.red : monoSt.color,
+        fontWeight: !noBudget && (task.budgetedHours - task.billedHours) < 0 ? 700 : 400,
+      }}>
+        {noBudget ? "—" : fmtHours(task.budgetedHours - task.billedHours)}
+      </td>
     </tr>
   );
 }
@@ -383,7 +407,7 @@ function PhaseRow({ task, projectId, expanded, statusOptions, onToggle, onUpdate
         </td>
 
         {/* Task name (full width) via TaskRow approach but in a phase style */}
-        <td colSpan={7} style={{ padding: 0, borderBottom: `1px solid ${C.border}`, background: "#F0F4F8" }}>
+        <td colSpan={9} style={{ padding: 0, borderBottom: `1px solid ${C.border}`, background: "#F0F4F8" }}>
           {/* Reuse TaskRow for consistent columns */}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <tbody>
@@ -572,6 +596,8 @@ export function ProjectTaskPanel({ projectId }: Props) {
               <th style={{ ...thSt, textAlign: "right", minWidth: 90 }}>Budgeted Hrs</th>
               <th style={{ ...thSt, textAlign: "right", minWidth: 80 }}>Actual Hrs</th>
               <th style={{ ...thSt, textAlign: "right", minWidth: 90 }}>Remaining Hrs</th>
+              <th style={{ ...thSt, textAlign: "right", minWidth: 80 }}>Billed Hrs</th>
+              <th style={{ ...thSt, textAlign: "right", minWidth: 120 }}>Remaining Budgeted Hrs</th>
             </tr>
           </thead>
           <tbody>
@@ -691,6 +717,9 @@ function PhaseBlock({ node, projectId, collapsed, statusOptions, onToggle, onUpd
 
   // Use current task state from parent (phase is passed from node.task which is from tasks state)
   const noBudget = phase.budgetedHours === 0;
+  // Billed hours land on child tasks, not the phase row — roll them up to the phase.
+  const phaseBilled    = subtreeBilled(node);
+  const phaseRemBudget = phase.budgetedHours - phaseBilled;
 
   function StatusCell() {
     const currentSt = statusStyle(phase.statusLabel);
@@ -843,6 +872,22 @@ function PhaseBlock({ node, projectId, collapsed, statusOptions, onToggle, onUpd
           fontWeight: !noBudget && phase.remainingHours < 0 ? 700 : 400,
         }}>
           {noBudget ? "—" : fmtHours(phase.remainingHours)}
+        </td>
+
+        {/* Billed Hrs (rolled up from child tasks) */}
+        <td style={{ ...thSt, ...monoSt, textAlign: "right" }}>
+          {noBudget ? "—" : fmtHours(phaseBilled)}
+        </td>
+
+        {/* Remaining Budgeted Hrs (budgeted − billed) */}
+        <td style={{
+          ...thSt,
+          ...monoSt,
+          textAlign: "right",
+          color: !noBudget && phaseRemBudget < 0 ? C.red : monoSt.color,
+          fontWeight: !noBudget && phaseRemBudget < 0 ? 700 : 400,
+        }}>
+          {noBudget ? "—" : fmtHours(phaseRemBudget)}
         </td>
       </tr>
 
