@@ -7,7 +7,7 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
-    const [rows, jobResources] = await Promise.all([
+    const [rowsRaw, jobResources] = await Promise.all([
       runSuiteQL<{
       id: string;
       employee_id: string;
@@ -46,6 +46,30 @@ export async function GET() {
     `),
       getActiveJobResources().catch(() => ({} as Awaited<ReturnType<typeof getActiveJobResources>>)),
     ]);
+
+    // Drop allocation records belonging to inactive employees. Departed staff
+    // (e.g. Adam Filsinger) can still have resourceallocation records with a
+    // future endDate; those should not surface on the dashboard.
+    // NOTE: don't JOIN the employee table in SuiteQL (documented restriction) —
+    //       do a standalone status lookup and filter in code instead.
+    const allocEmpIds = [...new Set(rowsRaw.map(r => parseInt(r.employee_id)).filter(Boolean))];
+    const inactiveEmpIds = new Set<number>();
+    if (allocEmpIds.length > 0) {
+      try {
+        const statusRows = await runSuiteQL<{ id: string; isinactive: string }>(
+          `SELECT id, isinactive FROM employee WHERE id IN (${allocEmpIds.join(",")})`
+        );
+        if (Array.isArray(statusRows)) {
+          for (const e of statusRows as any[]) {
+            if (e.isinactive === "T" || e.isinactive === true) inactiveEmpIds.add(parseInt(e.id));
+          }
+        }
+      } catch {
+        // Non-fatal — if the status lookup fails, show all allocations rather
+        // than incorrectly hiding active resources.
+      }
+    }
+    const rows = rowsRaw.filter(r => !inactiveEmpIds.has(parseInt(r.employee_id)));
 
     // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
