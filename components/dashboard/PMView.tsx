@@ -699,6 +699,7 @@ function NativeOnlyProjectView({
     isOverdue:     goLiveDate ? new Date(goLiveDate) < new Date() : false,
     budget_hours:  0,
     actual:        0,
+    billableHours: 0,
     rem:           0,
     pct:           0,
     burnRate:      0,

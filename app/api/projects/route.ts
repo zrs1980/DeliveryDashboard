@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchActiveProjects, fetchTimebillHours } from "@/lib/netsuite";
+import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
 import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
@@ -33,14 +33,24 @@ export async function GET() {
     const rawProjects = await fetchActiveProjects();
     const projectIds  = rawProjects.map(p => parseInt(p.id));
 
-    // Fetch timebill hours for all projects in one query
-    const timebillRows = await fetchTimebillHours(projectIds);
+    // Fetch timebill hours (per employee) + billable hours (per project) in parallel
+    const [timebillRows, billableRows] = await Promise.all([
+      fetchTimebillHours(projectIds),
+      fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
+    ]);
 
     // Build timebill map: projectId → total hours logged
     const timebillByProject: Record<number, number> = {};
     for (const row of timebillRows) {
       const pid = parseInt(row.project_id);
       timebillByProject[pid] = (timebillByProject[pid] ?? 0) + parseFloat(row.total_hours);
+    }
+
+    // Build billable map: projectId → billable-flagged hours
+    const billableByProject: Record<number, number> = {};
+    for (const row of billableRows) {
+      const pid = parseInt(row.project_id);
+      billableByProject[pid] = (billableByProject[pid] ?? 0) + (parseFloat(row.billable_hours) || 0);
     }
 
     // Pre-fetch workspace lists for name-based fallback matching (cached 1h)
@@ -140,6 +150,7 @@ export async function GET() {
           isOverdue,
           budget_hours,
           actual,
+          billableHours: billableByProject[id] ?? 0,
           rem:           remaining,
           pct,
           burnRate,
@@ -186,6 +197,7 @@ export async function GET() {
           isOverdue:     false,
           budget_hours:  0,
           actual:        0,
+          billableHours: 0,
           rem:           0,
           pct,
           burnRate:      0,

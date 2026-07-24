@@ -356,6 +356,22 @@ export async function fetchTimebillHours(projectIds: number[]) {
   `, projectIds);
 }
 
+// Project-level billable hours: sum of billable-flagged actual time entries.
+// timetype='A' = actual worked time (excludes billing-schedule 'B' rows);
+// isbillable='T' = client-billable. Grouped by project (tb.customer).
+export async function fetchBillableHours(projectIds: number[]) {
+  if (projectIds.length === 0) return [];
+  const placeholders = projectIds.map(() => "?").join(", ");
+  return runSuiteQL<{ project_id: string; billable_hours: string }>(`
+    SELECT tb.customer AS project_id, SUM(tb.hours) AS billable_hours
+    FROM timebill tb
+    WHERE tb.customer IN (${placeholders})
+      AND tb.timetype = 'A'
+      AND tb.isbillable = 'T'
+    GROUP BY tb.customer
+  `, projectIds);
+}
+
 export async function fetchProjectPhases(projectId: number) {
   return runSuiteQL<{
     phase_id: string;

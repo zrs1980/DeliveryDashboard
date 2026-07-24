@@ -59,8 +59,8 @@ export function SRDashboardView() {
     setLoading(true); setError(null);
     try {
       const res = await fetch("/api/service-requests/metrics");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
       if (d.error) throw new Error(d.error);
       setData(d);
     } catch (e: any) {

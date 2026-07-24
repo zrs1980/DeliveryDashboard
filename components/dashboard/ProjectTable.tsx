@@ -25,6 +25,7 @@ type SortKey =
   | "type"
   | "pct"
   | "actual"
+  | "billable"
   | "rem"
   | "phase"
   | "budgetFit"
@@ -109,6 +110,9 @@ function sortProjects(
         break;
       case "actual":
         cmp = a.actual - b.actual;
+        break;
+      case "billable":
+        cmp = a.billableHours - b.billableHours;
         break;
       case "rem":
         cmp = a.rem - b.rem;
@@ -607,6 +611,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
             <SortTh col="type" {...thProps}>Type</SortTh>
             <SortTh col="pct" {...thProps} style={{ minWidth: 130 }}>Progress</SortTh>
             <SortTh col="actual" {...thProps}>Hours</SortTh>
+            <SortTh col="billable" {...thProps}>Billable</SortTh>
             <SortTh col="rem" {...thProps}>Hours Left</SortTh>
             <SortTh col="phase" {...thProps}>Phase</SortTh>
             <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>
@@ -769,6 +774,24 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                     </div>
                   </td>
 
+                  {/* Billable (billable hours / total project hours) */}
+                  <td style={cellStyle()}>
+                    {(() => {
+                      const totalH = p.actual + p.rem;
+                      const billPct = totalH > 0 ? p.billableHours / totalH : 0;
+                      return (
+                        <>
+                          <div style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}>
+                            {fmtH(p.billableHours)} / {fmtH(totalH)}
+                          </div>
+                          <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+                            {totalH > 0 ? `${fmtPct(billPct)} billable` : "—"}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </td>
+
                   {/* Hours Left */}
                   <td style={cellStyle()}>
                     <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}>
@@ -919,7 +942,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {metricsOpen && (
                   <tr key={`metrics-${p.id}`}>
                     <td
-                      colSpan={12}
+                      colSpan={13}
                       style={{
                         borderBottom: notesOpen ? "none" : `1px solid ${C.border}`,
                         padding: 0,
@@ -934,7 +957,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {notesOpen && (
                   <tr key={`notes-${p.id}`}>
                     <td
-                      colSpan={12}
+                      colSpan={13}
                       style={{ borderBottom: tasksOpen ? "none" : `1px solid ${C.border}`, padding: 0 }}
                     >
                       <NotesPanel
@@ -950,7 +973,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {tasksOpen && (
                   <tr key={`tasks-${p.id}`}>
                     <td
-                      colSpan={12}
+                      colSpan={13}
                       style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}
                     >
                       <ProjectTaskPanel projectId={p.id} />

@@ -54,6 +54,7 @@ export interface Project {
   isOverdue: boolean;
   budget_hours: number;
   actual: number;             // hours consumed = budget - remaining
+  billableHours: number;      // billable-flagged timebill hours (isbillable='T', timetype='A')
   rem: number;                // remaining hours
   pct: number;                // 0–1 completion from ClickUp tasks
   burnRate: number;
