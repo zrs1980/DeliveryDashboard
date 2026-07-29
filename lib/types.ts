@@ -132,6 +132,8 @@ export interface NSAllocation {
   remainingHours: number | null;  // from job.custentity_project_remaining_hours
   budgetHours: number | null;     // from job.custentity_ceba_project_budget_hours
   targetUtilization?: number;     // from employee.targetutilization (0–1 decimal, default 0.75)
-  classifyAsUtilized?:   boolean;  // from job.classifytimeasutilized (Preferences tab)
-  classifyAsProductive?: boolean;  // from job.classifytimeasproductive (Preferences tab)
+  // Time classification — read straight off the NetSuite project (job) record.
+  classifyAsUtilized?:   boolean;  // from job.isutilizedtime
+  classifyAsProductive?: boolean;  // from job.isproductivetime
+  classifyAsBillable?:   boolean;  // from job.custentity_ceba_is_billable
 }

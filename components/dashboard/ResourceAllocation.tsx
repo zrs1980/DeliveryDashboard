@@ -358,14 +358,16 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
     const rows = allEntries.map(emp => {
       const rosterTgt = "rosterTargetUtil" in emp ? emp.rosterTargetUtil : undefined;
       const targetUtil = rosterTgt ?? emp.rows.find(a => a.targetUtilization != null)?.targetUtilization ?? 0.75;
+      // All three classifications come from the NetSuite project record via /api/resources
+      // (custentity_ceba_is_billable / isutilizedtime / isproductivetime) — not from jobtype.
       const billable = emp.rows
-        .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
+        .filter(a => a.classifyAsBillable === true)
         .reduce((s, a) => s + hoursInRange(a, start, end), 0);
       const utilized = emp.rows
-        .filter(a => a.classifyAsUtilized !== false)
+        .filter(a => a.classifyAsUtilized === true)
         .reduce((s, a) => s + hoursInRange(a, start, end), 0);
       const productive = emp.rows
-        .filter(a => a.classifyAsProductive !== false)
+        .filter(a => a.classifyAsProductive === true)
         .reduce((s, a) => s + hoursInRange(a, start, end), 0);
       const totalAllocated = emp.rows.reduce((s, a) => s + hoursInRange(a, start, end), 0);
       const billableTarget = targetUtil * FORECAST_BILL_RATIO * capPerPerson;
@@ -378,7 +380,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       const utilizedRAG: "green" | "yellow" | "red" = utilizedPct >= utilizedTgtPct * 0.95 ? "green" : utilizedPct >= utilizedTgtPct * 0.8 ? "yellow" : "red";
 
       // Per-project breakdown for expandable rows
-      const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number; classifyAsUtilized: boolean; classifyAsProductive: boolean }>();
+      const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number; classifyAsBillable: boolean; classifyAsUtilized: boolean; classifyAsProductive: boolean }>();
       for (const a of emp.rows) {
         const h = hoursInRange(a, start, end);
         if (h === 0) continue;
@@ -389,8 +391,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
             companyName:        a.companyName ?? "",
             type:               a.projectType ?? "Internal",
             hours:              0,
-            classifyAsUtilized:   a.classifyAsUtilized   !== false,
-            classifyAsProductive: a.classifyAsProductive !== false,
+            classifyAsBillable:   a.classifyAsBillable   === true,
+            classifyAsUtilized:   a.classifyAsUtilized   === true,
+            classifyAsProductive: a.classifyAsProductive === true,
           });
         }
         projMap.get(a.projectId)!.hours += h;
@@ -739,7 +742,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     {weeks.map((w, wi) => {
                       const pct = weekPcts[wi];
                       const billHrs = emp.rows
-                        .filter(a => a.projectType === "Implementation" || a.projectType === "Service")
+                        .filter(a => a.classifyAsBillable === true)
                         .reduce((s, a) => s + hoursForWeek(a, w), 0);
                       const intHrs = emp.rows
                         .filter(a => (a.projectType ?? "Internal") === "Internal")
@@ -1416,13 +1419,13 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             </td>
                             <td colSpan={4} style={{ padding: "7px 12px", borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}`, fontSize: 11 }}>
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                {(p.type === "Implementation" || p.type === "Service")
+                                {p.classifyAsBillable
                                   ? <span style={{ color: C.green,   fontWeight: 600 }}>● Billable</span>
                                   : <span style={{ color: C.textSub              }}>○ Non-billable</span>}
-                                {p.classifyAsUtilized !== false
+                                {p.classifyAsUtilized
                                   ? <span style={{ color: C.blue,    fontWeight: 600 }}>● Utilized</span>
                                   : <span style={{ color: C.textSub              }}>○ Not Utilized</span>}
-                                {p.classifyAsProductive !== false
+                                {p.classifyAsProductive
                                   ? <span style={{ color: C.textMid, fontWeight: 600 }}>● Productive</span>
                                   : <span style={{ color: C.textSub              }}>○ Not Productive</span>}
                               </div>
@@ -1488,11 +1491,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
             </div>
 
             <div style={{ marginTop: 10, fontSize: 11, color: C.textSub }}>
-              <strong>Billable</strong>: Implementation + Service hours ·{" "}
-              <strong>Utilized</strong>: all allocated project hours ·{" "}
-              <strong>Productive</strong>: total working capacity (8h × working days) ·{" "}
+              <strong>Billable</strong>: hours on projects flagged billable in NetSuite ·{" "}
+              <strong>Utilized</strong>: hours on projects flagged &ldquo;utilized time&rdquo; ·{" "}
+              <strong>Productive</strong>: hours on projects flagged &ldquo;productive time&rdquo; ·{" "}
               <strong>Bench</strong>: unallocated time ·{" "}
-              Status based on Billable vs. target. Target utilization sourced from NetSuite employee record (default 75%).
+              Status based on Billable vs. target. All three classifications are read from the NetSuite project record;
+              target utilization from the NetSuite employee record (default 75%).
             </div>
           </>
         );

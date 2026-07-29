@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, postRecord, getActiveJobResources, fetchRecord } from "@/lib/netsuite";
+import { runSuiteQL, postRecord, getActiveJobResources } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSAllocation } from "@/lib/types";
 
@@ -18,6 +18,9 @@ export async function GET() {
       budget_hours: string | null;
       jobtype: string | null;
       jobtype_name: string | null;
+      is_utilized_time: string | null;
+      is_productive_time: string | null;
+      is_billable: string | null;
       startdate: string;
       enddate: string;
       allocationunit: string;
@@ -34,6 +37,9 @@ export async function GET() {
         j.custentity_ceba_project_budget_hours         AS budget_hours,
         j.jobtype                                      AS jobtype,
         BUILTIN.DF(j.jobtype)                          AS jobtype_name,
+        j.isutilizedtime                               AS is_utilized_time,
+        j.isproductivetime                             AS is_productive_time,
+        j.custentity_ceba_is_billable                  AS is_billable,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -87,38 +93,6 @@ export async function GET() {
       } catch {
         // Non-fatal — allocations still show without client name prefix
       }
-    }
-
-    // Fetch classify flags via REST Record API (SuiteQL exposes these as NOT_EXPOSED for job)
-    // Parallel fetch one record per unique project — typically 5-10 projects max
-    const uniqueProjectIds = [...new Set(rows.map(r => r.project_id))];
-    const classifyMap: Record<string, { utilized: boolean; productive: boolean }> = {};
-    if (uniqueProjectIds.length > 0) {
-      await Promise.all(uniqueProjectIds.map(async (pid, idx) => {
-        try {
-          const rec = await fetchRecord<Record<string, unknown>>("job", parseInt(pid));
-          // Log ALL field keys on first project so we can identify the correct classify field names
-          if (idx === 0) {
-            console.log("[resources] job REST fields (all):", Object.keys(rec).sort().join(", "));
-          }
-          // Try multiple possible camelCase field names for the Preferences tab checkboxes
-          const utilizedRaw   = rec["classifyTimeAsUtilized"]   ?? rec["classifytimeasutilized"]
-                              ?? rec["classifyTimeasUtilized"]   ?? rec["classifytime"];
-          const productiveRaw = rec["classifyTimeAsProductive"] ?? rec["classifytimeasproductive"]
-                              ?? rec["classifyTimeasProductive"];
-          console.log(`[resources] project ${pid} classify fields: utilized=${utilizedRaw} productive=${productiveRaw}`);
-          // Only populate classifyMap if we actually found the fields (undefined = field not in response)
-          if (utilizedRaw !== undefined || productiveRaw !== undefined) {
-            classifyMap[pid] = {
-              utilized:   utilizedRaw   !== false && utilizedRaw   !== "F",
-              productive: productiveRaw !== false && productiveRaw !== "F",
-            };
-          }
-          // If neither field found, classifyMap stays empty for this project → falls back to project-type default below
-        } catch (e) {
-          console.warn(`[resources] REST fetch failed for job ${pid}:`, e instanceof Error ? e.message : e);
-        }
-      }));
     }
 
     // Build consultant roster first — used both for Forecast team targets and to resolve employee names
@@ -184,9 +158,15 @@ export async function GET() {
         remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
         budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
         targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
-        // Default: Internal projects are NOT utilized/productive; client projects are
-        classifyAsUtilized:   classifyMap[r.project_id]?.utilized   ?? (projectType !== "Internal"),
-        classifyAsProductive: classifyMap[r.project_id]?.productive ?? (projectType !== "Internal"),
+        // Time classification comes straight off the NetSuite project record — never
+        // inferred from jobtype. A project's type says nothing about whether its time
+        // counts as billable/utilized/productive (e.g. Managed Services Agreement 268
+        // is typed "Internal" but is both utilized and productive).
+        // NOTE: SuiteQL omits a checkbox column entirely when the field was never set,
+        //       so an absent value is treated the same as "F".
+        classifyAsUtilized:   r.is_utilized_time   === "T",
+        classifyAsProductive: r.is_productive_time === "T",
+        classifyAsBillable:   r.is_billable        === "T",
       };
     });
 
