@@ -25,5 +25,8 @@ export default auth(function proxy(req: NextRequest & { auth?: { user?: unknown 
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.webp|.*\\.png).*)"],
+  // Static assets bypass auth. .ttf matters for the status report PDF: react-pdf
+  // fetches /fonts/DMSans-*.ttf, and a redirect to the login page would hand
+  // fontkit an HTML body — the deck would silently fall back to Helvetica.
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.webp|.*\\.png|.*\\.ttf).*)"],
 };
