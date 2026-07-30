@@ -116,7 +116,9 @@ const s = StyleSheet.create({
   },
   footerText: { fontSize: 8, color: D.textDim },
 
-  overflowNote: { fontSize: 8.5, color: D.textDim, marginTop: 7, fontStyle: "italic" },
+  // No fontStyle here: only regular/medium/bold DM Sans are registered, and
+  // react-pdf throws outright on a style it can't resolve.
+  overflowNote: { fontSize: 8.5, color: D.textDim, marginTop: 7 },
 });
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -656,8 +658,12 @@ function RisksSlide({ report }: { report: StatusReport }) {
 const BUD_COLS = [1.05, 3.2, 1.35, 1.2, 1.2, 1.35];
 
 function BudgetSlide({ report }: { report: StatusReport }) {
-  const rows = report.budget.rows;
-  const t    = budgetTotals(rows);
+  const all  = report.budget.rows;
+  const MAX  = 8;                       // 8 rows + header + total fits the slide
+  const rows = all.slice(0, MAX);
+  // Totals stay across every row, so the TOTAL line always reconciles with
+  // NetSuite even when the table itself is trimmed.
+  const t    = budgetTotals(all);
   const burn = t.allocated > 0 ? t.actual / t.allocated : 0;
 
   return (
@@ -728,6 +734,12 @@ function BudgetSlide({ report }: { report: StatusReport }) {
         <Text style={[s.tdTotal, { flex: BUD_COLS[4], textAlign: "right" }]}>{fmtNum(t.remaining)}</Text>
         <Text style={[s.tdTotal, { flex: BUD_COLS[5] }]} />
       </View>
+
+      {all.length > MAX && (
+        <Text style={s.overflowNote}>
+          +{all.length - MAX} further phase row(s) — totals above include all {all.length}
+        </Text>
+      )}
 
       {report.budget.dataWarning && (
         <View style={{ marginTop: 12, padding: 11, borderRadius: 7, backgroundColor: D.amberDeep, borderWidth: 1, borderColor: D.amber }}>

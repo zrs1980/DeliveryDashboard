@@ -372,6 +372,11 @@ export async function fetchBillableHours(projectIds: number[]) {
   `, projectIds);
 }
 
+// NOTE: pt.parent is selected so callers can tell real phase rows (top-level,
+// parent IS NULL) from the individual task rows nested beneath them. Title
+// matching alone is not enough — isPhaseRow() matches loosely on words like
+// "planning" and "design", so a project's task list produces far more "phase"
+// rows than it has phases.
 export async function fetchProjectPhases(projectId: number) {
   return runSuiteQL<{
     phase_id: string;
@@ -382,6 +387,7 @@ export async function fetchProjectPhases(projectId: number) {
     budgeted_hours: string;
     actual_hours: string;
     phase_status: string;
+    parent_id: string | null;
   }>(`
     SELECT
       pt.id                          AS phase_id,
@@ -391,7 +397,8 @@ export async function fetchProjectPhases(projectId: number) {
       pt.title                       AS phase_name,
       pt.custeventceba_budget_hours  AS budgeted_hours,
       pt.actualwork                  AS actual_hours,
-      pt.status                      AS phase_status
+      pt.status                      AS phase_status,
+      pt.parent                      AS parent_id
     FROM projecttask pt
     JOIN job j ON j.id = pt.project
     WHERE pt.project = ?

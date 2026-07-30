@@ -112,6 +112,55 @@ interface NSPhaseRow {
   budgeted_hours: string;
   actual_hours:   string;
   phase_status:   string;
+  parent_id?:     string | null;
+}
+
+const num = (v: string | null | undefined) => parseFloat(v ?? "") || 0;
+
+/**
+ * Reduce a project's projecttask rows to the handful that are actually phases.
+ *
+ * SuiteQL can't filter on tasktype, and isPhaseRow() matches loosely (any title
+ * containing "planning", "design", "pm"…), so filtering on title alone returns
+ * task rows too — one real project came back with 20 "phases". Two discriminators,
+ * in order of reliability:
+ *
+ *  1. parent IS NULL — phases sit at the top of the project task tree, tasks hang
+ *     off them. Also avoids double-counting, since a phase's actualwork rolls up
+ *     its children.
+ *  2. one row per canonical phase number, largest budget wins, so a stray
+ *     top-level task that happens to match a phase pattern can't displace the
+ *     real phase.
+ *
+ * Falls back progressively: canonical phases → any top-level row carrying hours →
+ * nothing (caller then uses project-level totals).
+ */
+function selectPhaseRows(rows: NSPhaseRow[]): NSPhaseRow[] {
+  const hasParentInfo = rows.some(r => r.parent_id !== undefined);
+  const topLevel = hasParentInfo
+    ? rows.filter(r => r.parent_id == null || String(r.parent_id).trim() === "")
+    : rows;
+  const base = topLevel.length > 0 ? topLevel : rows;
+
+  // One row per canonical phase number.
+  const best = new Map<number, NSPhaseRow>();
+  for (const r of base) {
+    if (!isPhaseRow(r.phase_name)) continue;
+    const n = phaseNumOf(r.phase_name);
+    if (n === null) continue;
+    const cur = best.get(n);
+    if (!cur || num(r.budgeted_hours) > num(cur.budgeted_hours)) best.set(n, r);
+  }
+  if (best.size >= 2) {
+    return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r);
+  }
+
+  // No recognisable phase structure — fall back to top-level rows that carry hours,
+  // keeping whatever the PM actually named them.
+  const withHours = base.filter(r => num(r.budgeted_hours) > 0 || num(r.actual_hours) > 0);
+  if (withHours.length > 0) return withHours.slice(0, 8);
+
+  return [];
 }
 
 const phaseNumOf = (name: string): number | null => {
@@ -124,11 +173,12 @@ const phaseNumOf = (name: string): number | null => {
 function nsPhaseIsComplete(row: NSPhaseRow): boolean {
   const s = (row.phase_status ?? "").toUpperCase();
   if (s.includes("COMPLETE") || s === "FINISHED") return true;
-  const budget = parseFloat(row.budgeted_hours) || 0;
-  const actual = parseFloat(row.actual_hours)   || 0;
+  const budget = num(row.budgeted_hours);
+  const actual = num(row.actual_hours);
   return budget > 0 && actual >= budget;
 }
 
+/** Expects rows already narrowed by selectPhaseRows(). */
 function buildPhaseTracker(rows: NSPhaseRow[]): PhaseTrackerEntry[] {
   const byNum = new Map<number, NSPhaseRow>();
   for (const r of rows) {
@@ -140,7 +190,7 @@ function buildPhaseTracker(rows: NSPhaseRow[]): PhaseTrackerEntry[] {
   const started  = new Set<number>();
   for (const [n, r] of byNum) {
     if (nsPhaseIsComplete(r)) complete.add(n);
-    if ((parseFloat(r.actual_hours) || 0) > 0) started.add(n);
+    if (num(r.actual_hours) > 0) started.add(n);
   }
 
   // Current = furthest-along started-but-incomplete phase, else the first incomplete one.
@@ -156,19 +206,19 @@ function buildPhaseTracker(rows: NSPhaseRow[]): PhaseTrackerEntry[] {
 
 // ─── Budget rows ──────────────────────────────────────────────────────────────
 
+/** Expects rows already narrowed by selectPhaseRows(). */
 function buildBudgetRows(rows: NSPhaseRow[], baselines: Baselines, project: Project): BudgetPhaseRow[] {
   const phaseRows = rows
-    .filter(r => isPhaseRow(r.phase_name))
     .map(r => {
-      const num       = phaseNumOf(r.phase_name);
-      const allocated = parseFloat(r.budgeted_hours) || 0;
-      const actual    = parseFloat(r.actual_hours)   || 0;
+      const n         = phaseNumOf(r.phase_name);
+      const allocated = num(r.budgeted_hours);
+      const actual    = num(r.actual_hours);
       const base      = baselines.phases[r.phase_id]?.hours ?? null;
 
       return {
         id:                     r.phase_id,
-        phaseNumber:            num,
-        name:                   num && num >= 1 && num <= 5 ? PHASE_NAMES[num] : r.phase_name.trim(),
+        phaseNumber:            n,
+        name:                   n && n >= 1 && n <= 5 ? PHASE_NAMES[n] : r.phase_name.trim(),
         allocatedHours:         allocated,
         // Only surface a baseline when it actually differs — drives "(adjusted from N)".
         originalAllocatedHours: base != null && Math.abs(base - allocated) > 0.01 ? base : null,
@@ -371,8 +421,11 @@ export function deriveStatusReport({
   const overallStatus: OverallStatus =
     project.health === "green" ? "on_track" : project.health === "yellow" ? "at_risk" : "critical";
 
-  const phaseTracker = buildPhaseTracker(nsPhases);
-  const budgetRows   = buildBudgetRows(nsPhases, baselines, project);
+  // Narrow the project's task rows to the real phases once, then feed both the
+  // tracker and the budget table from the same set so they can't disagree.
+  const selectedPhases = selectPhaseRows(nsPhases);
+  const phaseTracker   = buildPhaseTracker(selectedPhases);
+  const budgetRows     = buildBudgetRows(selectedPhases, baselines, project);
   const currentPhase = phaseTracker.find(p => p.state === "current");
   const nextPhase    = phaseTracker.find(p => p.number === (currentPhase?.number ?? 0) + 1);
 
