@@ -44,3 +44,7 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# status report render-check output
+status-report-check.pdf
+font-check.pdf

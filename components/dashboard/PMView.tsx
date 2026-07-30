@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { C, PMS } from "@/lib/constants";
 import type { Project } from "@/lib/types";
 import { ProjectManagementView } from "./ProjectManagementView";
+import { StatusReportWizard } from "./StatusReportWizard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -569,6 +570,7 @@ export function PMView({ projects }: PMViewProps) {
   const [focusNativeId, setFocusNative]   = useState<string | null>(null);
   const [nativeProjects, setNativeProjects] = useState<PMProject[]>([]);
   const [loadingNative, setLoadingNative]   = useState(true);
+  const [showReport, setShowReport]         = useState(false);
 
   const activeNSProjects = projects.filter(p => !p.isInternal);
 
@@ -601,6 +603,22 @@ export function PMView({ projects }: PMViewProps) {
   // Derive the display project ID to filter pm_phases (using native UUID if applicable)
   const nativePhasesOverride = focusNativeId ?? undefined;
 
+  // The weekly status report needs NetSuite phase budgets and ClickUp task detail, so
+  // it's only offered for projects backed by a NetSuite job (directly, or via a native
+  // project's ns_project_id link).
+  const reportProject: Project | null = (() => {
+    if (focusProjectId !== null) {
+      return activeNSProjects.find(p => p.id === focusProjectId) ?? null;
+    }
+    if (focusNativeId) {
+      const native = nativeProjects.find(p => p.id === focusNativeId);
+      if (native?.ns_project_id) {
+        return activeNSProjects.find(p => String(p.id) === native.ns_project_id) ?? null;
+      }
+    }
+    return null;
+  })();
+
   return (
     <div>
       {/* ── Breadcrumb nav when in task view ── */}
@@ -620,7 +638,24 @@ export function PMView({ projects }: PMViewProps) {
                 ? (activeNSProjects.find(p => p.id === focusProjectId)?.label ?? "Project")
                 : "All Projects"}
           </span>
+
+          <div style={{ flex: 1 }} />
+
+          {reportProject && (
+            <button
+              onClick={() => setShowReport(true)}
+              title="Build this week's client status report from NetSuite and ClickUp data"
+              style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", background: C.blue, color: "#fff", border: "none", fontFamily: C.font, boxShadow: "0 2px 8px rgba(26,86,219,0.28)" }}
+            >
+              📄 Weekly Status Report
+            </button>
+          )}
         </div>
+      )}
+
+      {/* ── Weekly status report wizard ── */}
+      {showReport && reportProject && (
+        <StatusReportWizard project={reportProject} onClose={() => setShowReport(false)} />
       )}
 
       {/* ── Home screen ── */}

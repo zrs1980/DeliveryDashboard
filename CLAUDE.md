@@ -825,6 +825,73 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 
 ---
 
+## Module: Weekly Client Status Report
+
+Generates the client-facing weekly status deck a PM would otherwise assemble by hand from NetSuite and ClickUp. Entry point is a **📄 Weekly Status Report** button in the PM tab's project drill-down (`PMView`, breadcrumb row) — shown only for projects backed by a NetSuite job, since the report needs phase budgets and task detail.
+
+Supports the PMO cadence: a Tuesday status call with the customer, then the report at end of week. The default reporting week ends on the **Friday** of the current week (`fridayOf`), and the standing Tuesday call is auto-inserted into the meetings list.
+
+### Flow
+
+1. **Generate** — `POST /api/pm/status-report/generate` takes the `Project` the dashboard already holds (avoids a second full portfolio refresh) and adds one SuiteQL call for phase budgets. `deriveStatusReport()` assembles a fully populated draft.
+2. **Draft** — `POST /api/pm/status-report/draft` has Claude write the narrative (key message, accomplishments, risk assessment, action items). Runs automatically so the PM doesn't need an extra click.
+3. **Edit** — 8-step wizard (`StatusReportWizard`); every field editable.
+4. **Refine** — `POST /api/pm/status-report/refine` is the Claude chat rail. Free-form instructions return a validated patch.
+5. **Export** — `StatusReportPdf` renders an 8-slide 16:9 PDF client-side via `@react-pdf/renderer`; preview and download are the same document.
+6. **Save** — `POST /api/pm/status-report` upserts the snapshot on `(project_ns_id, week_ending)`.
+
+### Report sections
+
+Cover · Quick Recap (status + phase tracker + accomplishments) · Deliverables (Loop vs customer) · Milestones · What's Next · Risks · Budget · Recap & Action Items.
+
+### Files
+
+```
+/lib
+  status-report.ts           → types, Loop deck palette (D), display helpers. CLIENT-SAFE (no NS/ClickUp imports)
+  status-report-derive.ts    → server-side assembly from Project + NS phases + baselines
+  status-report-ai.ts        → Claude tool schema, applyPatch() validation, prompt context
+/components/reports
+  StatusReportPdf.tsx        → the 8-slide PDF deck
+  StatusReportPreview.tsx    → usePDF preview + download (loaded via next/dynamic ssr:false)
+/components/dashboard
+  StatusReportWizard.tsx     → wizard + Claude rail
+/app/api/pm/status-report/   → route.ts (save/list), generate/, draft/, refine/
+/supabase/status-report-schema.sql
+/scripts/verify-status-report-pdf.tsx → render check with synthetic data
+/public/fonts/DMSans-{Regular,Medium,Bold}.ttf
+```
+
+### Deck palette
+
+Sampled from the July 2026 Oxide deck so output matches what the PM already sends. Exported as `D` in `lib/status-report.ts` — **do not use the dashboard's `C` tokens in the PDF**, they're a light-theme UI palette.
+
+| Token | Hex | Use |
+|---|---|---|
+| `navy` / `navyDeep` | `#0A1628` / `#060E1F` | slide / cover background |
+| `card` / `cardAlt` / `cardLine` | `#0D2247` / `#1A3A6B` / `#1E3A5F` | panels, table headers, borders |
+| `accent` / `accentSoft` | `#3D6EC4` / `#5B8DEF` | headings, bullets, rules |
+| `green` / `amber` / `red` | `#22C55E` / `#F5B942` / `#EF6461` | ON TRACK / AT RISK / CRITICAL |
+| `textMut` / `textDim` / `textFaint` | `#AEC0D6` / `#8B9BB4` / `#D0DCEF` | body text tiers |
+
+### Baselines — why the extra table
+
+Neither NetSuite nor ClickUp keeps a prior value, so the deck's **"Orig. Due Date"** column and the **"114 (adjusted from 130)"** budget annotations are impossible without storing them. `pm_status_report_baselines` captures milestone due dates and phase allocated hours the **first** time a report is generated for a project, using `ignoreDuplicates: true` so the original is never overwritten. Read baselines *before* capturing new ones, or the first report shows a spurious "adjusted from".
+
+### Gotchas
+
+- **Claude cannot change numbers.** `applyPatch()` hard-preserves `budget.rows`, `recap.metrics`, `recap.phaseTracker` and `recap.delta`. The model may describe hours but never restate them, or the deck would stop reconciling with NetSuite. Keep this guarantee if you extend the patch schema.
+- **Every AI value is re-validated** in `applyPatch()` — enums coerced, ids minted, unknown fields dropped. A malformed response degrades to a no-op instead of corrupting the report.
+- **`@react-pdf/renderer` must never SSR.** Always reach the PDF through `next/dynamic(..., { ssr: false })`; `usePDF` breaks during server rendering.
+- **Fonts are local, not CDN.** `/public/fonts/DMSans-*.ttf` are static (non-variable) TrueType, fetched same-origin. A remote font fetch would add a failure mode to a client deliverable. If a font fetch does fail, react-pdf falls back to Helvetica and the PDF still generates — verified.
+- **`CUTask.date_done` / `date_closed` / `date_updated`** were added to the type to work out what closed *inside* the reporting week. ClickUp already returns them on every task fetch; don't strip them.
+- **Accomplishments come from close dates, not status.** A task that is `done` but closed weeks ago is not this week's accomplishment.
+- **Loop vs customer split** matches ClickUp assignee usernames against `EMPLOYEES` + `PMS` (`isLoopPerson`, normalised + first/last-initial patterns). ClickUp usernames are inconsistent, so the wizard lets the PM move rows that land on the wrong side.
+- **`renderToBuffer` in Node** needs `PDF_FONT_DIR` and an absolute `logoSrc`; browser-relative paths resolve to nothing. See the verify script.
+- Slide row counts are capped (milestones 9, risks 6, actions 8, deliverables 9/column) and render an explicit **"+N more"** line — never truncate silently.
+
+---
+
 ## Module: Loop Services Intranet Wiki
 
 This module adds an internal knowledge base and company directory to the existing Loop Services dashboard. It is built as a new top-level section within the same Next.js app — no separate service required.

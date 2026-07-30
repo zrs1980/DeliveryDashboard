@@ -36,6 +36,11 @@ export interface CUTask {
   url: string;
   list: { id: string; name: string };
   parent?: string | null;
+  // Unix ms timestamps as strings. Returned by ClickUp on every task fetch and used
+  // by the weekly status report to work out what actually closed inside the week.
+  date_closed?: string | null;
+  date_done?: string | null;
+  date_updated?: string | null;
   dependencies?: Array<{ task_id: string; depends_on: string; type: number }>;
 }
 
