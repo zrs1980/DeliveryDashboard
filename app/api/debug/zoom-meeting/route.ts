@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import {
-  fetchPastMeetings, listUserMeetingSummaries, listZoomUsers,
-  meetingUuidCandidates, zoomConfigured,
-} from "@/lib/zoom";
+import { fetchPastMeetings, meetingUuidCandidates, zoomConfigured } from "@/lib/zoom";
 
 export const revalidate = 0;
 export const maxDuration = 60;
@@ -56,8 +53,10 @@ export async function GET(req: NextRequest) {
     const out: Record<string, unknown> = { range: { from, to } };
 
     // ── 1. Locate the meeting in the report fan-out ──
-    let hostId: string | null = null;
-    if (!uuid && topic) {
+    let hostId    = sp.get("hostId") ?? "";
+    let numericId = sp.get("meetingId") ?? "";
+
+    if ((!uuid || !hostId || !numericId) && topic) {
       const { meetings, warnings } = await fetchPastMeetings(new Date(from + "T00:00:00"), new Date(to + "T00:00:00"));
       const hits = meetings.filter(m => m.topic.toLowerCase().includes(topic.toLowerCase()));
       out.reportSearch = {
@@ -65,46 +64,73 @@ export async function GET(req: NextRequest) {
         matches: hits.map(m => ({ uuid: m.uuid, meetingId: m.meetingId, topic: m.topic, startTime: m.startTime, host: m.hostName, hostEmail: m.hostEmail, hostId: m.hostId })),
         warnings,
       };
-      if (hits.length > 0) { uuid = hits[0].uuid; hostId = hits[0].hostId; }
+      const hit = hits[0];
+      if (hit) {
+        uuid      = uuid      || hit.uuid;
+        hostId    = hostId    || hit.hostId;
+        numericId = numericId || String(hit.meetingId);
+      }
     }
 
-    if (!uuid) {
-      out.conclusion = "No UUID resolved. Either pass ?uuid= directly, or the meeting isn't in the report fan-out for this range — which would itself be the bug.";
+    if (!uuid && !numericId) {
+      out.conclusion = "Nothing resolved. Pass ?uuid= or ?meetingId=, or the meeting isn't in the report fan-out for this range — which would itself be the bug.";
       return NextResponse.json(out);
     }
 
-    // ── 2. Probe both encodings for both endpoints ──
-    const candidates = meetingUuidCandidates(uuid);
-    out.uuid = { raw: uuid, candidates, note: "candidates[0] is what the app tries first" };
+    // ── 2. Probe every plausible address form ──
+    // /meetings/{id} resolves SCHEDULED meetings; a past instance may only be
+    // addressable by numeric meeting ID or via /past_meetings. Probe all of them and
+    // let the response decide, rather than guessing again.
+    const candidates = uuid ? meetingUuidCandidates(uuid) : [];
+    out.uuid = { raw: uuid, candidates, numericId, hostId, note: "candidates[0] is what the app tries first" };
+
+    const probes: Array<[string, string]> = [];
+    if (candidates[0]) {
+      probes.push(["uuid_single__meeting_summary", `/meetings/${candidates[0]}/meeting_summary`]);
+      probes.push(["uuid_single__recordings",      `/meetings/${candidates[0]}/recordings`]);
+      probes.push(["uuid_single__past_meeting",    `/past_meetings/${candidates[0]}`]);
+    }
+    if (candidates[1]) {
+      probes.push(["uuid_double__meeting_summary", `/meetings/${candidates[1]}/meeting_summary`]);
+      probes.push(["uuid_double__past_meeting",    `/past_meetings/${candidates[1]}`]);
+    }
+    if (numericId) {
+      probes.push(["numericId__meeting_summary", `/meetings/${numericId}/meeting_summary`]);
+      probes.push(["numericId__recordings",      `/meetings/${numericId}/recordings`]);
+      probes.push(["numericId__meeting",         `/meetings/${numericId}`]);
+      probes.push(["numericId__past_instances",  `/past_meetings/${numericId}/instances`]);
+    }
 
     const attempts: Record<string, unknown> = {};
-    for (let i = 0; i < candidates.length; i++) {
-      const enc = candidates[i];
-      const label = i === 0 ? "preferred" : "alternate";
-      attempts[`${label}_meeting_summary`] = await probe(`/meetings/${enc}/meeting_summary`);
-      attempts[`${label}_recordings`]      = await probe(`/meetings/${enc}/recordings`);
+    for (const [label, path] of probes) {
+      attempts[label] = { path, ...(await probe(path)) };
     }
     out.attempts = attempts;
 
-    // ── 3. Summary list for the host — needs no UUID ──
-    if (!hostId) {
-      const users = await listZoomUsers().catch(() => []);
-      hostId = users[0]?.id ?? null;
-      out.hostListNote = "No host resolved from the report search; used the first account user for the summary-list probe.";
-    }
+    // ── 2b. Does the host have ANY cloud recordings in the range? ──
+    // Answers "is there a cloud recording at all", independent of this meeting.
     if (hostId) {
-      try {
-        const list = await listUserMeetingSummaries(hostId, from, to);
-        out.summaryList = {
-          hostId,
-          count: list.length,
-          entries: list.map(s => ({ topic: s.topic, startTime: s.startTime, meetingUuid: s.meetingUuid, meetingId: s.meetingId })),
-          uuidMatchesThisMeeting: list.some(s => s.meetingUuid === uuid),
-        };
-      } catch (e) {
-        out.summaryList = { hostId, error: e instanceof Error ? e.message : String(e) };
-      }
+      out.hostRecordings = { path: `/users/${hostId}/recordings`, ...(await probe(`/users/${encodeURIComponent(hostId)}/recordings?from=${from}&to=${to}&page_size=30`)) };
     }
+
+    // ── 3. What scopes does the token actually carry? ──
+    // Settles "is the scope missing" vs "the address is wrong" without ambiguity.
+    out.tokenScopes = await (async () => {
+      const basic = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString("base64");
+      const res = await fetch(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${encodeURIComponent(process.env.ZOOM_ACCOUNT_ID!)}`, {
+        method: "POST",
+        headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const b = await res.json().catch(() => ({}));
+      const scopes: string[] = typeof b.scope === "string" ? b.scope.split(/\s+/).filter(Boolean) : [];
+      return {
+        status: res.status,
+        all: scopes.sort(),
+        summaryRelated:   scopes.filter(s => /summary/i.test(s)),
+        recordingRelated: scopes.filter(s => /recording/i.test(s)),
+        reportRelated:    scopes.filter(s => /report/i.test(s)),
+      };
+    })();
 
     return NextResponse.json(out);
   } catch (err) {
