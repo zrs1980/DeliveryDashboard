@@ -176,10 +176,14 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
             background:   result.ok ? C.greenBg : C.redBg,
             color:        result.ok ? C.green    : C.red,
             border:       `1px solid ${result.ok ? C.greenBd : C.redBd}`,
+            // Canvas errors carry an actionable explanation plus the raw Slack code
+            // on a second line — preserve the breaks rather than running it together.
+            whiteSpace:   "pre-wrap",
+            lineHeight:   1.5,
           }}>
             {result.ok
               ? "✓ Posted to Weekly Deliverables"
-              : `Error: ${result.error}`}
+              : result.error}
           </div>
         )}
 

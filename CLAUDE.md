@@ -239,6 +239,7 @@ Render the response by splitting on newlines: bullet lines (starting with `-`, `
 | `isutilizedtime` / `isproductivetime` | Classify time as Utilized / Productive | Checkbox | **Primary source for the Utilized and Productive classifications** (standard `job` fields, Preferences tab). ✅ Available in SuiteQL on `job` (verified July 2026) — no REST Record call needed. Never derive these from `jobtype`: internal projects like `159 Training/Certification` are Productive but not Utilized, and `268 Managed Services Agreement` is both despite its non-standard type. |
 | `custeventceba_budget_hours` | Budget Hours (task/phase-level) | Number | **Primary source for phase/task budgeted hours** on the `projecttask` record — matches the "Budgeted Hours" column in the NetSuite Project Tasks/Milestones UI. Do NOT use `projecttask.estimatedwork` for this — that field is NetSuite's own scheduling-engine duration estimate and gets silently recalculated whenever a task's start/end dates change, drifting away from the real budget. |
 | `custbody5` | Opportunity Type | List | On the `transaction` (Opportunity) record. Read via `BUILTIN.DF(t.custbody5)` for the label, e.g. `"NetSuite Licenses"`. Drives the Nurturing-pipeline exclusion — see `NURTURING_EXCLUDED_TYPES` in `/api/service-requests`. |
+| `custentity_slack_canvas_id` | Slack Canvas ID | Text | **Per-project Slack canvas** that "Post to Slack" writes to. Queried in `fetchActiveProjects`, surfaced as `Project.slackCanvasId`, passed `TaskCommandCenter` → `PostToSlackModal` → `/api/slack/canvas`. When empty the post silently falls back to the `SLACK_WEEKLY_CANVAS_ID` env var — so a PM can end up writing to the workspace default without realising. |
 
 ### Enum Lookups
 
@@ -900,6 +901,7 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - Filter active projects using `entitystatus = 2` (integer), not a string status value.
 - Use `jobtype = 1` for Implementation and `jobtype = 2` for Service when filtering by project type.
 - Time entries in NetSuite use `timebill` for employee time and `vendorbill` for contractor/vendor costs — both must be summed for total cost actuals.
+- **Slack `canvases.edit` → `restricted_action` is a per-canvas access problem, not a scope problem.** The app must be added as a **collaborator** on that specific canvas (canvas → `•••` → Share / Manage access → add the app). A token holding `canvases:write` still fails on a canvas it hasn't been shared with. Confirmed July 2026 after a workspace migration, where every recreated canvas needed the app re-added by hand *and* its `custentity_slack_canvas_id` updated. `lib/slack.ts` maps this and the other common Slack codes to actionable messages via `CANVAS_ERROR_HELP` — extend that map rather than surfacing raw Slack codes. Check collaborator access first, then whether `SLACK_BOT_TOKEN` changed without a Vercel redeploy, then workspace-level canvas restrictions.
 
 ---
 
