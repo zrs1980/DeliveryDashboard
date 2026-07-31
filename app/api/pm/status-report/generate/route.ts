@@ -93,11 +93,18 @@ export async function POST(req: NextRequest) {
         })),
     ];
 
+    // Surfaced to the wizard: a silent failure here means Orig. Due Date and the
+    // "(adjusted from N)" annotations never work, with nothing to indicate why.
+    let warning: string | null = null;
+
     if (newBaselines.length > 0) {
       const { error } = await db
         .from("pm_status_report_baselines")
         .upsert(newBaselines, { onConflict: "project_ns_id,kind,ref_id", ignoreDuplicates: true });
-      if (error) console.error("[status-report/generate] baseline capture", error.message);
+      if (error) {
+        console.error("[status-report/generate] baseline capture", error.message);
+        warning = `Could not save milestone/phase baselines (${error.message}). The report is fine, but "Orig. Due Date" and "adjusted from" comparisons won't populate until this is resolved.`;
+      }
     }
 
     return NextResponse.json({
@@ -105,6 +112,7 @@ export async function POST(req: NextRequest) {
       saved: (savedRows?.[0]?.content as StatusReport) ?? null,
       savedStatus: savedRows?.[0]?.status ?? null,
       previousWeekEnding: prevRows?.[0]?.week_ending ?? null,
+      warning,
     });
   } catch (err) {
     console.error("[/api/pm/status-report/generate]", err);

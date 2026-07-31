@@ -803,13 +803,21 @@ export function StatusReportWizard({ project, onClose }: { project: Project; onC
       if (d.saved && !opts.forceFresh) {
         setReport(d.saved);
         setPhase("ready");
-        setNotice(`Reopened your saved ${d.savedStatus === "final" ? "final report" : "draft"} for this week.`);
+        setNotice(
+          [`Reopened your saved ${d.savedStatus === "final" ? "final report" : "draft"} for this week.`, d.warning]
+            .filter(Boolean).join(" "),
+        );
         setDirty(false);
         return;
       }
 
       setReport(d.report);
       setDirty(false);
+
+      // Collected rather than set individually — a draft failure must not overwrite
+      // a baseline-capture warning, since they have different fixes.
+      const notices: string[] = [];
+      if (d.warning) notices.push(d.warning);
 
       // Have Claude write the narrative straight away — this is the slow part of
       // the PM's manual process, so it shouldn't need an extra click.
@@ -824,11 +832,12 @@ export function StatusReportWizard({ project, onClose }: { project: Project; onC
         if (dres.ok && dd.report) {
           setReport(dd.report);
         } else {
-          setNotice(`Claude couldn't draft the narrative (${dd.error ?? "unknown error"}). The report is populated from project data — edit the text directly or use the Claude panel.`);
+          notices.push(`Claude couldn't draft the narrative (${dd.error ?? "unknown error"}). The report is populated from project data — edit the text directly or use the Claude panel.`);
         }
       } catch {
-        setNotice("Claude couldn't draft the narrative. The report is populated from project data — edit the text directly.");
+        notices.push("Claude couldn't draft the narrative. The report is populated from project data — edit the text directly.");
       }
+      if (notices.length) setNotice(notices.join(" "));
       setPhase("ready");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
