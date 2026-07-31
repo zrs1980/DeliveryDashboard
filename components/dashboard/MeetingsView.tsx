@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/constants";
+import { TranscriptPanel, type TranscriptTarget } from "./TranscriptPanel";
 
 interface Meeting {
   uuid:             string;
@@ -72,6 +73,7 @@ export function MeetingsView() {
   const [needsSetup, setNS]   = useState(false);
   const [updatedAt, setUpd]   = useState<string | null>(null);
 
+  const [transcriptFor, setTranscriptFor] = useState<TranscriptTarget | null>(null);
   const [hostFilter, setHostFilter] = useState("all");
   const [search, setSearch]         = useState("");
   const [sort, setSort]             = useState<SortKey>("start");
@@ -322,6 +324,7 @@ export function MeetingsView() {
                 {th("start", "Started")}
                 {th("duration", "Duration", "right")}
                 {th("participants", "Attendees", "right")}
+                <th style={{ padding: "8px 12px", background: C.alt, borderBottom: `1px solid ${C.border}`, width: 110 }} />
               </tr>
             </thead>
             <tbody>
@@ -330,28 +333,39 @@ export function MeetingsView() {
                     const mins = rows.reduce((s, m) => s + (m.durationMinutes || 0), 0);
                     return [
                       <tr key={`d-${key}`}>
-                        <td colSpan={5} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
+                        <td colSpan={6} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
                           {fmtDayHeading(rows[0]?.startTime ?? "")}
                           <span style={{ marginLeft: 8, fontFamily: C.mono, fontWeight: 500, color: C.textSub }}>
                             {rows.length} meeting{rows.length !== 1 ? "s" : ""} · {fmtDuration(mins)}
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} />),
+                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onTranscript={setTranscriptFor} />),
                     ];
                   })
-                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} />)}
+                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onTranscript={setTranscriptFor} />)}
             </tbody>
           </table>
         </div>
+      )}
+
+      {transcriptFor && (
+        <TranscriptPanel target={transcriptFor} onClose={() => setTranscriptFor(null)} />
       )}
     </div>
   );
 }
 
-function MeetingRow({ m, zebra }: { m: Meeting; zebra: boolean }) {
+function MeetingRow({
+  m, zebra, onTranscript,
+}: { m: Meeting; zebra: boolean; onTranscript: (t: TranscriptTarget) => void }) {
+  const open = () => onTranscript({ uuid: m.uuid, topic: m.topic, hostName: m.hostName, startTime: m.startTime });
   return (
-    <tr style={{ background: zebra ? C.alt : C.surface }}>
+    <tr
+      style={{ background: zebra ? C.alt : C.surface, cursor: "pointer" }}
+      onClick={open}
+      title="View transcript"
+    >
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, maxWidth: 420 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={m.topic}>
           {m.topic}
@@ -370,6 +384,14 @@ function MeetingRow({ m, zebra }: { m: Meeting; zebra: boolean }) {
       </td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, fontFamily: C.mono, textAlign: "right" }}>
         {m.participantCount || "—"}
+      </td>
+      <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, textAlign: "right", whiteSpace: "nowrap" }}>
+        <button
+          onClick={e => { e.stopPropagation(); open(); }}
+          style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font }}
+        >
+          🗒️ Transcript
+        </button>
       </td>
     </tr>
   );

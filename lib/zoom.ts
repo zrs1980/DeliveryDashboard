@@ -9,11 +9,13 @@
 //   ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
 //
 // Required scopes on that app:
-//   user:read:admin     (list account users)
-//   report:read:admin   (past meeting reports)
+//   user:read:admin       (list account users)
+//   report:read:admin     (past meeting reports)
+//   recording:read:admin  (cloud recordings + transcripts)
 // Granular-scope equivalents, if the app was created after Zoom's scope split:
 //   user:read:list_users:admin
-//   report:read:list_report_meetings:admin
+//   report:read:list_user_meetings:admin
+//   cloud_recording:read:list_recording_files:admin
 
 const ZOOM_OAUTH = "https://zoom.us/oauth/token";
 const ZOOM_API   = "https://api.zoom.us/v2";
@@ -306,4 +308,200 @@ export async function fetchPastMeetings(from: Date, to: Date): Promise<FetchMeet
 
   const meetings = [...byUuid.values()].sort((a, b) => (b.startTime ?? "").localeCompare(a.startTime ?? ""));
   return { meetings, hosts, warnings: [...new Set(warnings)] };
+}
+
+// ─── Transcripts ──────────────────────────────────────────────────────────────
+
+export interface ZoomRecordingFile {
+  id:            string;
+  fileType:      string;   // "TRANSCRIPT" | "CC" | "MP4" | "M4A" | "CHAT" | "TIMELINE" | …
+  fileExtension: string;
+  downloadUrl:   string;
+  recordingStart: string;
+  recordingEnd:   string;
+  fileSize:      number;
+  status:         string;
+}
+
+export interface ZoomTranscriptCue {
+  index:   number;
+  start:   string;   // "00:01:23.456"
+  end:     string;
+  seconds: number;   // start, in seconds — for sorting/seek links
+  speaker: string;   // "" when the line has no speaker prefix
+  text:    string;
+}
+
+/**
+ * Zoom meeting UUIDs are base64 and can contain `/` and `+`. Zoom's own rule: if a
+ * UUID starts with `/` or contains `//`, it must be DOUBLE url-encoded in a path.
+ * Getting this wrong is the classic Zoom 404 — the request silently addresses a
+ * different (or no) meeting.
+ */
+export function encodeMeetingUuid(uuid: string): string {
+  const once = encodeURIComponent(uuid);
+  return uuid.startsWith("/") || uuid.includes("//") ? encodeURIComponent(once) : once;
+}
+
+interface ZoomRecordingsResponse {
+  uuid?: string;
+  id?: number;
+  topic?: string;
+  start_time?: string;
+  duration?: number;
+  share_url?: string;
+  recording_files?: Array<{
+    id?: string; file_type?: string; file_extension?: string; download_url?: string;
+    recording_start?: string; recording_end?: string; file_size?: number; status?: string;
+  }>;
+}
+
+/** "00:01:23.456" → 83.456 */
+function vttTimeToSeconds(t: string): number {
+  const parts = t.trim().split(":");
+  if (parts.length < 2) return 0;
+  const secs = parseFloat(parts.pop() ?? "0") || 0;
+  const mins = parseInt(parts.pop() ?? "0") || 0;
+  const hrs  = parseInt(parts.pop() ?? "0") || 0;
+  return hrs * 3600 + mins * 60 + secs;
+}
+
+// A speaker prefix looks like "Jane Smith: text". Bounded and newline-free so a
+// sentence that merely contains a colon isn't mistaken for an attribution.
+const SPEAKER_RE = /^([^:\n]{1,60}?):\s+(.*)$/;
+
+/** Parse a Zoom transcript VTT into speaker-attributed cues. */
+export function parseVtt(vtt: string): ZoomTranscriptCue[] {
+  const cues: ZoomTranscriptCue[] = [];
+  // Strip BOMs and normalise every line-ending form to \n before splitting on blank
+  // lines. `\r\n?` matters: handling only CRLF leaves a lone \r embedded mid-block,
+  // which swallows that cue's text and silently drops the cue.
+  const blocks = vtt
+    .replace(/﻿/g, "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/);
+
+  for (const block of blocks) {
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    if (/^WEBVTT/i.test(lines[0]) || /^NOTE\b/i.test(lines[0])) continue;
+
+    const timingIdx = lines.findIndex(l => l.includes("-->"));
+    if (timingIdx === -1) continue;
+
+    const [rawStart, rawEnd] = lines[timingIdx].split("-->").map(s => s.trim());
+    if (!rawStart || !rawEnd) continue;
+    // Trailing cue settings (e.g. "align:start position:0%") aren't part of the time.
+    const end = rawEnd.split(/\s+/)[0];
+
+    const body = lines.slice(timingIdx + 1).join(" ").trim();
+    if (!body) continue;
+
+    const m = body.match(SPEAKER_RE);
+    cues.push({
+      index:   cues.length + 1,
+      start:   rawStart,
+      end,
+      seconds: vttTimeToSeconds(rawStart),
+      speaker: m ? m[1].trim() : "",
+      text:    m ? m[2].trim() : body,
+    });
+  }
+  return cues;
+}
+
+/** Cloud recording files for a specific meeting instance. */
+export async function listMeetingRecordings(uuid: string): Promise<ZoomRecordingsResponse> {
+  return zoomGet<ZoomRecordingsResponse>(`/meetings/${encodeMeetingUuid(uuid)}/recordings`);
+}
+
+/**
+ * Download a recording file. `download_url` needs the same bearer token — it is
+ * fetched server-side so the token is never handed to the browser.
+ */
+async function downloadRecordingFile(downloadUrl: string): Promise<string> {
+  const token = await getZoomToken();
+  const res = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    throw new ZoomError(`Could not download the transcript from Zoom (HTTP ${res.status}).`, undefined, res.status);
+  }
+  return res.text();
+}
+
+export interface TranscriptResult {
+  available: boolean;
+  reason?:   string;
+  topic?:    string;
+  startTime?: string;
+  duration?:  number;
+  shareUrl?:  string;
+  cues:      ZoomTranscriptCue[];
+  /** Raw VTT, so the UI can offer the original file as a download. */
+  vtt?:      string;
+  /** Other recording assets present, useful context when there's no transcript. */
+  otherFiles: ZoomRecordingFile[];
+}
+
+/**
+ * Transcript for one meeting instance.
+ *
+ * Returns `available: false` with a reason rather than throwing when the meeting
+ * simply wasn't recorded — that's an ordinary outcome, not an error. Genuine auth
+ * and scope failures still throw so they surface as such.
+ */
+export async function fetchMeetingTranscript(uuid: string): Promise<TranscriptResult> {
+  let rec: ZoomRecordingsResponse;
+  try {
+    rec = await listMeetingRecordings(uuid);
+  } catch (e) {
+    // 3301 / 404 = nothing recorded for this meeting.
+    if (e instanceof ZoomError && (e.code === 3301 || e.status === 404)) {
+      return { available: false, reason: "This meeting has no cloud recording, so Zoom has no transcript for it.", cues: [], otherFiles: [] };
+    }
+    throw e;
+  }
+
+  const files: ZoomRecordingFile[] = (rec.recording_files ?? []).map(f => ({
+    id:             f.id ?? "",
+    fileType:       (f.file_type ?? "").toUpperCase(),
+    fileExtension:  (f.file_extension ?? "").toUpperCase(),
+    downloadUrl:    f.download_url ?? "",
+    recordingStart: f.recording_start ?? "",
+    recordingEnd:   f.recording_end ?? "",
+    fileSize:       f.file_size ?? 0,
+    status:         f.status ?? "",
+  }));
+
+  // Zoom exposes the audio transcript as TRANSCRIPT; CC is the live closed-caption
+  // file and is a reasonable fallback when audio transcription wasn't enabled.
+  const transcriptFile =
+    files.find(f => f.fileType === "TRANSCRIPT" && f.downloadUrl) ??
+    files.find(f => f.fileType === "CC" && f.downloadUrl);
+
+  const meta = {
+    topic:     rec.topic,
+    startTime: rec.start_time,
+    duration:  rec.duration,
+    shareUrl:  rec.share_url,
+    otherFiles: files.filter(f => f !== transcriptFile),
+  };
+
+  if (!transcriptFile) {
+    return {
+      available: false,
+      reason: files.length
+        ? "This meeting was recorded but has no transcript file. Turn on Settings → Recording → Cloud recording → “Create audio transcript” in Zoom; it only applies to recordings made after it's enabled."
+        : "This meeting has no cloud recording, so Zoom has no transcript for it.",
+      cues: [], ...meta,
+    };
+  }
+
+  const vtt  = await downloadRecordingFile(transcriptFile.downloadUrl);
+  const cues = parseVtt(vtt);
+
+  return {
+    available: cues.length > 0,
+    reason: cues.length === 0 ? "Zoom returned a transcript file, but it contained no readable cues." : undefined,
+    cues, vtt, ...meta,
+  };
 }

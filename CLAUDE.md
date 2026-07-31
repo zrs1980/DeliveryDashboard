@@ -933,6 +933,7 @@ Set up at **marketplace.zoom.us → Develop → Build App → Server-to-Server O
 |---|---|---|
 | List account users | `user:read:admin` | `user:read:list_users:admin` |
 | Past meeting reports | `report:read:admin` | `report:read:list_user_meetings:admin` |
+| Transcripts / recordings | `recording:read:admin` | `cloud_recording:read:list_recording_files:admin` |
 
 Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=…` with HTTP Basic `client_id:client_secret`. Tokens last an hour and are cached module-level, so a warm serverless instance reuses one.
 
@@ -950,6 +951,17 @@ Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&a
 - **A failing host doesn't blank the tab.** Per-host errors are collected into `warnings` and shown as an amber banner; the meetings that did load still render.
 - **Zoom only reports meetings that actually started** — a scheduled meeting nobody joined won't appear. Worth saying out loud when a PM asks why a meeting is missing.
 - Errors are mapped to remedies in `lib/zoom.ts` (missing scope, wrong credentials, plan restriction, rate limit) rather than surfacing raw Zoom codes. The tab renders full setup instructions when the env vars are absent.
+
+### Transcripts
+
+Clicking a meeting opens `TranscriptPanel`, which fetches `/api/meetings/transcript?uuid=…` → `/meetings/{uuid}/recordings`, downloads the `TRANSCRIPT` file (falling back to `CC`) and parses the VTT. Gives search, speaker filter, per-speaker talk time, copy-all and a `.vtt` download.
+
+- **Meeting UUIDs need conditional double URL-encoding.** They're base64 and can contain `/` and `+`; Zoom's rule is that a UUID starting with `/` or containing `//` must be double-encoded in a path. `encodeMeetingUuid()` handles it. Get this wrong and you get a 404 or, worse, a *different* meeting.
+- **The UUID travels as a query param, not a path segment** (`?uuid=`), precisely because it can contain `/`.
+- **Address instances by UUID, not meeting ID.** A numeric ID returns the *latest* instance of a recurring meeting, not the one clicked.
+- **`download_url` needs the bearer token.** It's fetched server-side so the token never reaches the browser.
+- **"Not recorded" is a normal outcome, not an error.** Zoom code `3301`/404 returns `available: false` with a reason at HTTP 200; only auth/scope/plan problems return 5xx. A recorded meeting with no `TRANSCRIPT` file means *Create audio transcript* was off at recording time — it can't be applied retroactively.
+- **`parseVtt` must normalise `\r\n?`, not just `\r\n`.** A lone `\r` left mid-block swallows that cue's text and silently drops the cue, shifting every cue after it. Regression-tested along with cue settings after the timestamp (`align:start position:0%`), multi-line cues, unattributed lines, colons inside text, and BOMs.
 
 ---
 
