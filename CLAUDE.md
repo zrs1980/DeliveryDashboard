@@ -542,9 +542,26 @@ All three classifications are read off the **NetSuite project (`job`) record** v
 
 > The old cell showed **Bill / Int / Tot**, where "Int" was `projectType === "Internal"` — a jobtype-derived heuristic. Replaced July 2026.
 
+### Project grouping — Customer Projects vs Internal
+
+Implementation and Service are both client-facing delivery work, so every grouping in this view rolls them into a single **Customer Projects** band, leaving **Internal** separate. One helper owns this:
+
+```typescript
+type ProjectGroup = "Customer Projects" | "Internal";
+const GROUP_ORDER: readonly ProjectGroup[] = ["Customer Projects", "Internal"];
+function projectGroupOf(projectType: string | null | undefined): ProjectGroup {
+  return (projectType ?? "Internal") === "Internal" ? "Internal" : "Customer Projects";
+}
+```
+
+Applied in all three places that used to group by type: the expanded-resource breakdown, the by-project view, and the forecast breakdown badge. `NSAllocation.projectType` still carries the real NetSuite jobtype and is shown in tooltips — this is a display grouping only.
+
+`CUSTOMER_WEEK_FLOOR` (30h) drives the "Need Xh" hint on the Customer Projects total row. It predates the merge, where it applied to Implementation alone; it now also counts Service hours, so it is easier to hit than it was.
+
 ### Gotchas
 
-- **Never derive Billable / Utilized / Productive from `projectType` or `jobtype` anywhere in this view.** The by-project grouping still uses `projectType`, but that is a *display* grouping only — never a classification. The old jobtype heuristic disagreed with NetSuite on 14 of 21 allocated projects.
+- **Never derive Billable / Utilized / Productive from `projectType` or `jobtype` anywhere in this view.** The grouping uses `projectType`, but that is a *display* grouping only — never a classification. The old jobtype heuristic disagreed with NetSuite on 14 of 21 allocated projects.
+- **Add new groupings via `projectGroupOf`, never by comparing `projectType` inline.** The old code had three independent `TYPE_ORDER`/`TYPE_STYLE` copies plus two `t === "Implementation"` special cases, which is how the billable target and the 30h floor drifted apart.
 - **The per-group billable target is gated on `classifyAsBillable`, not on the group being "Implementation".** It sums `targetUtil × 0.87 × 40` over each unique employee allocated to a *billable-flagged* project that week, so it appears for any group containing billable work.
 - **Compare billable hours to the billable target, not total allocated hours.** The group summary row shows total hours as its headline figure but RAGs on `grpWeekBillable / grpWeekTargets`; using the total would count non-billable work toward a billable target in any mixed group.
 - **`CellEdit` must carry the three flags.** Inline cell creation builds an optimistic `NSAllocation` by hand, and omitting them leaves the new row `undefined` — excluded from every `=== true` filter, so a freshly added allocation reads as 0% Bill/Util/Prod until refresh. The edit/split paths spread `...orig` and are fine.

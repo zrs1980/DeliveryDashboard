@@ -155,6 +155,35 @@ function gapStyle(gap: number): React.CSSProperties {
   return               { color: C.green,   fontWeight: 600 };
 }
 
+// ─── Project grouping ─────────────────────────────────────────────────────────
+// Implementation and Service are both client-facing delivery work, so the
+// allocation views roll them into one "Customer Projects" band. NetSuite's jobtype
+// still distinguishes them on the project record — this is a display grouping only,
+// and never a substitute for the Billable/Utilized/Productive flags.
+
+type ProjectGroup = "Customer Projects" | "Internal";
+
+const GROUP_ORDER: readonly ProjectGroup[] = ["Customer Projects", "Internal"];
+
+const GROUP_STYLE: Record<ProjectGroup, { bg: string; color: string; bd: string }> = {
+  "Customer Projects": { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
+  "Internal":          { bg: C.alt,      color: C.textSub, bd: C.border   },
+};
+
+function projectGroupOf(projectType: string | null | undefined): ProjectGroup {
+  return (projectType ?? "Internal") === "Internal" ? "Internal" : "Customer Projects";
+}
+
+/**
+ * Weekly floor of customer-project hours per consultant, shown as "Need Xh" on the
+ * Customer Projects total row when expanding a resource.
+ *
+ * Carried over unchanged from when this applied to the Implementation group alone.
+ * NOTE: the same row now also counts Service work, so the floor is easier to hit
+ * than it was — adjust if the intent was 30h of Implementation specifically.
+ */
+const CUSTOMER_WEEK_FLOOR = 30;
+
 // ─── Sub-tab / Forecast helpers ───────────────────────────────────────────
 
 type SubTab = "allocation" | "forecast";
@@ -754,12 +783,6 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               const rowBg    = ei % 2 === 0 ? C.surface : C.alt;
               const weekPcts = weeks.map(w => totalPctForWeek(emp.rows, w));
 
-              const TYPE_BADGES: Array<{ key: string; color: string; bg: string }> = [
-                { key: "Implementation", color: C.purple, bg: C.purpleBg },
-                { key: "Service",        color: C.blue,   bg: C.blueBg   },
-                { key: "Internal",       color: C.textSub, bg: C.alt     },
-              ];
-
               return (
                 <>
                   <tr key={emp.name} style={{ background: rowBg, cursor: "pointer" }} onClick={() => toggleExpand(emp.name)}>
@@ -819,23 +842,17 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   </tr>
 
                   {isExp && (() => {
-                    const TYPE_ORDER = ["Implementation", "Service", "Internal"] as const;
-                    const TYPE_STYLE: Record<string, { bg: string; color: string; bd: string }> = {
-                      Implementation: { bg: C.purpleBg, color: C.purple, bd: C.purpleBd },
-                      Service:        { bg: C.blueBg,   color: C.blue,   bd: C.blueBd   },
-                      Internal:       { bg: C.alt,      color: C.textSub, bd: C.border  },
-                    };
-                    const grouped: Record<string, typeof emp.rows> = {};
+                    const grouped: Partial<Record<ProjectGroup, typeof emp.rows>> = {};
                     for (const a of emp.rows) {
-                      const t = a.projectType ?? "Internal";
-                      if (!grouped[t]) grouped[t] = [];
-                      grouped[t].push(a);
+                      const g = projectGroupOf(a.projectType);
+                      if (!grouped[g]) grouped[g] = [];
+                      grouped[g]!.push(a);
                     }
                     const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                     const empTotalHrs = weeks.reduce((s, w) => s + emp.rows.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
-                    return TYPE_ORDER.filter(t => grouped[t]?.length).flatMap(t => {
-                      const style = TYPE_STYLE[t];
-                      const catTotalHrs = weeks.reduce((s, w) => s + grouped[t].reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
+                    return GROUP_ORDER.filter(t => grouped[t]?.length).flatMap(t => {
+                      const style = GROUP_STYLE[t];
+                      const catTotalHrs = weeks.reduce((s, w) => s + grouped[t]!.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
                       const catPct = empTotalHrs > 0 ? Math.round((catTotalHrs / empTotalHrs) * 100) : 0;
                       return [
                         <tr key={`${emp.name}-type-${t}`}>
@@ -846,7 +863,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                         </tr>,
                         ...(() => {
                           const byProj = new Map<number, { allocs: NSAllocation[]; name: string; companyName: string }>();
-                          for (const a of grouped[t]) {
+                          for (const a of grouped[t]!) {
                             if (!byProj.has(a.projectId)) byProj.set(a.projectId, { allocs: [], name: a.projectName, companyName: a.companyName ?? "" });
                             byProj.get(a.projectId)!.allocs.push(a);
                           }
@@ -873,7 +890,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             {t} Total
                           </td>
                           {weeks.map((w, wi) => {
-                            const total = grouped[t].reduce((s, a) => s + hoursForWeek(a, w), 0);
+                            const total = grouped[t]!.reduce((s, a) => s + hoursForWeek(a, w), 0);
                             const weekPct = Math.round((total / 40) * 100);
                             return (
                               <td key={wi} style={{ padding: "4px 8px", textAlign: "center", fontSize: 10, fontFamily: C.mono, fontWeight: 600, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
@@ -883,8 +900,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                     <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 11, fontFamily: C.mono, fontWeight: 700, ...(t === "Internal" ? { background: C.alt, color: C.textSub, border: `1px solid ${C.border}` } : pctCellStyle(weekPct)) }}>
                                       {weekPct}%
                                     </span>
-                                    {t === "Implementation" && (() => {
-                                      const gap = 30 - total;
+                                    {t === "Customer Projects" && (() => {
+                                      const gap = CUSTOMER_WEEK_FLOOR - total;
                                       return gap > 0 ? (
                                         <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.red }}>Need {gap.toFixed(1)}h</span>
                                       ) : (
@@ -892,10 +909,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                       );
                                     })()}
                                   </div>
-                                ) : t === "Implementation" ? (
+                                ) : t === "Customer Projects" ? (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                     <span style={{ opacity: 0.35 }}>—</span>
-                                    <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.red }}>Need 30h</span>
+                                    <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, color: C.red }}>Need {CUSTOMER_WEEK_FLOOR}h</span>
                                   </div>
                                 ) : <span style={{ opacity: 0.35 }}>—</span>}
                               </td>
@@ -968,26 +985,20 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           </thead>
           <tbody>
             {(() => {
-              const TYPE_ORDER = ["Implementation", "Service", "Internal"] as const;
-              const TYPE_STYLE: Record<string, { bg: string; color: string; bd: string }> = {
-                Implementation: { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
-                Service:        { bg: C.blueBg,   color: C.blue,    bd: C.blueBd   },
-                Internal:       { bg: C.alt,      color: C.textSub, bd: C.border   },
-              };
-              const grouped: Record<string, typeof byProject> = {};
+              const grouped: Partial<Record<ProjectGroup, typeof byProject>> = {};
               for (const proj of byProject) {
-                const t = proj.projectType ?? "Internal";
-                if (!grouped[t]) grouped[t] = [];
-                grouped[t].push(proj);
+                const g = projectGroupOf(proj.projectType);
+                if (!grouped[g]) grouped[g] = [];
+                grouped[g]!.push(proj);
               }
-              return TYPE_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
-                const style = TYPE_STYLE[t];
+              return GROUP_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
+                const style = GROUP_STYLE[t];
                 // Pre-compute group totals for the summary row
-                const grpBudget     = grouped[t].some(p => p.budgetHours != null)    ? grouped[t].reduce((s, p) => s + (p.budgetHours    ?? 0), 0) : null;
-                const grpRemaining  = grouped[t].some(p => p.remainingHours != null) ? grouped[t].reduce((s, p) => s + (p.remainingHours ?? 0), 0) : null;
-                const grpAllocated  = grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
+                const grpBudget     = grouped[t]!.some(p => p.budgetHours != null)    ? grouped[t]!.reduce((s, p) => s + (p.budgetHours    ?? 0), 0) : null;
+                const grpRemaining  = grouped[t]!.some(p => p.remainingHours != null) ? grouped[t]!.reduce((s, p) => s + (p.remainingHours ?? 0), 0) : null;
+                const grpAllocated  = grouped[t]!.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
                 const grpGap        = grpRemaining != null ? grpRemaining - grpAllocated : null;
-                const grpWeekTotals = weeks.map(w => grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
+                const grpWeekTotals = weeks.map(w => grouped[t]!.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
 
                 // Billable hours per week for this group, read off the project's
                 // custentity_ceba_is_billable flag. Kept separate from grpWeekTotals
@@ -995,7 +1006,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 // total allocated hours overstates attainment for any group that mixes
                 // billable and non-billable projects.
                 const grpWeekBillable = weeks.map(w =>
-                  grouped[t].reduce((s, p) => s + p.rows.reduce(
+                  grouped[t]!.reduce((s, p) => s + p.rows.reduce(
                     (rs, a) => rs + (a.classifyAsBillable === true ? hoursForWeek(a, w) : 0), 0), 0));
 
                 // Per-week billable target = Σ (targetUtil × 0.87 × 40) over each unique
@@ -1004,10 +1015,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 // some Implementation projects are flagged non-billable, and non-standard
                 // types (e.g. Managed Services Agreement) are billable.
                 const BILL_RATIO = 0.87;
-                const grpHasBillable = grouped[t].some(p => p.rows.some(a => a.classifyAsBillable === true));
+                const grpHasBillable = grouped[t]!.some(p => p.rows.some(a => a.classifyAsBillable === true));
                 const grpWeekTargets = grpHasBillable ? weeks.map(w => {
                   const seenEmps = new Map<number, number>(); // empId → targetUtilization
-                  for (const proj of grouped[t]) {
+                  for (const proj of grouped[t]!) {
                     for (const a of proj.rows) {
                       if (a.classifyAsBillable !== true) continue;
                       if (allocCoversWeek(a, w) && !seenEmps.has(a.employeeId)) {
@@ -1022,11 +1033,11 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     <td colSpan={weeks.length + 5} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
                       {t}
                       <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, opacity: 0.7 }}>
-                        {grouped[t].length} project{grouped[t].length !== 1 ? "s" : ""}
+                        {grouped[t]!.length} project{grouped[t]!.length !== 1 ? "s" : ""}
                       </span>
                     </td>
                   </tr>,
-                  ...grouped[t].map((proj, pi) => {
+                  ...grouped[t]!.map((proj, pi) => {
               const isExp          = expandedProjects.has(String(proj.projectId));
               const rowBg          = pi % 2 === 0 ? C.surface : C.alt;
               const totalAllocated = proj.rows.reduce((s, a) => s + estimatedFutureHours(a, today), 0);
@@ -1244,7 +1255,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   })()}
                 </>
               );
-                  }), // end grouped[t].map
+                  }), // end grouped[t]!.map
                   // ── Group total row ──────────────────────────────────────
                   <tr key={`type-total-${t}`}>
                     <td style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, ...stickyLeft }}>
@@ -1296,7 +1307,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     })}
                   </tr>,
                 ];   // end flatMap return array
-              }); // end TYPE_ORDER.flatMap
+              }); // end GROUP_ORDER.flatMap
             })()}
           </tbody>
         </table>
@@ -1405,10 +1416,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     const rowBg  = i % 2 === 0 ? C.surface : C.alt;
                     const subBg  = i % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                     const isExp  = expandedForecastRows.has(r.name);
-                    const TYPE_STYLE: Record<string, { color: string; bg: string; bd: string }> = {
-                      Implementation: { color: C.purple,  bg: C.purpleBg, bd: C.purpleBd },
-                      Service:        { color: C.blue,    bg: C.blueBg,   bd: C.blueBd   },
-                      Internal:       { color: C.textSub, bg: C.alt,      bd: C.border   },
+                    const GRP_STYLE: Record<ProjectGroup, { color: string; bg: string; bd: string }> = {
+                      "Customer Projects": { color: C.purple,  bg: C.purpleBg, bd: C.purpleBd },
+                      "Internal":          { color: C.textSub, bg: C.alt,      bd: C.border   },
                     };
                     return (
                       <>
@@ -1473,7 +1483,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
                       {/* Expandable project breakdown */}
                       {isExp && r.breakdown.map((p, pi) => {
-                        const ts = TYPE_STYLE[p.type] ?? TYPE_STYLE["Internal"];
+                        const grp = projectGroupOf(p.type);
+                        const ts  = GRP_STYLE[grp];
                         const isLast = pi === r.breakdown.length - 1;
                         const pct = r.cap > 0 ? p.hours / r.cap : 0;
                         return (
@@ -1481,8 +1492,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280, ...stickyLeft, background: subBg }}
                                 title={p.companyName ? `${p.companyName} — ${p.name}` : p.name}>
                               <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                              <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.bd}`, marginRight: 6 }}>
-                                {p.type === "Implementation" ? "Impl" : p.type}
+                              {/* Group badge; the underlying NetSuite jobtype is in the tooltip. */}
+                              <span
+                                style={{ display: "inline-block", padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.bd}`, marginRight: 6 }}
+                                title={`${grp} · NetSuite type: ${p.type}`}
+                              >
+                                {grp === "Customer Projects" ? "Customer" : "Internal"}
                               </span>
                               {p.companyName && <span style={{ color: C.textSub, marginRight: 4 }}>{p.companyName} —</span>}
                               {p.name}
