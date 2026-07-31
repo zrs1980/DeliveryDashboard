@@ -20,6 +20,12 @@ interface CellEdit {
   remainingHours: number | null;
   budgetHours:   number | null;
   weekMs:        number;
+  // Carried through so an optimistically-created allocation classifies correctly
+  // before the next refresh. Without these the new row reads as undefined and is
+  // excluded from every Billable/Utilized/Productive figure.
+  classifyAsBillable:   boolean;
+  classifyAsUtilized:   boolean;
+  classifyAsProductive: boolean;
 }
 
 // ─── Week helpers ─────────────────────────────────────────────────────────────
@@ -518,6 +524,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           companyName:    cell.companyName ?? "",
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
+          classifyAsBillable:   cell.classifyAsBillable,
+          classifyAsUtilized:   cell.classifyAsUtilized,
+          classifyAsProductive: cell.classifyAsProductive,
         };
         setLocalAllocs(prev => [...prev, newAlloc]);
 
@@ -699,6 +708,25 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         ))}
       </div>
 
+      {/* Metric legend — the four rows inside each week cell */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.textSub, fontWeight: 600 }}>Each cell:</span>
+        {[
+          { k: "Bill", label: "Billable",   color: C.text,    note: "custentity_ceba_is_billable" },
+          { k: "Util", label: "Utilized",   color: C.blue,    note: "isutilizedtime" },
+          { k: "Prod", label: "Productive", color: C.teal,    note: "isproductivetime" },
+          { k: "Tot",  label: "Total allocated", color: C.textMid, note: "all allocations" },
+        ].map(m => (
+          <span key={m.k} style={{ fontSize: 10, color: C.textMid, display: "flex", alignItems: "center", gap: 5 }} title={`NetSuite project field: ${m.note}`}>
+            <span style={{ fontFamily: C.mono, fontWeight: 700, color: m.color, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 3, padding: "1px 5px" }}>{m.k}</span>
+            {m.label}
+          </span>
+        ))}
+        <span style={{ fontSize: 10, color: C.textSub }}>
+          % of a 40h week · classifications read from the NetSuite project record
+        </span>
+      </div>
+
       {/* Resource grid */}
       <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: C.sh }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
@@ -710,7 +738,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               {weeks.map(w => (
                 <th key={w.toISOString()} style={{
                   ...thStyle,
-                  minWidth: 80,
+                  minWidth: 94,   // fits the Bill/Util/Prod/Tot stack without wrapping
                   background:   w.getTime() === todayMs ? "#EBF5FF" : C.alt,
                   color:        w.getTime() === todayMs ? C.blue    : C.textSub,
                   borderBottom: w.getTime() === todayMs ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
@@ -741,33 +769,41 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     </td>
                     {weeks.map((w, wi) => {
                       const pct = weekPcts[wi];
-                      const billHrs = emp.rows
-                        .filter(a => a.classifyAsBillable === true)
-                        .reduce((s, a) => s + hoursForWeek(a, w), 0);
-                      const intHrs = emp.rows
-                        .filter(a => (a.projectType ?? "Internal") === "Internal")
-                        .reduce((s, a) => s + hoursForWeek(a, w), 0);
-                      const billPct = Math.round((billHrs / 40) * 100);
-                      const intPct  = Math.round((intHrs  / 40) * 100);
+                      // Billable / Utilized / Productive all come from the NetSuite project
+                      // record (custentity_ceba_is_billable / isutilizedtime / isproductivetime)
+                      // via /api/resources. Never derive them from jobtype or projectType —
+                      // several Implementation projects are non-billable, and internal projects
+                      // like Training/Certification are Productive but not Utilized.
+                      const hrsWhere = (pred: (a: NSAllocation) => boolean) =>
+                        emp.rows.filter(pred).reduce((s, a) => s + hoursForWeek(a, w), 0);
+
+                      const billPct = Math.round((hrsWhere(a => a.classifyAsBillable   === true) / 40) * 100);
+                      const utilPct = Math.round((hrsWhere(a => a.classifyAsUtilized    === true) / 40) * 100);
+                      const prodPct = Math.round((hrsWhere(a => a.classifyAsProductive  === true) / 40) * 100);
                       const totPct  = Math.round(pct);
+
+                      // Sub-metric row. Rendered even at 0% so every cell is the same
+                      // height and the grid stays scannable column-to-column.
+                      const sub = (label: string, value: number, color: string) => (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>{label}</span>
+                          <span style={{ fontSize: 11, fontFamily: C.mono, color: value > 0 ? color : C.mid, padding: "1px 6px" }}>{value}%</span>
+                        </div>
+                      );
+
                       return (
                         <td key={wi} style={{ padding: "5px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                           {pct > 0 ? (
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                              {/* Billable — top, bold, RAG-coloured */}
+                              {/* Billable — top, bold, RAG-coloured against the allocation bands */}
                               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Bill</span>
                                 <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 4, fontSize: 12, fontFamily: C.mono, fontWeight: 700, ...pctCellStyle(billPct) }}>
                                   {billPct}%
                                 </span>
                               </div>
-                              {/* Internal */}
-                              {intPct > 0 && (
-                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                  <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Int</span>
-                                  <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textSub, padding: "2px 6px" }}>{intPct}%</span>
-                                </div>
-                              )}
+                              {sub("Util", utilPct, C.blue)}
+                              {sub("Prod", prodPct, C.teal)}
                               {/* Total — bottom, with divider */}
                               <div style={{ display: "flex", alignItems: "center", gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 2, marginTop: 1 }}>
                                 <span style={{ fontSize: 9, color: C.textSub, width: 22, textAlign: "right", fontFamily: C.font }}>Tot</span>
@@ -952,12 +988,28 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 const grpAllocated  = grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
                 const grpGap        = grpRemaining != null ? grpRemaining - grpAllocated : null;
                 const grpWeekTotals = weeks.map(w => grouped[t].reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
-                // Implementation group: per-week billable target = sum of (targetUtil × 0.87 × 40) for each unique employee active that week
+
+                // Billable hours per week for this group, read off the project's
+                // custentity_ceba_is_billable flag. Kept separate from grpWeekTotals
+                // because the target below is a BILLABLE target — comparing it against
+                // total allocated hours overstates attainment for any group that mixes
+                // billable and non-billable projects.
+                const grpWeekBillable = weeks.map(w =>
+                  grouped[t].reduce((s, p) => s + p.rows.reduce(
+                    (rs, a) => rs + (a.classifyAsBillable === true ? hoursForWeek(a, w) : 0), 0), 0));
+
+                // Per-week billable target = Σ (targetUtil × 0.87 × 40) over each unique
+                // employee allocated to a BILLABLE project that week. Previously this was
+                // gated on the group being "Implementation", which disagreed with NetSuite:
+                // some Implementation projects are flagged non-billable, and non-standard
+                // types (e.g. Managed Services Agreement) are billable.
                 const BILL_RATIO = 0.87;
-                const grpWeekTargets = t === "Implementation" ? weeks.map(w => {
+                const grpHasBillable = grouped[t].some(p => p.rows.some(a => a.classifyAsBillable === true));
+                const grpWeekTargets = grpHasBillable ? weeks.map(w => {
                   const seenEmps = new Map<number, number>(); // empId → targetUtilization
-                  for (const proj of grouped["Implementation"]) {
+                  for (const proj of grouped[t]) {
                     for (const a of proj.rows) {
+                      if (a.classifyAsBillable !== true) continue;
                       if (allocCoversWeek(a, w) && !seenEmps.has(a.employeeId)) {
                         seenEmps.set(a.employeeId, a.targetUtilization ?? 0.75);
                       }
@@ -981,12 +1033,37 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               const gap            = proj.remainingHours != null ? proj.remainingHours - totalAllocated : null;
               const weekTotals     = weeks.map(w => proj.rows.reduce((s, a) => s + hoursForWeek(a, w), 0));
 
+              // Classification chips. All allocations on a project carry the same
+              // project-level flags, so any row is representative.
+              const flags: Array<{ k: string; on: boolean; color: string }> = [
+                { k: "B", on: proj.rows.some(a => a.classifyAsBillable   === true), color: C.green },
+                { k: "U", on: proj.rows.some(a => a.classifyAsUtilized    === true), color: C.blue  },
+                { k: "P", on: proj.rows.some(a => a.classifyAsProductive  === true), color: C.teal  },
+              ];
+              const flagTitle = `Billable: ${flags[0].on ? "yes" : "no"} · Utilized: ${flags[1].on ? "yes" : "no"} · Productive: ${flags[2].on ? "yes" : "no"} (from the NetSuite project record)`;
+
               return (
                 <>
                   {/* Project row */}
                   <tr key={proj.projectId} style={{ background: rowBg, cursor: "pointer" }} onClick={() => toggleProject(String(proj.projectId))}>
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
+                      <span style={{ display: "inline-flex", gap: 2, marginRight: 7, verticalAlign: "middle" }} title={flagTitle}>
+                        {flags.map(f => (
+                          <span
+                            key={f.k}
+                            style={{
+                              fontFamily: C.mono, fontSize: 9, fontWeight: 700, lineHeight: 1.5,
+                              width: 14, textAlign: "center", borderRadius: 3,
+                              background: f.on ? f.color : C.alt,
+                              color:      f.on ? "#fff"   : C.mid,
+                              border: `1px solid ${f.on ? f.color : C.border}`,
+                            }}
+                          >
+                            {f.k}
+                          </span>
+                        ))}
+                      </span>
                       {proj.companyName && (
                         <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{proj.companyName} —</span>
                       )}
@@ -1102,6 +1179,11 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                               remainingHours: proj.remainingHours,
                               budgetHours:    proj.budgetHours,
                               weekMs:         wMs,
+                              // Project-level flags — identical across every allocation on
+                              // the project, so any row is representative.
+                              classifyAsBillable:   proj.rows.some(a => a.classifyAsBillable   === true),
+                              classifyAsUtilized:   proj.rows.some(a => a.classifyAsUtilized    === true),
+                              classifyAsProductive: proj.rows.some(a => a.classifyAsProductive  === true),
                             };
 
                             return (
@@ -1185,33 +1267,30 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                       ) : <span style={{ color: style.color, fontFamily: C.mono, fontSize: 11 }}>—</span>}
                     </td>
                     {grpWeekTotals.map((hrs, wi) => {
-                      const target = grpWeekTargets?.[wi] ?? 0;
-                      // For Implementation, color by actual vs target (±10%)
+                      const target   = grpWeekTargets?.[wi] ?? 0;
+                      const billable = grpWeekBillable[wi];
+                      const showTgt  = target > 0;
+                      // RAG compares BILLABLE hours against the billable target — not total
+                      // allocated hours, which would count non-billable work toward it.
                       let cellBg    = style.bg;
                       let cellColor = hrs > 0 ? style.color : C.mid;
-                      if (t === "Implementation" && target > 0) {
-                        const ratio = hrs / target;
-                        if (ratio < 0.90)     { cellBg = C.redBg;    cellColor = C.red;    }
+                      if (showTgt) {
+                        const ratio = billable / target;
+                        if (ratio < 0.90)       { cellBg = C.redBg;    cellColor = C.red;    }
                         else if (ratio <= 1.10) { cellBg = C.purpleBg; cellColor = C.purple; }
                         else                    { cellBg = C.greenBg;  cellColor = C.green;  }
                       }
                       return (
-                        <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: cellBg, color: cellColor, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
-                          {hrs > 0 ? (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                              <span>{hrs.toFixed(1)}</span>
-                              {t === "Implementation" && target > 0 && (
-                                <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>/ {target.toFixed(1)} tgt</span>
-                              )}
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                              <span style={{ color: C.mid }}>—</span>
-                              {t === "Implementation" && target > 0 && (
-                                <span style={{ fontSize: 9, fontWeight: 500, color: C.red, opacity: 0.7 }}>/ {target.toFixed(1)} tgt</span>
-                              )}
-                            </div>
-                          )}
+                        <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: cellBg, color: cellColor, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}
+                            title={showTgt ? `${billable.toFixed(1)}h billable of ${hrs.toFixed(1)}h allocated · target ${target.toFixed(1)}h` : `${hrs.toFixed(1)}h allocated`}>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                            <span style={hrs > 0 ? undefined : { color: C.mid }}>{hrs > 0 ? hrs.toFixed(1) : "—"}</span>
+                            {showTgt && (
+                              <span style={{ fontSize: 9, fontWeight: 500, opacity: hrs > 0 ? 0.75 : 0.7, color: hrs > 0 ? undefined : C.red }}>
+                                {billable.toFixed(1)} bill / {target.toFixed(1)} tgt
+                              </span>
+                            )}
+                          </div>
                         </td>
                       );
                     })}

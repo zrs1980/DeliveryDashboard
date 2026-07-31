@@ -527,6 +527,29 @@ Weekly allocation table showing hours per consultant per week, grouped by projec
 - Hours shown in monospace; 0h cells are empty/grey
 - Weeks pro-rate allocation hours across business days in the date range
 
+### Week cell metrics
+
+Every cell in the by-resource grid shows four rows, each as a % of a 40h week:
+
+| Row | Meaning | Source |
+|---|---|---|
+| **Bill** | Billable | `custentity_ceba_is_billable` |
+| **Util** | Utilized | `isutilizedtime` |
+| **Prod** | Productive | `isproductivetime` |
+| **Tot** | Total allocated | every allocation, regardless of flag |
+
+All three classifications are read off the **NetSuite project (`job`) record** via `/api/resources`, which tests `=== "T"` (see the checkbox gotcha — SuiteQL omits never-set checkbox columns entirely). Bill is RAG-coloured against the allocation bands; Util/Prod are plain; Tot sits below a divider. All four render even at 0% so cells stay the same height and the grid scans cleanly column-to-column.
+
+> The old cell showed **Bill / Int / Tot**, where "Int" was `projectType === "Internal"` — a jobtype-derived heuristic. Replaced July 2026.
+
+### Gotchas
+
+- **Never derive Billable / Utilized / Productive from `projectType` or `jobtype` anywhere in this view.** The by-project grouping still uses `projectType`, but that is a *display* grouping only — never a classification. The old jobtype heuristic disagreed with NetSuite on 14 of 21 allocated projects.
+- **The per-group billable target is gated on `classifyAsBillable`, not on the group being "Implementation".** It sums `targetUtil × 0.87 × 40` over each unique employee allocated to a *billable-flagged* project that week, so it appears for any group containing billable work.
+- **Compare billable hours to the billable target, not total allocated hours.** The group summary row shows total hours as its headline figure but RAGs on `grpWeekBillable / grpWeekTargets`; using the total would count non-billable work toward a billable target in any mixed group.
+- **`CellEdit` must carry the three flags.** Inline cell creation builds an optimistic `NSAllocation` by hand, and omitting them leaves the new row `undefined` — excluded from every `=== true` filter, so a freshly added allocation reads as 0% Bill/Util/Prod until refresh. The edit/split paths spread `...orig` and are fine.
+- Project rows in the by-project view carry **B / U / P** chips (filled = flag set) so the classification is visible next to the hours; hover for the full NetSuite-sourced breakdown.
+
 ---
 
 ## Shared UI Components
