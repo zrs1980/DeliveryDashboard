@@ -35,7 +35,17 @@ export interface ServiceRequest {
   srIdentifiedBy: string | null;  // custbody_sr_indentified_by via BUILTIN.DF
   salesPipelineRaw: string | null; // custbody_ceba_sales_pipeline raw integer
   srIdentifiedId: string | null;   // custbody_sr_indentified_by raw integer
+  opportunityType: string | null;  // custbody5 via BUILTIN.DF, e.g. "NetSuite Licenses"
 }
+
+/**
+ * Opportunity types (custbody5) excluded from the Nurturing pipeline — licence
+ * resales aren't service work, so they shouldn't sit in the nurture list.
+ * Matched case-insensitively against the BUILTIN.DF label.
+ */
+const NURTURING_EXCLUDED_TYPES = new Set(["netsuite licenses"]);
+
+const normalizeType = (s: string | null | undefined) => (s ?? "").toLowerCase().trim();
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -44,12 +54,17 @@ export async function GET(req: Request) {
   const rawIdFilter = Object.entries(IDENTIFIED_BY).find(([, v]) => v === labelFilter)?.[0];
 
   try {
-    const oppsResult = await runSuiteQL(`
+    // custbody5 (Opportunity Type) is selected via BUILTIN.DF for its label. If that
+    // field reference is ever invalid the whole query fails, which would take down the
+    // tab — so fall back to the query without it and skip the type exclusion rather
+    // than returning nothing.
+    const buildQuery = (withOpportunityType: boolean) => `
       SELECT t.id, t.tranId, t.title, t.entity, t.probability,
              t.projectedTotal, t.expectedCloseDate, t.tranDate,
              t.lastModifiedDate, t.daysOpen, t.memo, t.actionItem,
              t.custbody10, t.custbody9,
              BUILTIN.DF(t.entitystatus) AS entitystatus_label,
+             ${withOpportunityType ? "BUILTIN.DF(t.custbody5) AS opportunity_type," : ""}
              t.custbody_ceba_sales_pipeline AS identified_by_raw,
              t.custbody_sr_indentified_by AS sr_identified_raw,
              t.custbody_ceba_sales_pipeline AS sales_pipeline_raw,
@@ -61,16 +76,36 @@ export async function GET(req: Request) {
       AND t.entitystatus <> 15
       ${rawIdFilter ? `AND t.custbody_ceba_sales_pipeline = ${rawIdFilter}` : ""}
       ORDER BY t.expectedCloseDate ASC
-    `);
+    `;
+
+    let oppsResult: unknown;
+    let hasOpportunityType = true;
+    try {
+      oppsResult = await runSuiteQL(buildQuery(true));
+    } catch (e) {
+      console.error("[service-requests] custbody5 unavailable, retrying without it:", e instanceof Error ? e.message : e);
+      hasOpportunityType = false;
+      oppsResult = await runSuiteQL(buildQuery(false));
+    }
 
     if (!oppsResult || !Array.isArray(oppsResult)) {
       return NextResponse.json({ requests: [] });
     }
 
     // Filter by label — numeric entitystatus IDs vary per account; text is reliable
-    const filteredOpps = (oppsResult as any[]).filter(
+    let filteredOpps = (oppsResult as any[]).filter(
       (r: any) => (r.entitystatus_label ?? "").toLowerCase() !== "closed won"
     );
+
+    // Nurturing pipeline only: drop excluded opportunity types (e.g. NetSuite Licenses).
+    let excludedByType = 0;
+    if (labelFilter === "Nurturing" && hasOpportunityType) {
+      const before = filteredOpps.length;
+      filteredOpps = filteredOpps.filter(
+        (r: any) => !NURTURING_EXCLUDED_TYPES.has(normalizeType(r.opportunity_type)),
+      );
+      excludedByType = before - filteredOpps.length;
+    }
 
     const oppIds    = filteredOpps.map((r: any) => parseInt(r.id));
     const entityIds = [...new Set(filteredOpps.map((r: any) => r.entity).filter(Boolean))] as number[];
@@ -136,10 +171,18 @@ export async function GET(req: Request) {
         srIdentifiedBy:    r.sr_identified_raw ?? null,
         salesPipelineRaw:  r.sales_pipeline_raw ?? null,
         srIdentifiedId:    r.sr_identified_id ?? null,
+        opportunityType:   r.opportunity_type ?? null,
       };
     });
 
-    return NextResponse.json({ requests, total: requests.length });
+    return NextResponse.json({
+      requests,
+      total: requests.length,
+      // Surfaced so a silently-skipped exclusion is visible rather than looking like
+      // the filter simply matched nothing.
+      opportunityTypeAvailable: hasOpportunityType,
+      excludedByType,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

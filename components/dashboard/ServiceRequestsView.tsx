@@ -517,6 +517,8 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
   const requests = allRequests;
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  // Set when custbody5 couldn't be read, so the Nurturing type exclusion was skipped.
+  const [typeFilterWarning, setTypeFilterWarning] = useState<string | null>(null);
   const [emailOpp, setEmailOpp]   = useState<ServiceRequest | null>(null);
   const [slackOpp, setSlackOpp]   = useState<ServiceRequest | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -573,6 +575,11 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
       setAllRequests(data.requests ?? []);
+      setTypeFilterWarning(
+        filter === "Nurturing" && data.opportunityTypeAvailable === false
+          ? "Opportunity Type (custbody5) could not be read from NetSuite, so the NetSuite Licenses exclusion was skipped for this list."
+          : null,
+      );
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
     finally { setLoading(false); }
   };
@@ -723,6 +730,7 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
       </div>
 
       {error && <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 14, color: C.red, fontSize: 13 }}>⚠ {error}</div>}
+      {typeFilterWarning && <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 14, color: C.yellow, fontSize: 13 }}>⚠ {typeFilterWarning}</div>}
 
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
@@ -809,6 +817,14 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
                       <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}` }}>Pipeline: {r.identifiedBy ?? "null"}</span>
                         <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}` }}>SR: {r.srIdentifiedBy ?? "null"}</span>
+                        {r.opportunityType && (
+                          <span
+                            title="Opportunity Type (custbody5)"
+                            style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}
+                          >
+                            {r.opportunityType}
+                          </span>
+                        )}
                       </div>
                       {r.actionItem && <div style={{ fontSize: 11, color: C.orange, marginTop: 2, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>→ {r.actionItem}</div>}
                     </td>
