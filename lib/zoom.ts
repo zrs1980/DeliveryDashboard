@@ -96,20 +96,46 @@ async function getZoomToken(): Promise<string> {
 
 // ─── Request helper ───────────────────────────────────────────────────────────
 
+/**
+ * Zoom names the exact scopes it wanted in the error text, e.g.
+ *   "Invalid access token, does not contain scopes:[report:read:user:admin]"
+ * Always prefer those over a guess: classic and granular scope names differ per
+ * app, so hardcoding one ("report:read:admin") can tell the reader to add a scope
+ * their app doesn't even use.
+ */
+function missingScopesFrom(message: string): string[] {
+  const m = message.match(/scopes\s*:\s*\[([^\]]+)\]/i);
+  if (!m) return [];
+  return m[1].split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+}
+
+const isScopeProblem = (message: string) => /scopes\s*:\s*\[/i.test(message) || /does not contain scope/i.test(message);
+
 /** Zoom error codes worth translating into an actual remedy. */
 function explainZoomError(code: number | undefined, status: number, message: string, path: string): string {
+  const scopes = missingScopesFrom(message);
+
+  if (scopes.length > 0 || isScopeProblem(message)) {
+    const want = scopes.length
+      ? scopes.map(s => `\`${s}\``).join(" and ")
+      : path.startsWith("/report") ? "a report read scope" : "the relevant admin scope";
+    return (
+      `The Zoom app is missing ${want}. In the Zoom Marketplace open your Server-to-Server OAuth app → Scopes → Add Scopes, ` +
+      `add ${scopes.length ? "it" : "the scope"}, then Save/Continue. Reports also need a Pro plan or above. ` +
+      `You do not need to redeploy — retry here and a fresh token with the new scope is requested automatically. (Zoom: ${message})`
+    );
+  }
   if (status === 401) {
-    return "Zoom rejected the access token. Re-check the Server-to-Server OAuth credentials, then redeploy.";
+    return `Zoom rejected the access token. Re-check ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET, and that the app is activated. (Zoom: ${message})`;
   }
-  if (code === 4711 || code === 4700 || status === 403) {
-    const scope = path.startsWith("/report") ? "report:read:admin" : path.startsWith("/users") ? "user:read:admin" : "the relevant admin scope";
-    return `Zoom denied access to ${path}. The Server-to-Server OAuth app is missing ${scope} — add it in the Zoom Marketplace app config, then save and retry. (Zoom: ${message})`;
+  if (status === 403) {
+    return `Zoom denied access to ${path}. Check the app's scopes and that the account plan includes this endpoint. (Zoom: ${message})`;
   }
-  if (code === 200 && /plan/i.test(message)) {
-    return `This Zoom endpoint needs a paid plan. Meeting reports require Pro or above. (Zoom: ${message})`;
+  if (/plan|subscription/i.test(message)) {
+    return `This Zoom endpoint isn't available on the account's plan. Meeting reports require Pro or above. (Zoom: ${message})`;
   }
   if (status === 429) {
-    return "Zoom rate limit reached. Report endpoints are rate limited per day on lower plans — try a shorter date range or wait a few minutes.";
+    return "Zoom rate limit reached. Report endpoints are rate limited, and daily-capped on lower plans — try a shorter date range or wait a few minutes.";
   }
   return `Zoom API error on ${path}: ${message}${code ? ` (code ${code})` : ""}`;
 }
@@ -126,10 +152,14 @@ async function zoomGet<T>(path: string, params: Record<string, string | number |
   const body = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new ZoomError(
-      explainZoomError(body.code, res.status, body.message ?? `HTTP ${res.status}`, path),
-      body.code, res.status,
-    );
+    const message = body.message ?? `HTTP ${res.status}`;
+    // Scopes are baked into the token at issue time. After scopes are added in the
+    // Zoom Marketplace the cached token still lacks them, so without dropping it a
+    // correct fix would appear not to work for up to an hour.
+    if (res.status === 401 || res.status === 403 || isScopeProblem(message)) {
+      cachedToken = null;
+    }
+    throw new ZoomError(explainZoomError(body.code, res.status, message, path), body.code, res.status);
   }
   return body as T;
 }

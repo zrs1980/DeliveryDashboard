@@ -203,12 +203,19 @@ export function MeetingsView() {
           </div>
           {error}
           {needsSetup && (
+            <>
             <ol style={{ margin: "10px 0 0", paddingLeft: 20, color: C.textMid }}>
               <li>At <strong>marketplace.zoom.us</strong> → Develop → Build App, create a <strong>Server-to-Server OAuth</strong> app.</li>
-              <li>Add scopes <code>user:read:admin</code> and <code>report:read:admin</code>, then activate the app.</li>
+              <li>Under Scopes, add a <strong>User</strong> read scope and a <strong>Report</strong> read scope for meetings, then activate the app.</li>
               <li>Copy Account ID, Client ID and Client Secret into Vercel as <code>ZOOM_ACCOUNT_ID</code>, <code>ZOOM_CLIENT_ID</code>, <code>ZOOM_CLIENT_SECRET</code>.</li>
               <li>Redeploy — Vercel does not pick up new env vars on an existing deployment.</li>
             </ol>
+            <div style={{ marginTop: 10, fontSize: 12, color: C.textMid }}>
+              If Report scopes aren&apos;t listed at all, the Zoom role of whoever created the app is missing the
+              <strong> Usage Reports</strong> permission — Zoom hides scopes the creator&apos;s role doesn&apos;t grant.
+              Enable it under Admin → User Management → Roles → (role) → Usage Reports.
+            </div>
+            </>
           )}
         </div>
       )}

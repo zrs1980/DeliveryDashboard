@@ -929,12 +929,18 @@ Zoom retired JWT apps in September 2023, and user-authorized OAuth would need ev
 
 Set up at **marketplace.zoom.us → Develop → Build App → Server-to-Server OAuth**, add scopes, then **activate** the app:
 
-| Scope (classic) | Granular equivalent | For |
+| Purpose | Classic scope | Granular scope |
 |---|---|---|
-| `user:read:admin` | `user:read:list_users:admin` | listing account users |
-| `report:read:admin` | `report:read:list_report_meetings:admin` | past meeting reports |
+| List account users | `user:read:admin` | `user:read:list_users:admin` |
+| Past meeting reports | `report:read:admin` | `report:read:list_user_meetings:admin` |
 
 Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=…` with HTTP Basic `client_id:client_secret`. Tokens last an hour and are cached module-level, so a warm serverless instance reuses one.
+
+**Don't hardcode scope names in error messages.** Classic and granular names differ per app, and Zoom names the scope it actually wanted in the error text (`does not contain scopes:[report:read:user:admin]`). `missingScopesFrom()` parses that and reports it verbatim — an earlier version guessed `report:read:admin` and told the reader to add a scope their app didn't use.
+
+**If Report scopes aren't listed in the Marketplace UI at all**, the Zoom role of the person who created the app lacks the **Usage Reports** permission — Zoom hides scopes the creator's role doesn't grant. Fix under Admin → User Management → Roles → (role) → Usage Reports. Report scopes also require Pro or above.
+
+**Scope changes take effect without a redeploy.** Scopes are baked into the token at issue time, so `zoomGet` drops the cached token on any 401/403/scope error — otherwise a correct scope fix would appear not to work until the hour-old token expired.
 
 ### Gotchas
 
