@@ -934,6 +934,7 @@ Set up at **marketplace.zoom.us → Develop → Build App → Server-to-Server O
 | List account users | `user:read:admin` | `user:read:list_users:admin` |
 | Past meeting reports | `report:read:admin` | `report:read:list_user_meetings:admin` |
 | Transcripts / recordings | `recording:read:admin` | `cloud_recording:read:list_recording_files:admin` |
+| Meeting notes (AI Companion) | `meeting_summary:read:admin` | `meeting_summary:read:summary:admin` |
 
 Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=…` with HTTP Basic `client_id:client_secret`. Tokens last an hour and are cached module-level, so a warm serverless instance reuses one.
 
@@ -952,9 +953,22 @@ Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&a
 - **Zoom only reports meetings that actually started** — a scheduled meeting nobody joined won't appear. Worth saying out loud when a PM asks why a meeting is missing.
 - Errors are mapped to remedies in `lib/zoom.ts` (missing scope, wrong credentials, plan restriction, rate limit) rather than surfacing raw Zoom codes. The tab renders full setup instructions when the env vars are absent.
 
-### Transcripts
+### Meeting detail drawer
 
-Clicking a meeting opens `TranscriptPanel`, which fetches `/api/meetings/transcript?uuid=…` → `/meetings/{uuid}/recordings`, downloads the `TRANSCRIPT` file (falling back to `CC`) and parses the VTT. Gives search, speaker filter, per-speaker talk time, copy-all and a `.vtt` download.
+Clicking a meeting opens `MeetingPanel`, a two-tab drawer:
+
+| Tab | Source | Endpoint |
+|---|---|---|
+| **📝 Notes** (default) | AI Companion meeting summary | `/meetings/{uuid}/meeting_summary` |
+| 🗒️ Transcript | Cloud-recording VTT | `/meetings/{uuid}/recordings` → download `TRANSCRIPT` (falls back to `CC`) |
+
+Notes loads on open; the transcript loads only when its tab is first selected, so a large VTT isn't fetched unasked. Once opened a tab stays mounted (hidden, not unmounted) so switching back doesn't refetch.
+
+**Notes** renders overview, then **next steps first** (the actionable part), then the sectioned key points. **Transcript** gives search with highlighting, speaker filter, per-speaker talk time, copy-all and a `.vtt` download.
+
+- **Prefer `edited_summary` over the generated one.** When a human edits Zoom's summary, Zoom returns both; the edited version wins and the UI badges it "✎ Edited by a person".
+- **`summary_details` is an array of `{label, summary}` sections — except inside `edited_summary`, where it's a plain string.** `normalizeSections()` handles both; unit-tested over array, string, whitespace-only, undefined, blank-entry, label-only and summary-only forms.
+- **No summary is the normal case.** AI Companion must have been on *for that meeting*; it can't be generated retroactively. 404 / code `3001` → `available: false` with a reason at HTTP 200.
 
 - **Meeting UUIDs need conditional double URL-encoding.** They're base64 and can contain `/` and `+`; Zoom's rule is that a UUID starting with `/` or containing `//` must be double-encoded in a path. `encodeMeetingUuid()` handles it. Get this wrong and you get a 404 or, worse, a *different* meeting.
 - **The UUID travels as a query param, not a path segment** (`?uuid=`), precisely because it can contain `/`.

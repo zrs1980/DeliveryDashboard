@@ -9,13 +9,15 @@
 //   ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET
 //
 // Required scopes on that app:
-//   user:read:admin       (list account users)
-//   report:read:admin     (past meeting reports)
-//   recording:read:admin  (cloud recordings + transcripts)
+//   user:read:admin            (list account users)
+//   report:read:admin          (past meeting reports)
+//   recording:read:admin       (cloud recordings + transcripts)
+//   meeting_summary:read:admin (AI Companion meeting summaries / "Zoom Notes")
 // Granular-scope equivalents, if the app was created after Zoom's scope split:
 //   user:read:list_users:admin
 //   report:read:list_user_meetings:admin
 //   cloud_recording:read:list_recording_files:admin
+//   meeting_summary:read:summary:admin
 
 const ZOOM_OAUTH = "https://zoom.us/oauth/token";
 const ZOOM_API   = "https://api.zoom.us/v2";
@@ -503,5 +505,101 @@ export async function fetchMeetingTranscript(uuid: string): Promise<TranscriptRe
     available: cues.length > 0,
     reason: cues.length === 0 ? "Zoom returned a transcript file, but it contained no readable cues." : undefined,
     cues, vtt, ...meta,
+  };
+}
+
+// ─── AI Companion meeting summary ("Zoom Notes") ──────────────────────────────
+
+export interface SummarySection { label: string; summary: string }
+
+export interface MeetingSummary {
+  available:       boolean;
+  reason?:         string;
+  title?:          string;
+  overview?:       string;
+  sections:        SummarySection[];
+  nextSteps:       string[];
+  /** True when someone edited Zoom's generated summary — we then show theirs. */
+  edited:          boolean;
+  createdAt?:      string;
+  lastModifiedAt?: string;
+  topic?:          string;
+  startTime?:      string;
+  endTime?:        string;
+  hostEmail?:      string;
+}
+
+interface ZoomSummaryResponse {
+  meeting_topic?: string;
+  meeting_start_time?: string;
+  meeting_end_time?: string;
+  meeting_host_email?: string;
+  summary_title?: string;
+  summary_overview?: string;
+  summary_details?: Array<{ label?: string; summary?: string }> | string;
+  next_steps?: string[];
+  summary_created_time?: string;
+  summary_last_modified_time?: string;
+  /** Present when a human edited the summary. Zoom returns details as a STRING here. */
+  edited_summary?: { summary_details?: string; next_steps?: string[] };
+}
+
+/** Zoom returns summary_details as an array of sections, or a plain string when edited. */
+export function normalizeSections(details: ZoomSummaryResponse["summary_details"]): SummarySection[] {
+  if (!details) return [];
+  if (typeof details === "string") {
+    return details.trim() ? [{ label: "", summary: details.trim() }] : [];
+  }
+  return details
+    .map(d => ({ label: (d.label ?? "").trim(), summary: (d.summary ?? "").trim() }))
+    .filter(d => d.summary || d.label);
+}
+
+/**
+ * AI Companion summary for one meeting instance.
+ *
+ * Returns `available: false` with a reason when the meeting has no summary — the
+ * ordinary case when AI Companion wasn't on. Only auth/scope/plan errors throw.
+ */
+export async function fetchMeetingSummary(uuid: string): Promise<MeetingSummary> {
+  let raw: ZoomSummaryResponse;
+  try {
+    raw = await zoomGet<ZoomSummaryResponse>(`/meetings/${encodeMeetingUuid(uuid)}/meeting_summary`);
+  } catch (e) {
+    if (e instanceof ZoomError && (e.status === 404 || e.code === 3001)) {
+      return {
+        available: false,
+        reason: "No AI Companion summary exists for this meeting. Zoom only generates one when AI Companion's Meeting Summary was switched on for that meeting, and it can't be produced retroactively.",
+        sections: [], nextSteps: [], edited: false,
+      };
+    }
+    throw e;
+  }
+
+  const edited = !!(raw.edited_summary && (raw.edited_summary.summary_details || raw.edited_summary.next_steps?.length));
+
+  // Prefer a human-edited summary over Zoom's original — someone corrected it for a reason.
+  const sections  = edited ? normalizeSections(raw.edited_summary!.summary_details) : normalizeSections(raw.summary_details);
+  const nextSteps = ((edited ? raw.edited_summary!.next_steps : raw.next_steps) ?? [])
+    .map(s => (s ?? "").trim())
+    .filter(Boolean);
+
+  const overview = (raw.summary_overview ?? "").trim();
+  const hasBody  = !!overview || sections.length > 0 || nextSteps.length > 0;
+
+  return {
+    available: hasBody,
+    reason: hasBody ? undefined : "Zoom returned a summary record for this meeting, but it had no content.",
+    title:          (raw.summary_title ?? "").trim() || undefined,
+    overview:       overview || undefined,
+    sections,
+    nextSteps,
+    edited,
+    createdAt:      raw.summary_created_time,
+    lastModifiedAt: raw.summary_last_modified_time,
+    topic:          raw.meeting_topic,
+    startTime:      raw.meeting_start_time,
+    endTime:        raw.meeting_end_time,
+    hostEmail:      raw.meeting_host_email,
   };
 }

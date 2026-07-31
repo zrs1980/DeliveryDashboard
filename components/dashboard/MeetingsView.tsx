@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/constants";
-import { TranscriptPanel, type TranscriptTarget } from "./TranscriptPanel";
+import { MeetingPanel, type MeetingTarget } from "./MeetingPanel";
 
 interface Meeting {
   uuid:             string;
@@ -73,7 +73,7 @@ export function MeetingsView() {
   const [needsSetup, setNS]   = useState(false);
   const [updatedAt, setUpd]   = useState<string | null>(null);
 
-  const [transcriptFor, setTranscriptFor] = useState<TranscriptTarget | null>(null);
+  const [openMeeting, setOpenMeeting] = useState<MeetingTarget | null>(null);
   const [hostFilter, setHostFilter] = useState("all");
   const [search, setSearch]         = useState("");
   const [sort, setSort]             = useState<SortKey>("start");
@@ -340,31 +340,31 @@ export function MeetingsView() {
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onTranscript={setTranscriptFor} />),
+                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} />),
                     ];
                   })
-                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onTranscript={setTranscriptFor} />)}
+                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} />)}
             </tbody>
           </table>
         </div>
       )}
 
-      {transcriptFor && (
-        <TranscriptPanel target={transcriptFor} onClose={() => setTranscriptFor(null)} />
+      {openMeeting && (
+        <MeetingPanel target={openMeeting} onClose={() => setOpenMeeting(null)} />
       )}
     </div>
   );
 }
 
 function MeetingRow({
-  m, zebra, onTranscript,
-}: { m: Meeting; zebra: boolean; onTranscript: (t: TranscriptTarget) => void }) {
-  const open = () => onTranscript({ uuid: m.uuid, topic: m.topic, hostName: m.hostName, startTime: m.startTime });
+  m, zebra, onOpen,
+}: { m: Meeting; zebra: boolean; onOpen: (t: MeetingTarget) => void }) {
+  const open = () => onOpen({ uuid: m.uuid, topic: m.topic, hostName: m.hostName, startTime: m.startTime });
   return (
     <tr
       style={{ background: zebra ? C.alt : C.surface, cursor: "pointer" }}
       onClick={open}
-      title="View transcript"
+      title="View meeting notes and transcript"
     >
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, maxWidth: 420 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={m.topic}>
@@ -390,7 +390,7 @@ function MeetingRow({
           onClick={e => { e.stopPropagation(); open(); }}
           style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font }}
         >
-          🗒️ Transcript
+          📝 Notes
         </button>
       </td>
     </tr>
