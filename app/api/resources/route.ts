@@ -139,9 +139,16 @@ export async function GET() {
 
     const allocations: NSAllocation[] = rows.map(r => {
       const empId = parseInt(r.employee_id);
-      const jt = parseInt(r.jobtype ?? "0");
-      const jtName = (r.jobtype_name ?? "").toLowerCase();
-      const projectType = (jt === 1 || jtName.includes("consulting")) ? "Implementation" : jt === 2 ? "Service" : "Internal";
+      // Pass NetSuite's own jobtype display name straight through. The previous
+      // mapping collapsed everything that wasn't jobtype 1 or 2 into "Internal",
+      // which hid Managed Services Agreement, Technical Services and Training
+      // inside the internal band. Falls back to the numeric jobtype only when the
+      // display name is missing.
+      const jt        = parseInt(r.jobtype ?? "0");
+      const jtName    = (r.jobtype_name ?? "").trim();
+      const projectType = jtName !== ""
+        ? jtName
+        : jt === 1 ? "Implementation" : jt === 2 ? "Service" : "Internal";
       return {
         id:             r.id,
         employeeId:     empId,

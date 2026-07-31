@@ -15,7 +15,7 @@ interface CellEdit {
   employeeName:  string;
   projectId:     number;
   projectName:   string;
-  projectType:   "Implementation" | "Service" | "Internal";
+  projectType:   string;   // raw NetSuite jobtype name
   companyName:   string;
   remainingHours: number | null;
   budgetHours:   number | null;
@@ -156,10 +156,10 @@ function gapStyle(gap: number): React.CSSProperties {
 }
 
 // ─── Project grouping ─────────────────────────────────────────────────────────
-// Implementation and Service are both client-facing delivery work, so the
-// allocation views roll them into one "Customer Projects" band. NetSuite's jobtype
-// still distinguishes them on the project record — this is a display grouping only,
-// and never a substitute for the Billable/Utilized/Productive flags.
+// Two bands — client-facing delivery work vs internal — each sub-grouped by the raw
+// NetSuite jobtype name (Implementation, Service, Managed Services Agreement, …).
+// Display grouping only: never a substitute for the Billable/Utilized/Productive
+// flags, which come from the project record.
 
 type ProjectGroup = "Customer Projects" | "Internal";
 
@@ -170,8 +170,81 @@ const GROUP_STYLE: Record<ProjectGroup, { bg: string; color: string; bd: string 
   "Internal":          { bg: C.alt,      color: C.textSub, bd: C.border   },
 };
 
+/** Same rule as /api/manager-review and TimeAnalysis: anything typed and not "Internal". */
+function isCustomerProjectType(projectType: string | null | undefined): boolean {
+  const t = (projectType ?? "").toLowerCase().trim();
+  return t !== "" && t !== "internal";
+}
+
 function projectGroupOf(projectType: string | null | undefined): ProjectGroup {
-  return (projectType ?? "Internal") === "Internal" ? "Internal" : "Customer Projects";
+  return isCustomerProjectType(projectType) ? "Customer Projects" : "Internal";
+}
+
+/** Sub-group label — NetSuite's own jobtype name, or a placeholder when unset. */
+function projectTypeLabel(projectType: string | null | undefined): string {
+  const t = (projectType ?? "").trim();
+  return t === "" ? "Unclassified" : t;
+}
+
+// Preferred sub-group order; anything NetSuite reports that isn't listed sorts after
+// these alphabetically, so a new jobtype shows up on its own rather than being hidden.
+const TYPE_RANK: readonly string[] = ["implementation", "service", "managed services agreement"];
+
+function compareProjectTypes(a: string, b: string): number {
+  const ra = TYPE_RANK.indexOf(a.toLowerCase());
+  const rb = TYPE_RANK.indexOf(b.toLowerCase());
+  if (ra !== rb) return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
+  return a.localeCompare(b);
+}
+
+const TYPE_TINT: Record<string, { bg: string; color: string; bd: string }> = {
+  "implementation":              { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
+  "service":                     { bg: C.blueBg,   color: C.blue,    bd: C.blueBd   },
+  "managed services agreement":  { bg: C.tealBg,   color: C.teal,    bd: C.tealBd   },
+  "technical services":          { bg: C.blueBg,   color: C.blue,    bd: C.blueBd   },
+  "consulting services":         { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
+  "general consulting":          { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
+  "training":                    { bg: C.orangeBg, color: C.orange,  bd: C.orangeBd },
+  "internal":                    { bg: C.alt,      color: C.textSub, bd: C.border   },
+};
+
+function projectTypeTint(projectType: string | null | undefined) {
+  return TYPE_TINT[(projectType ?? "").toLowerCase().trim()]
+      ?? { bg: C.alt, color: C.textMid, bd: C.border };
+}
+
+/** Compact chip label, e.g. "Managed Services Agreement" → "MSA". */
+function projectTypeShort(projectType: string | null | undefined): string {
+  const t = (projectType ?? "").trim();
+  if (t === "") return "—";
+  if (/managed\s*service/i.test(t))  return "MSA";
+  if (/^implementation$/i.test(t))   return "Impl";
+  if (/technical\s*services/i.test(t)) return "Tech";
+  if (/consulting/i.test(t))         return "Consult";
+  return t.length <= 8 ? t : t.slice(0, 8) + "…";
+}
+
+/** Group an array by its project group, preserving input order within each band. */
+function groupByProjectGroup<T>(items: T[], typeOf: (x: T) => string | null | undefined) {
+  const out: Partial<Record<ProjectGroup, T[]>> = {};
+  for (const it of items) {
+    const g = projectGroupOf(typeOf(it));
+    (out[g] ??= []).push(it);
+  }
+  return out;
+}
+
+/** Split one band into its sub-groups, ordered by TYPE_RANK then alphabetically. */
+function subGroupsByType<T>(items: T[], typeOf: (x: T) => string | null | undefined) {
+  const map = new Map<string, T[]>();
+  for (const it of items) {
+    const label = projectTypeLabel(typeOf(it));
+    if (!map.has(label)) map.set(label, []);
+    map.get(label)!.push(it);
+  }
+  return [...map.entries()]
+    .sort((a, b) => compareProjectTypes(a[0], b[0]))
+    .map(([label, rows]) => ({ label, rows }));
 }
 
 /**
@@ -179,10 +252,43 @@ function projectGroupOf(projectType: string | null | undefined): ProjectGroup {
  * Customer Projects total row when expanding a resource.
  *
  * Carried over unchanged from when this applied to the Implementation group alone.
- * NOTE: the same row now also counts Service work, so the floor is easier to hit
- * than it was — adjust if the intent was 30h of Implementation specifically.
+ * NOTE: the same row now also counts Service and Managed Services Agreement work,
+ * so the floor is easier to hit than it was — adjust if the intent was 30h of
+ * Implementation specifically.
  */
 const CUSTOMER_WEEK_FLOOR = 30;
+
+/** B / U / P classification chips, shared by both grids. */
+function ClassChips({
+  billable, utilized, productive, size = 14,
+}: { billable: boolean; utilized: boolean; productive: boolean; size?: number }) {
+  const chips = [
+    { k: "B", on: billable,   color: C.green, name: "Billable"   },
+    { k: "U", on: utilized,   color: C.blue,  name: "Utilized"   },
+    { k: "P", on: productive, color: C.teal,  name: "Productive" },
+  ];
+  return (
+    <span
+      style={{ display: "inline-flex", gap: 2, verticalAlign: "middle" }}
+      title={chips.map(c => `${c.name}: ${c.on ? "yes" : "no"}`).join(" · ") + " (from the NetSuite project record)"}
+    >
+      {chips.map(c => (
+        <span
+          key={c.k}
+          style={{
+            fontFamily: C.mono, fontSize: size <= 14 ? 9 : 10, fontWeight: 700, lineHeight: `${size}px`,
+            width: size, height: size, textAlign: "center", borderRadius: 3,
+            background: c.on ? c.color : C.alt,
+            color:      c.on ? "#fff"  : C.mid,
+            border: `1px solid ${c.on ? c.color : C.border}`,
+          }}
+        >
+          {c.k}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 // ─── Sub-tab / Forecast helpers ───────────────────────────────────────────
 
@@ -341,7 +447,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       projectId: number;
       name: string;
       companyName: string;
-      projectType: "Implementation" | "Service" | "Internal";
+      projectType: string;
       remainingHours: number | null;
       budgetHours: number | null;
       rows: NSAllocation[];
@@ -842,12 +948,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   </tr>
 
                   {isExp && (() => {
-                    const grouped: Partial<Record<ProjectGroup, typeof emp.rows>> = {};
-                    for (const a of emp.rows) {
-                      const g = projectGroupOf(a.projectType);
-                      if (!grouped[g]) grouped[g] = [];
-                      grouped[g]!.push(a);
-                    }
+                    const grouped = groupByProjectGroup(emp.rows, a => a.projectType);
                     const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                     const empTotalHrs = weeks.reduce((s, w) => s + emp.rows.reduce((r, a) => r + hoursForWeek(a, w), 0), 0);
                     return GROUP_ORDER.filter(t => grouped[t]?.length).flatMap(t => {
@@ -862,15 +963,35 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                           </td>
                         </tr>,
                         ...(() => {
-                          const byProj = new Map<number, { allocs: NSAllocation[]; name: string; companyName: string }>();
+                          const byProj = new Map<number, { allocs: NSAllocation[]; name: string; companyName: string; type: string }>();
                           for (const a of grouped[t]!) {
-                            if (!byProj.has(a.projectId)) byProj.set(a.projectId, { allocs: [], name: a.projectName, companyName: a.companyName ?? "" });
+                            if (!byProj.has(a.projectId)) byProj.set(a.projectId, { allocs: [], name: a.projectName, companyName: a.companyName ?? "", type: a.projectType });
                             byProj.get(a.projectId)!.allocs.push(a);
                           }
-                          return Array.from(byProj.values()).map(({ allocs, name, companyName }) => (
+                          const chipsFor = (allocs: NSAllocation[]) => ({
+                            billable:   allocs.some(a => a.classifyAsBillable   === true),
+                            utilized:   allocs.some(a => a.classifyAsUtilized    === true),
+                            productive: allocs.some(a => a.classifyAsProductive  === true),
+                          });
+                          // Sorted by sub-type so projects of the same NetSuite type sit together
+                          // inside the band, without adding another level of header rows here.
+                          return Array.from(byProj.values())
+                            .sort((x, y) => compareProjectTypes(projectTypeLabel(x.type), projectTypeLabel(y.type)) || x.name.localeCompare(y.name))
+                            .map(({ allocs, name, companyName, type }) => {
+                            const tint = projectTypeTint(type);
+                            return (
                             <tr key={`${emp.name}-${t}-${allocs[0].projectId}`} style={{ background: rowBgSub }}>
                               <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
                                 <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                                <span
+                                  style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}`, marginRight: 6 }}
+                                  title={projectTypeLabel(type)}
+                                >
+                                  {projectTypeShort(type)}
+                                </span>
+                                <span style={{ marginRight: 7 }}>
+                                  <ClassChips {...chipsFor(allocs)} size={13} />
+                                </span>
                                 {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
                                 {name}
                               </td>
@@ -883,7 +1004,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                 );
                               })}
                             </tr>
-                          ));
+                            );
+                          });
                         })(),
                         <tr key={`${emp.name}-type-${t}-total`}>
                           <td style={{ padding: "4px 14px 4px 20px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}`, ...stickyLeft }}>
@@ -959,12 +1081,33 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         </span>
       </div>
 
+      {/* Classification column legend */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.textSub, fontWeight: 600 }}>Class column:</span>
+        {[
+          { k: "B", label: "Billable",   color: C.green, note: "custentity_ceba_is_billable" },
+          { k: "U", label: "Utilized",   color: C.blue,  note: "isutilizedtime" },
+          { k: "P", label: "Productive", color: C.teal,  note: "isproductivetime" },
+        ].map(m => (
+          <span key={m.k} style={{ fontSize: 10, color: C.textMid, display: "flex", alignItems: "center", gap: 5 }} title={`NetSuite project field: ${m.note}`}>
+            <span style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 700, width: 14, height: 14, lineHeight: "14px", textAlign: "center", borderRadius: 3, background: m.color, color: "#fff", border: `1px solid ${m.color}` }}>{m.k}</span>
+            {m.label}
+          </span>
+        ))}
+        <span style={{ fontSize: 10, color: C.textSub }}>
+          Filled = set on the NetSuite project · greyed = not set
+        </span>
+      </div>
+
       <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: C.sh }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: C.font }}>
           <thead>
             <tr>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 220, paddingLeft: 14, ...stickyLeft, background: C.alt }}>
                 Project / Resource
+              </th>
+              <th style={{ ...thStyle, minWidth: 74 }} title="Billable / Utilized / Productive — from the NetSuite project record">
+                Class
               </th>
               <th style={{ ...thStyle, minWidth: 90 }}>Orig. Budget</th>
               <th style={{ ...thStyle, minWidth: 90 }}>Rem. Budget</th>
@@ -985,12 +1128,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           </thead>
           <tbody>
             {(() => {
-              const grouped: Partial<Record<ProjectGroup, typeof byProject>> = {};
-              for (const proj of byProject) {
-                const g = projectGroupOf(proj.projectType);
-                if (!grouped[g]) grouped[g] = [];
-                grouped[g]!.push(proj);
-              }
+              const grouped = groupByProjectGroup(byProject, p => p.projectType);
               return GROUP_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
                 const style = GROUP_STYLE[t];
                 // Pre-compute group totals for the summary row
@@ -1028,30 +1166,53 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   }
                   return Array.from(seenEmps.values()).reduce((s, tu) => s + tu * BILL_RATIO * 40, 0);
                 }) : null;
+                // Sub-groups by NetSuite jobtype. Only headed when the band actually has
+                // more than one type — a single-type band needs no extra header row.
+                const subGroups     = subGroupsByType(grouped[t]!, p => p.projectType);
+                const showSubHeaders = subGroups.length > 1;
+
                 return [
                   <tr key={`type-hdr-${t}`}>
-                    <td colSpan={weeks.length + 5} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
+                    <td colSpan={weeks.length + 6} style={{ padding: "5px 14px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `1px solid ${style.bd}` }}>
                       {t}
                       <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, opacity: 0.7 }}>
                         {grouped[t]!.length} project{grouped[t]!.length !== 1 ? "s" : ""}
                       </span>
+                      {showSubHeaders && (
+                        <span style={{ marginLeft: 8, fontFamily: C.font, fontSize: 10, fontWeight: 500, opacity: 0.65, textTransform: "none", letterSpacing: 0 }}>
+                          {subGroups.map(sg => `${sg.label} (${sg.rows.length})`).join(" · ")}
+                        </span>
+                      )}
                     </td>
                   </tr>,
-                  ...grouped[t]!.map((proj, pi) => {
+                  ...subGroups.flatMap(sub => {
+                    const subTint = projectTypeTint(sub.rows[0]?.projectType);
+                    const subHrs  = sub.rows.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
+                    return [
+                      ...(showSubHeaders ? [(
+                        <tr key={`subtype-hdr-${t}-${sub.label}`}>
+                          <td colSpan={weeks.length + 6} style={{ padding: "3px 14px 3px 26px", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", background: C.surface, color: subTint.color, borderBottom: `1px solid ${C.border}` }}>
+                            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 3, background: subTint.color, marginRight: 7, verticalAlign: "middle" }} />
+                            {sub.label}
+                            <span style={{ marginLeft: 8, fontFamily: C.mono, fontSize: 10, fontWeight: 500, color: C.textSub }}>
+                              {sub.rows.length} project{sub.rows.length !== 1 ? "s" : ""} · {subHrs.toFixed(1)}h allocated
+                            </span>
+                          </td>
+                        </tr>
+                      )] : []),
+                      ...sub.rows.map((proj, pi) => {
               const isExp          = expandedProjects.has(String(proj.projectId));
               const rowBg          = pi % 2 === 0 ? C.surface : C.alt;
               const totalAllocated = proj.rows.reduce((s, a) => s + estimatedFutureHours(a, today), 0);
               const gap            = proj.remainingHours != null ? proj.remainingHours - totalAllocated : null;
               const weekTotals     = weeks.map(w => proj.rows.reduce((s, a) => s + hoursForWeek(a, w), 0));
 
-              // Classification chips. All allocations on a project carry the same
-              // project-level flags, so any row is representative.
-              const flags: Array<{ k: string; on: boolean; color: string }> = [
-                { k: "B", on: proj.rows.some(a => a.classifyAsBillable   === true), color: C.green },
-                { k: "U", on: proj.rows.some(a => a.classifyAsUtilized    === true), color: C.blue  },
-                { k: "P", on: proj.rows.some(a => a.classifyAsProductive  === true), color: C.teal  },
-              ];
-              const flagTitle = `Billable: ${flags[0].on ? "yes" : "no"} · Utilized: ${flags[1].on ? "yes" : "no"} · Productive: ${flags[2].on ? "yes" : "no"} (from the NetSuite project record)`;
+              // Project-level classification — identical across a project's allocations,
+              // so any row is representative.
+              const isBillable   = proj.rows.some(a => a.classifyAsBillable   === true);
+              const isUtilized   = proj.rows.some(a => a.classifyAsUtilized    === true);
+              const isProductive = proj.rows.some(a => a.classifyAsProductive  === true);
+              const typeTint     = projectTypeTint(proj.projectType);
 
               return (
                 <>
@@ -1059,26 +1220,23 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   <tr key={proj.projectId} style={{ background: rowBg, cursor: "pointer" }} onClick={() => toggleProject(String(proj.projectId))}>
                     <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, color: C.text, borderBottom: isExp ? "none" : `1px solid ${C.border}`, whiteSpace: "nowrap", ...stickyLeft, background: rowBg }}>
                       <span style={{ marginRight: 6, fontSize: 10, color: C.textSub }}>{isExp ? "▼" : "▶"}</span>
-                      <span style={{ display: "inline-flex", gap: 2, marginRight: 7, verticalAlign: "middle" }} title={flagTitle}>
-                        {flags.map(f => (
-                          <span
-                            key={f.k}
-                            style={{
-                              fontFamily: C.mono, fontSize: 9, fontWeight: 700, lineHeight: 1.5,
-                              width: 14, textAlign: "center", borderRadius: 3,
-                              background: f.on ? f.color : C.alt,
-                              color:      f.on ? "#fff"   : C.mid,
-                              border: `1px solid ${f.on ? f.color : C.border}`,
-                            }}
-                          >
-                            {f.k}
-                          </span>
-                        ))}
-                      </span>
+                      {!showSubHeaders && (
+                        <span
+                          style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: typeTint.bg, color: typeTint.color, border: `1px solid ${typeTint.bd}`, marginRight: 7, verticalAlign: "middle" }}
+                          title={projectTypeLabel(proj.projectType)}
+                        >
+                          {projectTypeShort(proj.projectType)}
+                        </span>
+                      )}
                       {proj.companyName && (
                         <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{proj.companyName} —</span>
                       )}
                       {proj.name}
+                    </td>
+
+                    {/* Classification — Billable / Utilized / Productive */}
+                    <td style={{ padding: "8px 6px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <ClassChips billable={isBillable} utilized={isUtilized} productive={isProductive} />
                     </td>
 
                     {/* Orig. Budget */}
@@ -1161,7 +1319,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             {empError  && <span style={{ marginLeft: 8, fontSize: 10, color: C.red }}>{cellError!.msg}</span>}
                           </td>
 
-                          {/* Orig. Budget / Rem. Budget / Allocated / Gap — empty for sub-rows */}
+                          {/* Class / Orig. Budget / Rem. Budget / Allocated / Gap — empty for sub-rows */}
+                          <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
                           <td style={{ borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, borderLeft: `1px solid ${C.border}` }} />
@@ -1255,12 +1414,16 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   })()}
                 </>
               );
-                  }), // end grouped[t]!.map
+                      }), // end sub.rows.map
+                    ];
+                  }), // end subGroups.flatMap
                   // ── Group total row ──────────────────────────────────────
                   <tr key={`type-total-${t}`}>
                     <td style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, ...stickyLeft }}>
                       {t} Total
                     </td>
+                    {/* Class — not meaningful for a mixed group */}
+                    <td style={{ background: style.bg, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }} />
                     <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: C.mono, fontSize: 11, fontWeight: 700, background: style.bg, color: style.color, borderTop: `1px solid ${style.bd}`, borderBottom: `2px solid ${style.bd}`, borderLeft: `1px solid ${style.bd}` }}>
                       {grpBudget != null ? `${grpBudget.toFixed(1)}h` : "—"}
                     </td>
@@ -1416,10 +1579,6 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     const rowBg  = i % 2 === 0 ? C.surface : C.alt;
                     const subBg  = i % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                     const isExp  = expandedForecastRows.has(r.name);
-                    const GRP_STYLE: Record<ProjectGroup, { color: string; bg: string; bd: string }> = {
-                      "Customer Projects": { color: C.purple,  bg: C.purpleBg, bd: C.purpleBd },
-                      "Internal":          { color: C.textSub, bg: C.alt,      bd: C.border   },
-                    };
                     return (
                       <>
                       <tr key={r.name} style={{ background: rowBg, cursor: r.breakdown.length > 0 ? "pointer" : "default" }} onClick={() => r.breakdown.length > 0 && toggleForecastRow(r.name)}>
@@ -1483,8 +1642,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
                       {/* Expandable project breakdown */}
                       {isExp && r.breakdown.map((p, pi) => {
-                        const grp = projectGroupOf(p.type);
-                        const ts  = GRP_STYLE[grp];
+                        const ts  = projectTypeTint(p.type);
                         const isLast = pi === r.breakdown.length - 1;
                         const pct = r.cap > 0 ? p.hours / r.cap : 0;
                         return (
@@ -1492,12 +1650,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280, ...stickyLeft, background: subBg }}
                                 title={p.companyName ? `${p.companyName} — ${p.name}` : p.name}>
                               <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                              {/* Group badge; the underlying NetSuite jobtype is in the tooltip. */}
+                              {/* NetSuite jobtype; full name in the tooltip. */}
                               <span
                                 style={{ display: "inline-block", padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.bd}`, marginRight: 6 }}
-                                title={`${grp} · NetSuite type: ${p.type}`}
+                                title={`${projectGroupOf(p.type)} · NetSuite type: ${projectTypeLabel(p.type)}`}
                               >
-                                {grp === "Customer Projects" ? "Customer" : "Internal"}
+                                {projectTypeShort(p.type)}
                               </span>
                               {p.companyName && <span style={{ color: C.textSub, marginRight: 4 }}>{p.companyName} —</span>}
                               {p.name}

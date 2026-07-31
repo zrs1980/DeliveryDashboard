@@ -542,21 +542,42 @@ All three classifications are read off the **NetSuite project (`job`) record** v
 
 > The old cell showed **Bill / Int / Tot**, where "Int" was `projectType === "Internal"` — a jobtype-derived heuristic. Replaced July 2026.
 
-### Project grouping — Customer Projects vs Internal
+### Project grouping — Customer Projects vs Internal, sub-grouped by type
 
-Implementation and Service are both client-facing delivery work, so every grouping in this view rolls them into a single **Customer Projects** band, leaving **Internal** separate. One helper owns this:
+Two top-level bands, each sub-grouped by the **raw NetSuite jobtype name**:
 
-```typescript
-type ProjectGroup = "Customer Projects" | "Internal";
-const GROUP_ORDER: readonly ProjectGroup[] = ["Customer Projects", "Internal"];
-function projectGroupOf(projectType: string | null | undefined): ProjectGroup {
-  return (projectType ?? "Internal") === "Internal" ? "Internal" : "Customer Projects";
-}
+```
+CUSTOMER PROJECTS          Implementation (4) · Service (2) · Managed Services Agreement (1)
+  ● Implementation                 4 projects · 312.0h allocated
+      Nautical — NetSuite Implementation      [B][U][P]   176h  74h  102h  +28h
+  ● Service                        2 projects ·  88.0h allocated
+  ● Managed Services Agreement     1 project  ·  40.0h allocated
+INTERNAL
 ```
 
-Applied in all three places that used to group by type: the expanded-resource breakdown, the by-project view, and the forecast breakdown badge. `NSAllocation.projectType` still carries the real NetSuite jobtype and is shown in tooltips — this is a display grouping only.
+`NSAllocation.projectType` is the raw `BUILTIN.DF(job.jobtype)` string — **not** a collapsed enum. It used to be `"Implementation" | "Service" | "Internal"`, which silently bucketed Managed Services Agreement, Technical Services and Training into the internal band. Same convention as `/api/manager-review` and `TimeAnalysis`.
 
-`CUSTOMER_WEEK_FLOOR` (30h) drives the "Need Xh" hint on the Customer Projects total row. It predates the merge, where it applied to Implementation alone; it now also counts Service hours, so it is easier to hit than it was.
+Helpers in `ResourceAllocation.tsx` own all of this:
+
+| Helper | Purpose |
+|---|---|
+| `isCustomerProjectType(t)` | `t !== "" && t !== "internal"` — same rule as ManagerReview/TimeAnalysis |
+| `projectGroupOf(t)` | → `"Customer Projects" \| "Internal"` |
+| `projectTypeLabel(t)` | sub-group label; `""` → `"Unclassified"` |
+| `compareProjectTypes(a,b)` | `TYPE_RANK` order first, then alphabetical, so a new NetSuite jobtype surfaces on its own rather than being hidden |
+| `projectTypeTint(t)` / `projectTypeShort(t)` | chip colour and abbreviation (`Managed Services Agreement` → `MSA`) |
+| `groupByProjectGroup` / `subGroupsByType` | the two grouping passes |
+| `ClassChips` | shared B/U/P chips |
+
+Sub-group headers only render when a band has more than one type; single-type bands show the type chip on the project row instead. Known NetSuite jobtype names live in `TYPE_TINT` / `TYPE_RANK` — a name not listed still renders, just with neutral styling and sorted last.
+
+`CUSTOMER_WEEK_FLOOR` (30h) drives the "Need Xh" hint on the Customer Projects total row. It predates the merge, where it applied to Implementation alone; it now also counts Service and Managed Services Agreement hours, so it is easier to hit than it was.
+
+### Class column (by-project table)
+
+Column order is **Project / Resource · Class · Orig. Budget · Rem. Budget · Allocated · Gap · weeks** — 6 non-week columns. `Class` holds the `ClassChips` B/U/P indicators (filled = flag set on the NetSuite project).
+
+> Adding or removing a column here means updating **six** places: the `<thead>`, the group-header `colSpan` (`weeks.length + 6`), the sub-group-header `colSpan`, the project row, the five empty cells on nested resource rows, and the group-total row. They will not fail to compile if they disagree — the table just renders misaligned.
 
 ### Gotchas
 

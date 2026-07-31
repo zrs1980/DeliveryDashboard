@@ -127,7 +127,17 @@ export interface NSAllocation {
   employeeName: string;
   projectId: number;
   projectName: string;
-  projectType: "Implementation" | "Service" | "Internal";
+  /**
+   * Raw NetSuite jobtype display name — BUILTIN.DF(job.jobtype), e.g. "Implementation",
+   * "Service", "Managed Services Agreement", "Technical Services", "Internal".
+   *
+   * Deliberately NOT a collapsed enum. It used to be "Implementation" | "Service" |
+   * "Internal", which silently bucketed every other NetSuite type (Managed Services
+   * Agreement included) into "Internal". Matches the convention already used by
+   * /api/manager-review and TimeAnalysis. Says nothing about billable/utilized/
+   * productive — read the classify* flags for that.
+   */
+  projectType: string;
   startDate: string;        // e.g. "3/16/2026"
   endDate: string;
   allocationUnit: string;   // "H" = hours, "P" = percentage
