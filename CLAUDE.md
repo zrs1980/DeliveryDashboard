@@ -45,6 +45,11 @@ The goal is to give PMs a single-pane-of-glass view of project health without ne
 | `CLICKUP_API_TOKEN` | From ClickUp Settings → Apps |
 | `CLICKUP_TEAM_ID` | ClickUp workspace team ID |
 | `ANTHROPIC_API_KEY` | From console.anthropic.com |
+| `SLACK_BOT_TOKEN` | Bot token. Needs `chat:write` (+ optional `chat:write.public`) and `canvases:write` |
+| `SLACK_DEFAULT_CHANNEL` | Fallback channel for `chat.postMessage` (default `#service-request`) |
+| `SLACK_WEEKLY_CANVAS_ID` | Fallback canvas, used **only** when a project has no `custentity_slack_canvas_id` |
+| `SUPABASE_URL` | Supabase project URL — wiki, PM tasks, portal, status reports |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase key. All internal `pm_*` tables are service-role only (no RLS); only `portal-schema.sql` uses RLS, since the portal is reached with the anon key |
 
 > ⚠️ After adding/changing env vars in Vercel you **must redeploy** — Vercel does not pick up new variables on existing deployments automatically.
 
