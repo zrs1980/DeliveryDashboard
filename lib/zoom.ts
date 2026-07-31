@@ -345,6 +345,43 @@ export function encodeMeetingUuid(uuid: string): string {
   return uuid.startsWith("/") || uuid.includes("//") ? encodeURIComponent(once) : once;
 }
 
+/** Both candidate encodings, most-likely first, deduped. */
+export function meetingUuidCandidates(uuid: string): string[] {
+  const once = encodeURIComponent(uuid);
+  const twice = encodeURIComponent(once);
+  const preferred = encodeMeetingUuid(uuid);
+  const other = preferred === once ? twice : once;
+  return preferred === other ? [preferred] : [preferred, other];
+}
+
+/**
+ * GET a meeting-scoped endpoint, trying both UUID encodings.
+ *
+ * Zoom documents double-encoding only for UUIDs starting with `/` or containing
+ * `//`, but that rule doesn't hold universally — a UUID with a single `/` or a `+`
+ * can 404 under one encoding and resolve under the other. Trying both removes a
+ * whole class of "the meeting exists in the portal but the API says 404".
+ *
+ * Throws the LAST error if every encoding fails, so the caller still sees a real
+ * Zoom message rather than a synthesised one.
+ */
+async function zoomGetByMeeting<T>(buildPath: (encoded: string) => string, uuid: string): Promise<T> {
+  const candidates = meetingUuidCandidates(uuid);
+  let lastError: unknown;
+
+  for (const encoded of candidates) {
+    try {
+      return await zoomGet<T>(buildPath(encoded));
+    } catch (e) {
+      lastError = e;
+      // Only an addressing failure is worth retrying under a different encoding.
+      const retryable = e instanceof ZoomError && (e.status === 404 || e.status === 400);
+      if (!retryable) throw e;
+    }
+  }
+  throw lastError;
+}
+
 interface ZoomRecordingsResponse {
   uuid?: string;
   id?: number;
@@ -414,7 +451,7 @@ export function parseVtt(vtt: string): ZoomTranscriptCue[] {
 
 /** Cloud recording files for a specific meeting instance. */
 export async function listMeetingRecordings(uuid: string): Promise<ZoomRecordingsResponse> {
-  return zoomGet<ZoomRecordingsResponse>(`/meetings/${encodeMeetingUuid(uuid)}/recordings`);
+  return zoomGetByMeeting<ZoomRecordingsResponse>(e => `/meetings/${e}/recordings`, uuid);
 }
 
 /**
@@ -555,6 +592,49 @@ export function normalizeSections(details: ZoomSummaryResponse["summary_details"
     .filter(d => d.summary || d.label);
 }
 
+export interface SummaryListEntry {
+  meetingUuid: string;
+  meetingId:   number;
+  topic:       string;
+  startTime:   string;
+  hostEmail:   string;
+}
+
+/**
+ * All AI Companion summaries for a host in a date range.
+ *
+ * Doesn't need a UUID, so it sidesteps meeting-addressing problems entirely and is
+ * the reliable way to answer "which meetings actually have notes". Granular scope:
+ * meeting_summary:read:list_summaries:admin (classic: meeting_summary:read:admin).
+ */
+export async function listUserMeetingSummaries(userId: string, from: string, to: string): Promise<SummaryListEntry[]> {
+  interface Page {
+    summaries?: Array<{ meeting_uuid?: string; meeting_id?: number; meeting_topic?: string; meeting_start_time?: string; meeting_host_email?: string }>;
+    next_page_token?: string;
+  }
+  const out: SummaryListEntry[] = [];
+  let token: string | undefined;
+  let guard = 0;
+
+  do {
+    const page = await zoomGet<Page>(`/users/${encodeURIComponent(userId)}/meeting_summaries`, {
+      from, to, page_size: 300, next_page_token: token,
+    });
+    for (const s of page.summaries ?? []) {
+      out.push({
+        meetingUuid: s.meeting_uuid ?? "",
+        meetingId:   s.meeting_id ?? 0,
+        topic:       s.meeting_topic ?? "",
+        startTime:   s.meeting_start_time ?? "",
+        hostEmail:   s.meeting_host_email ?? "",
+      });
+    }
+    token = page.next_page_token || undefined;
+  } while (token && ++guard < 20);
+
+  return out;
+}
+
 /**
  * AI Companion summary for one meeting instance.
  *
@@ -564,12 +644,16 @@ export function normalizeSections(details: ZoomSummaryResponse["summary_details"
 export async function fetchMeetingSummary(uuid: string): Promise<MeetingSummary> {
   let raw: ZoomSummaryResponse;
   try {
-    raw = await zoomGet<ZoomSummaryResponse>(`/meetings/${encodeMeetingUuid(uuid)}/meeting_summary`);
+    raw = await zoomGetByMeeting<ZoomSummaryResponse>(e => `/meetings/${e}/meeting_summary`, uuid);
   } catch (e) {
     if (e instanceof ZoomError && (e.status === 404 || e.code === 3001)) {
+      // 404 here is ambiguous: no summary for this meeting, OR Zoom couldn't resolve
+      // the meeting at all. Say so rather than asserting "no notes exist" — that
+      // wording sent a real addressing bug looking like a Zoom settings problem.
       return {
         available: false,
-        reason: "No AI Companion summary exists for this meeting. Zoom only generates one when AI Companion's Meeting Summary was switched on for that meeting, and it can't be produced retroactively.",
+        reason:
+          "Zoom returned no summary for this meeting (404). That usually means AI Companion's Meeting Summary wasn't on for it — but it is also what Zoom returns when it can't resolve the meeting, so if you can see notes for this meeting in the Zoom portal, run /api/debug/zoom-meeting?uuid=… to see the raw lookup.",
         sections: [], nextSteps: [], edited: false,
       };
     }
