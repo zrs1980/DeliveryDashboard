@@ -573,6 +573,22 @@ Sub-group headers only render when a band has more than one type; single-type ba
 
 `CUSTOMER_WEEK_FLOOR` (30h) drives the "Need Xh" hint on the Customer Projects total row. It predates the merge, where it applied to Implementation alone; it now also counts Service and Managed Services Agreement hours, so it is easier to hit than it was.
 
+### Forecast period filter
+
+Periods: `week · month · quarter · WTD · MTD · QTD · custom`. Selecting **Custom** reveals two date inputs plus a Reset (back to Monday-this-week → +4 weeks). `getPeriodBounds(period, today, customRange)` resolves all of them; `forecastData` depends on `customRange`.
+
+Three guards, each surfaced in the UI rather than applied silently:
+
+| Input | Behaviour |
+|---|---|
+| Either date empty | Falls back to the current week — "Pick both dates" hint |
+| End before start | Clamps to a single day — red warning naming the day shown |
+| Span > `MAX_CUSTOM_DAYS` (731) | Clamps the end — amber "Range capped" warning |
+
+The span cap matters: `countWorkDays()` and `hoursInRange()` both walk the range a day at a time, so a mistyped year (`0202-01-01`) parses as a valid date and would mean ~600k iterations *per allocation* — enough to lock the browser.
+
+**Parse date inputs with `parseISODate()`, never bare `new Date(iso)`.** `new Date("2026-08-03")` is parsed as UTC midnight and renders as Aug **2** for anyone behind Greenwich; `parseISODate` appends `T00:00:00` to force local. Verified: the naive form shifts every date back a day on a US-timezone machine.
+
 ### Class column (by-project table)
 
 Column order is **Project / Resource · Class · Orig. Budget · Rem. Budget · Allocated · Gap · weeks** — 6 non-week columns. `Class` holds the `ClassChips` B/U/P indicators (filled = flag set on the NetSuite project).

@@ -293,18 +293,71 @@ function ClassChips({
 // ─── Sub-tab / Forecast helpers ───────────────────────────────────────────
 
 type SubTab = "allocation" | "forecast";
-type ForecastPeriod = "week" | "month" | "quarter" | "wtd" | "mtd" | "qtd";
+type ForecastPeriod = "week" | "month" | "quarter" | "wtd" | "mtd" | "qtd" | "custom";
 
 const PERIOD_LABELS: Record<ForecastPeriod, string> = {
   week: "Week", month: "Month", quarter: "Quarter",
   wtd: "WTD", mtd: "MTD", qtd: "QTD",
+  custom: "Custom",
 };
+
+/** Inclusive ISO date range for the Custom period. */
+interface CustomRange { start: string; end: string }
+
+/** Parse a yyyy-mm-dd input value as a LOCAL date — bare `new Date(iso)` is UTC
+ *  and shifts the day backwards for anyone behind Greenwich. */
+function parseISODate(s: string | null | undefined): Date | null {
+  if (!s) return null;
+  const d = new Date(s + "T00:00:00");
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Hard cap on the custom range span.
+ *
+ * countWorkDays() and hoursInRange() both walk the range a day at a time, so span
+ * length drives real work. A mistyped year ("0202-01-01") parses as a valid date
+ * and would otherwise mean ~600k iterations per allocation — enough to lock the
+ * browser. Two years is far beyond any useful forecast window.
+ */
+const MAX_CUSTOM_DAYS = 731;
+
+/** Default custom window: Monday of this week through four weeks out. */
+function defaultCustomRange(today: Date): CustomRange {
+  const s = getMondayOf(today);
+  const e = new Date(s);
+  e.setDate(s.getDate() + 27);
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { start: iso(s), end: iso(e) };
+}
 
 const FORECAST_BILL_RATIO = 0.87;
 
-function getPeriodBounds(period: ForecastPeriod, today: Date): { start: Date; end: Date } {
+function getPeriodBounds(period: ForecastPeriod, today: Date, custom?: CustomRange): { start: Date; end: Date } {
   const d = new Date(today);
   d.setHours(0, 0, 0, 0);
+
+  if (period === "custom") {
+    const s = parseISODate(custom?.start);
+    const e = parseISODate(custom?.end);
+    if (s && e) {
+      // Clamp a backwards range to a single day rather than returning a negative
+      // window, which would make every capacity figure zero with no explanation.
+      let end = e < s ? new Date(s) : e;
+      // Then clamp the span — see MAX_CUSTOM_DAYS.
+      const maxEnd = new Date(s);
+      maxEnd.setDate(s.getDate() + MAX_CUSTOM_DAYS);
+      if (end > maxEnd) end = maxEnd;
+      return { start: s, end };
+    }
+    // Either date still being typed — fall back to this week so the view stays usable.
+    const ws = getMondayOf(d);
+    const we = new Date(ws);
+    we.setDate(ws.getDate() + 6);
+    return { start: ws, end: we };
+  }
+
   switch (period) {
     case "week": {
       const s = getMondayOf(d);
@@ -351,10 +404,11 @@ function fmtDateShort(d: Date): string {
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 }
 
-function getPeriodDisplayLabel(period: ForecastPeriod, today: Date): string {
-  const { start, end } = getPeriodBounds(period, today);
+function getPeriodDisplayLabel(period: ForecastPeriod, today: Date, custom?: CustomRange): string {
+  const { start, end } = getPeriodBounds(period, today, custom);
   const q = Math.floor(today.getMonth() / 3) + 1;
   switch (period) {
+    case "custom":  return `${fmtDateShort(start)} – ${fmtDateShort(end)}`;
     case "week":    return `${fmtDateShort(start)} – ${fmtDateShort(end)}`;
     case "wtd":     return `${fmtDateShort(start)} – Today`;
     case "month":   return today.toLocaleDateString("en-AU", { month: "long", year: "numeric" });
@@ -420,6 +474,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
   const [subTab, setSubTab] = useState<SubTab>("allocation");
   const [forecastPeriod, setForecastPeriod] = useState<ForecastPeriod>("week");
+  const [customRange, setCustomRange]       = useState<CustomRange>(() => defaultCustomRange(new Date()));
   const [expandedForecastRows, setExpandedForecastRows] = useState<Set<string>>(new Set());
 
   function toggleForecastRow(name: string) {
@@ -484,7 +539,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
   const forecastData = useMemo(() => {
     const now = new Date(); now.setHours(0, 0, 0, 0);
-    const { start, end } = getPeriodBounds(forecastPeriod, now);
+    const { start, end } = getPeriodBounds(forecastPeriod, now, customRange);
     const workDays = countWorkDays(start, end);
     const capPerPerson = workDays * 8;
 
@@ -578,7 +633,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       teamBillableRAG: ragFn(teamBillablePct, teamBillableTgtPct),
       teamUtilizedRAG: ragFn(teamUtilizedPct, teamUtilizedTgtPct),
     };
-  }, [byEmployee, forecastPeriod, consultantRoster]);
+  }, [byEmployee, forecastPeriod, customRange, consultantRoster]);
 
   function toggleExpand(name: string) {
     setExpanded(prev => {
@@ -1511,8 +1566,64 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   {PERIOD_LABELS[p]}
                 </button>
               ))}
+
+              {/* Custom range inputs — only while Custom is the active period */}
+              {forecastPeriod === "custom" && (() => {
+                const s = parseISODate(customRange.start);
+                const e = parseISODate(customRange.end);
+                const backwards = !!(s && e && e < s);
+                const dateInput: React.CSSProperties = {
+                  padding: "4px 8px", borderRadius: 7, fontSize: 12, fontFamily: C.font,
+                  color: C.text, background: C.surface, outline: "none",
+                  border: `1.5px solid ${backwards ? C.redBd : C.border}`,
+                };
+                return (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+                    <input
+                      type="date"
+                      value={customRange.start}
+                      max={customRange.end || undefined}
+                      onChange={ev => setCustomRange(r => ({ ...r, start: ev.target.value }))}
+                      style={dateInput}
+                      aria-label="Forecast range start"
+                    />
+                    <span style={{ fontSize: 12, color: C.textSub }}>→</span>
+                    <input
+                      type="date"
+                      value={customRange.end}
+                      min={customRange.start || undefined}
+                      onChange={ev => setCustomRange(r => ({ ...r, end: ev.target.value }))}
+                      style={dateInput}
+                      aria-label="Forecast range end"
+                    />
+                    <button
+                      onClick={() => setCustomRange(defaultCustomRange(new Date()))}
+                      title="Reset to the next four weeks"
+                      style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 7, border: `1px solid ${C.border}`, background: C.alt, color: C.textMid, fontFamily: C.font }}
+                    >
+                      Reset
+                    </button>
+                    {backwards && (
+                      <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>
+                        End is before start — showing {fmtDateShort(s!)} only
+                      </span>
+                    )}
+                    {(!s || !e) && (
+                      <span style={{ fontSize: 11, color: C.textSub }}>
+                        Pick both dates — showing this week meanwhile
+                      </span>
+                    )}
+                    {!backwards && s && e && (e.getTime() - s.getTime()) / 86400000 > MAX_CUSTOM_DAYS && (
+                      <span style={{ fontSize: 11, color: C.orange, fontWeight: 600 }}>
+                        Range capped at {MAX_CUSTOM_DAYS} days — check the end date
+                      </span>
+                    )}
+                  </span>
+                );
+              })()}
+
               <span style={{ fontSize: 12, color: C.textSub, marginLeft: 8, fontStyle: "italic" }}>
-                {getPeriodDisplayLabel(forecastPeriod, now)}
+                {getPeriodDisplayLabel(forecastPeriod, now, customRange)}
                 {" · "}{workDays} working day{workDays !== 1 ? "s" : ""}
               </span>
             </div>
