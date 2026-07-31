@@ -48,6 +48,9 @@ The goal is to give PMs a single-pane-of-glass view of project health without ne
 | `SLACK_BOT_TOKEN` | Bot token. Needs `chat:write` (+ optional `chat:write.public`) and `canvases:write` |
 | `SLACK_DEFAULT_CHANNEL` | Fallback channel for `chat.postMessage` (default `#service-request`) |
 | `SLACK_WEEKLY_CANVAS_ID` | Fallback canvas, used **only** when a project has no `custentity_slack_canvas_id` |
+| `ZOOM_ACCOUNT_ID` | From the Server-to-Server OAuth app (Meetings tab) |
+| `ZOOM_CLIENT_ID` | From the Server-to-Server OAuth app |
+| `ZOOM_CLIENT_SECRET` | From the Server-to-Server OAuth app |
 | `SUPABASE_URL` | Supabase project URL — wiki, PM tasks, portal, status reports |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase key. All internal `pm_*` tables are service-role only (no RLS); only `portal-schema.sql` uses RLS, since the portal is reached with the anon key |
 
@@ -907,6 +910,40 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - Use `jobtype = 1` for Implementation and `jobtype = 2` for Service when filtering by project type.
 - Time entries in NetSuite use `timebill` for employee time and `vendorbill` for contractor/vendor costs — both must be summed for total cost actuals.
 - **Slack `canvases.edit` → `restricted_action` is a per-canvas access problem, not a scope problem.** The app must be added as a **collaborator** on that specific canvas (canvas → `•••` → Share / Manage access → add the app). A token holding `canvases:write` still fails on a canvas it hasn't been shared with. Confirmed July 2026 after a workspace migration, where every recreated canvas needed the app re-added by hand *and* its `custentity_slack_canvas_id` updated. `lib/slack.ts` maps this and the other common Slack codes to actionable messages via `CANVAS_ERROR_HELP` — extend that map rather than surfacing raw Slack codes. Check collaborator access first, then whether `SLACK_BOT_TOKEN` changed without a Vercel redeploy, then workspace-level canvas restrictions.
+
+---
+
+## Module: Meetings (Zoom)
+
+`🎥 Meetings` tab — past Zoom meetings for the account, defaulting to **1 July 2026 → today**, with an adjustable date range, host filter, search, day grouping and sortable columns. Self-loading; independent of the NetSuite "Refresh Data" button.
+
+```
+/lib/zoom.ts              → S2S OAuth token (cached), users, past-meeting reports, error mapping
+/app/api/meetings/route.ts → GET ?from=&to=  → { meetings, hosts, summary, warnings }
+/components/dashboard/MeetingsView.tsx
+```
+
+### Auth — Server-to-Server OAuth
+
+Zoom retired JWT apps in September 2023, and user-authorized OAuth would need every host to consent individually. S2S gives account-level access from three env vars.
+
+Set up at **marketplace.zoom.us → Develop → Build App → Server-to-Server OAuth**, add scopes, then **activate** the app:
+
+| Scope (classic) | Granular equivalent | For |
+|---|---|---|
+| `user:read:admin` | `user:read:list_users:admin` | listing account users |
+| `report:read:admin` | `report:read:list_report_meetings:admin` | past meeting reports |
+
+Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=…` with HTTP Basic `client_id:client_secret`. Tokens last an hour and are cached module-level, so a warm serverless instance reuses one.
+
+### Gotchas
+
+- **There is no account-wide past-meeting report.** `fetchPastMeetings` fans out over `/report/users/{id}/meetings` per host and dedupes by meeting `uuid` — a recurring meeting instance can appear in overlapping chunks. `/metrics/meetings` would do it in one call but needs a **Business** plan; the report endpoint works on **Pro**.
+- **Report endpoints reject ranges longer than one month.** `monthChunks()` splits the window into 30-day pieces; requests are `hosts × chunks`. Verified contiguous with no gaps across single-day, month, half-year, full-year and leap-year ranges.
+- **Report endpoints are heavily rate limited** (and daily-capped on lower plans). Calls run through a concurrency pool of 4. A long range across many hosts is the thing most likely to hit 429.
+- **A failing host doesn't blank the tab.** Per-host errors are collected into `warnings` and shown as an amber banner; the meetings that did load still render.
+- **Zoom only reports meetings that actually started** — a scheduled meeting nobody joined won't appear. Worth saying out loud when a PM asks why a meeting is missing.
+- Errors are mapped to remedies in `lib/zoom.ts` (missing scope, wrong credentials, plan restriction, rate limit) rather than surfacing raw Zoom codes. The tab renders full setup instructions when the env vars are absent.
 
 ---
 

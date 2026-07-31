@@ -12,6 +12,7 @@ import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
 import { AiInsights } from "@/components/dashboard/AiInsights";
 import { CalendarView } from "@/components/dashboard/CalendarView";
+import { MeetingsView } from "@/components/dashboard/MeetingsView";
 import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
 import { SRDashboardView } from "@/components/dashboard/SRDashboardView";
@@ -37,7 +38,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto";
+type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto" | "meetings";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -49,6 +50,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
   { id: "calendar",   label: "Calendar",    icon: "📅" },
+  { id: "meetings",   label: "Meetings",    icon: "🎥" },
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
   { id: "service-requests", label: "Service Requests", icon: "💼" },
   { id: "employee",         label: "My Leave",         icon: "🌴" },
@@ -641,6 +643,9 @@ export default function DashboardPage() {
         {tab === "wiki" && (
           <WikiView userEmail={session?.user?.email} />
         )}
+
+        {/* Meetings — self-loading from Zoom, independent of the NetSuite refresh */}
+        {tab === "meetings" && <MeetingsView />}
 
         {/* Calendar */}
         {tab === "calendar" && (
