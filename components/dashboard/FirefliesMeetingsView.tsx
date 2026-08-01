@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/constants";
+import { FileToDriveModal } from "./FileToDriveModal";
 
 interface Attendee { name: string; email: string; internal: boolean }
 interface Summary {
@@ -392,6 +393,7 @@ function FirefliesPanel({ m, onClose }: { m: Meeting; onClose: () => void }) {
   const [tErr, setTErr]           = useState<string | null>(null);
   const [search, setSearch]       = useState("");
   const [copied, setCopied]       = useState(false);
+  const [filing, setFiling]       = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -479,6 +481,13 @@ function FirefliesPanel({ m, onClose }: { m: Meeting; onClose: () => void }) {
                 <div style={{ display: "flex", gap: 7, marginBottom: 14, flexWrap: "wrap" }}>
                   <button onClick={async () => { try { await navigator.clipboard.writeText(notesText); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {} }} style={btn}>
                     {copied ? "✓ Copied" : "Copy notes"}
+                  </button>
+                  <button
+                    onClick={() => setFiling(true)}
+                    title="Create a Google Doc with these notes and the transcript in the customer's project folder"
+                    style={{ ...btn, background: C.greenBg, color: C.green, borderColor: C.greenBd, fontWeight: 700 }}
+                  >
+                    → File to Drive
                   </button>
                   {m.transcriptUrl && (
                     <a href={m.transcriptUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: "none", background: C.blueBg, color: C.blue, borderColor: C.blueBd }}>↗ Fireflies</a>
@@ -584,6 +593,8 @@ function FirefliesPanel({ m, onClose }: { m: Meeting; onClose: () => void }) {
           )}
         </div>
       </div>
+
+      {filing && <FileToDriveModal meeting={m} onClose={() => setFiling(false)} />}
     </>
   );
 }

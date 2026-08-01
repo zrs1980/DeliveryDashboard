@@ -914,6 +914,37 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 
 ---
 
+## Module: File meeting to Google Drive
+
+From a Fireflies meeting, **→ File to Drive** creates a Google Doc holding the notes and transcript in the right customer/project folder. Claude suggests the customer; the PM confirms both levels before anything is written.
+
+```
+/lib/google-drive.ts    → folder navigation + Doc creation
+/lib/customer-match.ts  → deterministic scorer + Claude prompt
+/lib/meeting-doc.ts     → HTML the Doc is built from (client-safe, so the preview matches)
+/app/api/drive/{customers,projects,match,meeting-doc}/route.ts
+/components/dashboard/FileToDriveModal.tsx
+```
+
+Expected Drive shape, from `DRIVE_CUSTOMER_ROOT_FOLDER_ID`:
+
+```
+<customer root> / <Customer> / <Projects> / <Specific project> / …meeting docs
+```
+
+### Gotchas
+
+- **Adding the Drive scope invalidates existing sessions.** Google tokens carry the scopes they were issued with, so every user must sign out and back in. Drive calls return a `needsReauth` flag and the UI says so explicitly — otherwise it reads as a permissions bug.
+- **The scope is full `drive`.** `drive.file` only sees files the app created, so it can't browse the existing folder tree. Narrowing to `drive.metadata.readonly` + `drive.file` may work for browse-plus-create and would be worth verifying if the broad scope is a concern.
+- **`supportsAllDrives: true` / `includeItemsFromAllDrives: true` on every call.** A team customer folder lives in a shared drive, and without these the listing silently comes back empty.
+- **Docs are created by uploading `text/html` with `mimeType: application/vnd.google-apps.document`.** Drive converts it, giving real headings, lists and tables without composing Docs API `batchUpdate` calls.
+- **`listProjectFolders` falls back to the customer folder's own subfolders** when no Projects container is found (names vary), and flags `fellBackToCustomerFolder` so the UI warns rather than silently offering the wrong tree level.
+- **Matching never hard-depends on Claude.** `scoreFolders()` always produces a ranking — attendee email domain weighted hardest, then title overlap, with legal suffixes and public mailbox domains stripped. Claude re-ranks when reachable; the route falls back to fuzzy and says so. Unit-tested, including the real case where the title carries no customer name and only the domain identifies the client, and correctly declining to match internal-only meetings.
+- **A model-returned folder id is only trusted if it's in the fetched folder list** — never file into an invented id.
+- **The transcript is re-fetched server-side at filing time**, not taken from the client: it's large, and the Doc should reflect Fireflies as of filing. A transcript failure still files the notes, with a note saying so.
+
+---
+
 ## Module: Fireflies Meetings
 
 `🪰 Fireflies Meetings` tab — same layout as the Zoom Meetings tab, sourced from Fireflies.ai. Auth is a single `FIREFLIES_API_KEY`; no OAuth, no scopes.

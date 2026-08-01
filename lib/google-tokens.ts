@@ -7,6 +7,11 @@ interface TokenRow {
   expires_at:    number | null;
 }
 
+/**
+ * OAuth2 client for the signed-in user, with the access token refreshed if it's
+ * close to expiry. Not calendar-specific despite the historical name — see
+ * getGoogleClient below, which is the name to prefer for new callers.
+ */
 export async function getGoogleCalendarClient(userEmail: string) {
   const db = getSupabaseAdmin();
   const { data } = await db
@@ -44,6 +49,9 @@ export async function getGoogleCalendarClient(userEmail: string) {
 
   return oauth2;
 }
+
+/** Preferred alias — the client is generic, not calendar-specific. */
+export const getGoogleClient = getGoogleCalendarClient;
 
 export async function hasGoogleAccount(userEmail: string): Promise<boolean> {
   const db = getSupabaseAdmin();

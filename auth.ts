@@ -16,7 +16,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope:       "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send",
+          // drive is needed to browse the customer/project folder tree and file
+          // meeting docs into an existing folder. NOTE: adding a scope means every
+          // user must sign out and back in — tokens carry the scopes they were
+          // issued with. `prompt: consent` below makes that re-consent happen.
+          scope:       "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive",
           access_type: "offline",
           prompt:      "consent",
         },

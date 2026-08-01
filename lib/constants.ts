@@ -122,6 +122,24 @@ export function isInternalEmail(email: string | null | undefined): boolean {
   return INTERNAL_EMAIL_DOMAINS.some(d => domain === d || domain.endsWith(`.${d}`));
 }
 
+/**
+ * Google Drive folder holding one subfolder per customer. Structure the meeting-doc
+ * filing relies on:
+ *
+ *   <customer root>/ <Customer> / <Projects> / <Specific project> / …docs
+ *
+ * Overridable via env so a different Drive can be pointed at without a code change.
+ */
+export const DRIVE_CUSTOMER_ROOT_FOLDER_ID =
+  process.env.GOOGLE_CUSTOMER_ROOT_FOLDER_ID || "1VjTyfM92h5U-elEyi3i4wYBSAk3txlNV";
+
+/**
+ * Folder names treated as the "projects" container inside a customer folder,
+ * matched case-insensitively. First hit wins; if none match, the customer folder's
+ * own subfolders are offered instead.
+ */
+export const DRIVE_PROJECTS_FOLDER_NAMES = ["projects", "project", "project folder", "projects folder"];
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {
