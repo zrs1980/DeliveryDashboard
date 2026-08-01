@@ -113,30 +113,17 @@ export async function GET(req: NextRequest) {
       out.hostRecordings = { path: `/users/${hostId}/recordings`, ...(await probe(`/users/${encodeURIComponent(hostId)}/recordings?from=${from}&to=${to}&page_size=30`)) };
     }
 
-    // ── 2c. Zoom Notes / Docs surface ──
-    // The token carries my_notes:read:{note,content,notes_transcript}:admin and
-    // docs:read:*, and /past_meetings reported has_meeting_summary:false — so what's
-    // visible in the portal is Notes, not an AI Companion summary. Zoom's Notes API
-    // paths aren't something to guess at: probe candidates and let 200 vs 2300
-    // ("endpoint not recognized") identify the real one.
-    const notesProbes: Array<[string, string]> = [
-      ["notes__list",              `/notes`],
-      ["notes__list_paged",        `/notes?page_size=30`],
-      ["notes__user_scoped",       `/users/${encodeURIComponent(hostId)}/notes`],
-      ["notes__me",                `/users/me/notes`],
-      ["docs__list",               `/docs`],
-      ["docs__files",              `/docs/files`],
-      ["meeting_notes__by_uuid",   `/meetings/${candidates[0]}/notes`],
-      ["past_meeting_notes",       `/past_meetings/${candidates[0]}/notes`],
-      ["meeting_summary_by_uuid2", `/meetings/${candidates[0]}/summary`],
-    ];
-    const notesAttempts: Record<string, unknown> = {};
-    for (const [label, path] of notesProbes) {
-      notesAttempts[label] = { path, ...(await probe(path)) };
-    }
-    out.notesProbes = {
-      note: "200 = endpoint exists. code 2300 = path doesn't exist on this account. 4711/401 = scope issue.",
-      attempts: notesAttempts,
+    // ── 2c. Zoom Notes: settled, don't probe again ──
+    // The account holds my_notes:read:{note,content,notes_transcript}:admin and
+    // docs:read:*, which makes it look as though Zoom Notes is reachable. It isn't.
+    // Probed /notes, /notes?page_size, /users/{id}/notes, /users/me/notes, /docs,
+    // /docs/files, /meetings/{uuid}/notes and /meetings/{uuid}/summary — every one
+    // returned 2300 "endpoint not recognized" or 64041 "Route Not Found". Zoom staff
+    // confirmed on the developer forum (Jan 2024, re-confirmed July 2026) that there
+    // is no public API for Zoom Notes: the scopes exist with no published endpoints.
+    out.zoomNotes = {
+      supported: false,
+      finding: "No public Zoom Notes API. my_notes:* scopes exist but have no endpoints — every candidate path 404s. Confirmed by Zoom staff on the developer forum. AI Companion meeting summaries are the closest exposed equivalent.",
     };
 
     // ── 3. What scopes does the token actually carry? ──

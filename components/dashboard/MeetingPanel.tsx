@@ -134,7 +134,25 @@ function NotesTab({ uuid, target }: { uuid: string; target: MeetingTarget }) {
   if (error)   return <ErrorBox message={error} onRetry={load} />;
 
   if (!data?.available) {
-    return <Empty icon="📝" title="No meeting notes" body={data?.reason} />;
+    return (
+      <Empty icon="📝" title="No meeting notes" body={data?.reason}>
+        <div style={{ marginTop: 16, textAlign: "left", maxWidth: 480, margin: "16px auto 0", background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 15px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 7 }}>
+            To get notes on future meetings
+          </div>
+          <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7 }}>
+            In Zoom: <strong>Settings → AI Companion → Meeting Summary</strong>, and enable
+            <strong> automatically start Meeting Summary</strong>. Summaries can&apos;t be generated for
+            meetings that have already happened.
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textSub, lineHeight: 1.7, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.border}` }}>
+            Note: <strong>Zoom Notes</strong> — the notes you may see in the Zoom web portal — has no public
+            API. Zoom confirmed this is a gap in July 2026, so it can&apos;t be pulled in here. This tab shows
+            AI Companion summaries, which is the closest equivalent Zoom does expose.
+          </div>
+        </div>
+      </Empty>
+    );
   }
 
   return (
@@ -252,6 +270,11 @@ function TranscriptTab({ uuid, target }: { uuid: string; target: MeetingTarget }
   if (!data?.available) {
     return (
       <Empty icon="🗒️" title="No transcript available" body={data?.reason}>
+        <div style={{ marginTop: 14, fontSize: 11.5, color: C.textSub, lineHeight: 1.7, maxWidth: 460, margin: "14px auto 0" }}>
+          Transcripts only exist for <strong>cloud</strong> recordings with
+          <strong> Create audio transcript</strong> enabled at the time of recording. Local recordings are
+          never reachable via the Zoom API.
+        </div>
         {(data?.otherFiles?.length ?? 0) > 0 && (
           <div style={{ marginTop: 14, fontSize: 11.5, color: C.textSub }}>
             Recording assets present: {data!.otherFiles.map(f => `${f.fileType}${f.fileSize ? ` (${fmtBytes(f.fileSize)})` : ""}`).join(" · ")}

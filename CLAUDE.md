@@ -970,6 +970,27 @@ Notes loads on open; the transcript loads only when its tab is first selected, s
 - **`summary_details` is an array of `{label, summary}` sections — except inside `edited_summary`, where it's a plain string.** `normalizeSections()` handles both; unit-tested over array, string, whitespace-only, undefined, blank-entry, label-only and summary-only forms.
 - **No summary is the normal case.** AI Companion must have been on *for that meeting*; it can't be generated retroactively. 404 / code `3001` → `available: false` with a reason at HTTP 200.
 
+### ⛔ Zoom Notes has no public API — do not try again
+
+The account's token carries `my_notes:read:note:admin`, `my_notes:read:content:admin`, `my_notes:read:notes_transcript:admin` and the whole `docs:*` family, which makes Zoom Notes look reachable. **It is not.** Every candidate path returns `2300 "endpoint not recognized"` or `64041 "Route Not Found"`:
+
+```
+/notes   /notes?page_size=30   /users/{id}/notes   /users/me/notes
+/docs    /docs/files           /meetings/{uuid}/notes   /meetings/{uuid}/summary
+```
+
+Zoom staff confirmed on the developer forum (Jan 2024, re-confirmed July 2026) that "there is no API counterpart for Zoom Notes" — a known gap. The scopes are published ahead of the endpoints. **AI Companion meeting summaries are the closest thing Zoom does expose**, which is what the Notes tab shows.
+
+### `/past_meetings/{uuid}` is the endpoint that resolves a past instance
+
+`/meetings/{numericId}` resolves the **scheduled** meeting and returns a *different* UUID for the next occurrence — a quiet way to read the wrong meeting. Verified against a real meeting: numeric ID returned uuid `o0GW/…` with `status: "waiting"`, while the actual past instance was `bHAbMty…`.
+
+`/past_meetings/{uuid}` also carries **`has_meeting_summary`**, which is authoritative. Consult it before explaining a missing summary: `/meetings/{uuid}/meeting_summary` returns `3001 "Meeting does not exist"` both when the meeting can't be resolved *and* when it simply has no summary, so the raw error cannot distinguish "wrong address" from "no notes".
+
+### Diagnosing "the portal shows it but the app doesn't"
+
+`/api/debug/zoom-meeting?topic=…` (or `?uuid=` / `?meetingId=` / `?hostId=`) reports the report-fan-out match, every candidate UUID encoding, raw status+body for each address form, the host's cloud recordings for the range, and the token's notes/summary/transcript scopes. Reach for it before theorising — it has now overturned two wrong diagnoses (UUID encoding, then missing scope).
+
 - **Meeting UUIDs need conditional double URL-encoding.** They're base64 and can contain `/` and `+`; Zoom's rule is that a UUID starting with `/` or containing `//` must be double-encoded in a path. `encodeMeetingUuid()` handles it. Get this wrong and you get a 404 or, worse, a *different* meeting.
 - **The UUID travels as a query param, not a path segment** (`?uuid=`), precisely because it can contain `/`.
 - **Address instances by UUID, not meeting ID.** A numeric ID returns the *latest* instance of a recurring meeting, not the one clicked.
