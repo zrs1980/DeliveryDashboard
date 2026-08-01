@@ -9,6 +9,7 @@
 
 import { google, type drive_v3 } from "googleapis";
 import { getGoogleClient } from "./google-tokens";
+import { getImpersonatedAuth, ServiceAccountError, serviceAccountConfigured } from "./google-service-account";
 import {
   DRIVE_CUSTOMER_ROOT_FOLDER_ID, DRIVE_PROJECTS_FOLDER_NAMES,
   DRIVE_TRANSCRIPT_FOLDER_DEFAULT, DRIVE_TRANSCRIPT_FOLDER_NAMES,
@@ -37,11 +38,34 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 /** Escape a value for a Drive query string literal. */
 const q = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
+/**
+ * Drive client for acting on `userEmail`'s behalf.
+ *
+ * Prefers the service account with domain-wide delegation, because `.../auth/drive`
+ * is a restricted scope and requesting it via user consent forces Google's
+ * verification review. Impersonation keeps ownership and permissions correct.
+ *
+ * Falls back to the user's own OAuth token when no service account is configured,
+ * so the feature still works on a deployment that hasn't been set up yet.
+ */
 async function driveFor(userEmail: string): Promise<drive_v3.Drive> {
+  if (serviceAccountConfigured()) {
+    try {
+      const auth = await getImpersonatedAuth(userEmail);
+      if (auth) return google.drive({ version: "v3", auth });
+    } catch (e) {
+      // Delegation messages are already actionable — pass them straight through.
+      throw new DriveError(
+        e instanceof Error ? e.message : "Service account authorisation failed.",
+        e instanceof ServiceAccountError ? (e.code ?? "sa_error") : "sa_error",
+      );
+    }
+  }
+
   const authClient = await getGoogleClient(userEmail);
   if (!authClient) {
     throw new DriveError(
-      "No Google account is connected for you. Sign out and sign back in to grant Drive access.",
+      "Google Drive isn't set up. Configure the service account (GOOGLE_SA_KEY_JSON + domain-wide delegation), or sign out and back in to use your own Google account.",
       "no_token",
     );
   }

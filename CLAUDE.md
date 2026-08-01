@@ -49,6 +49,9 @@ The goal is to give PMs a single-pane-of-glass view of project health without ne
 | `SLACK_DEFAULT_CHANNEL` | Fallback channel for `chat.postMessage` (default `#service-request`) |
 | `SLACK_WEEKLY_CANVAS_ID` | Fallback canvas, used **only** when a project has no `custentity_slack_canvas_id` |
 | `FIREFLIES_API_KEY` | Fireflies → Settings → Developer Settings (Fireflies Meetings tab) |
+| `GOOGLE_SA_KEY_JSON` | Whole service-account JSON key (or base64 of it) — Drive access via domain-wide delegation |
+| `GOOGLE_SA_IMPERSONATE_USER` | Fallback Workspace address to impersonate when no signed-in user |
+| `GOOGLE_CUSTOMER_ROOT_FOLDER_ID` | Optional override for the Drive customer root |
 | `ZOOM_ACCOUNT_ID` | From the Server-to-Server OAuth app (Meetings tab) |
 | `ZOOM_CLIENT_ID` | From the Server-to-Server OAuth app |
 | `ZOOM_CLIENT_SECRET` | From the Server-to-Server OAuth app |
@@ -926,6 +929,29 @@ Each row of the Fireflies grid carries a **Project** dropdown, a **Meeting Type*
 /app/api/meeting-docs/route.ts      → GET already-filed, POST create
 /supabase/meeting-docs-schema.sql
 ```
+
+### ⚠ Drive auth is a service account, NOT user OAuth
+
+`https://www.googleapis.com/auth/drive` is one of Google's **restricted** scopes. Requesting it through the normal consent flow forces verification — demo video, privacy policy, sometimes a paid annual CASA assessment — and shows every user an unverified-app warning. We hit that wall in July 2026.
+
+**So the Drive scope is deliberately absent from `auth.ts`.** Don't add it back. Drive goes through a service account with **domain-wide delegation** (`lib/google-service-account.ts`), where a Workspace admin authorises the scope once against the service account's client id and no verification is involved.
+
+`driveFor()` prefers the service account and falls back to user OAuth only if none is configured, so an un-set-up deployment still degrades rather than breaking.
+
+Setup:
+
+1. Google Cloud → IAM & Admin → **Service Accounts** → create → **Keys** → add JSON key
+2. Note the service account's **numeric Unique ID**
+3. Workspace Admin → Security → Access and data control → **API controls → Domain-wide delegation** → Add new: that Client ID, scope `https://www.googleapis.com/auth/drive`
+4. APIs & Services → **Library → Google Drive API → Enable** (separate from the scope)
+5. Vercel: `GOOGLE_SA_KEY_JSON` (+ `GOOGLE_SA_IMPERSONATE_USER`), then **redeploy**
+
+Gotchas:
+
+- **Impersonate a real user, never the bare service account.** A service account has no Drive storage quota of its own, so creating files outside a shared drive fails. `getImpersonatedAuth()` impersonates the signed-in user, which also keeps document ownership and folder permissions correct.
+- **Private keys in env vars arrive with literal `\n`** and must be converted to real newlines. Both a raw JSON paste and a base64 encoding of the JSON are accepted; unit-tested along with the split `GOOGLE_SA_CLIENT_EMAIL`/`GOOGLE_SA_PRIVATE_KEY` form and malformed input.
+- **`unauthorized_client`** = the delegation entry is missing or lacks the scope (step 3). **`invalid_grant`** = the impersonated address isn't a real user in the domain. Both are mapped to those exact remedies.
+- `/api/debug/google-scopes` reports the service-account status, whether delegation issues a token, and whether the impersonated user can actually read `DRIVE_CUSTOMER_ROOT_FOLDER_ID` — including whether it's in a shared drive.
 
 ### Destination comes from NetSuite, not Drive browsing
 

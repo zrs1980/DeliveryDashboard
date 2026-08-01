@@ -16,11 +16,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          // drive is needed to browse the customer/project folder tree and file
-          // meeting docs into an existing folder. NOTE: adding a scope means every
-          // user must sign out and back in — tokens carry the scopes they were
-          // issued with. `prompt: consent` below makes that re-consent happen.
-          scope:       "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive",
+          // Deliberately NO Drive scope. `.../auth/drive` is RESTRICTED, so asking
+          // for it here forces Google's verification review (demo video, privacy
+          // policy, sometimes a paid CASA assessment) and shows every user an
+          // unverified-app warning. Drive access goes through the service account
+          // with domain-wide delegation instead — see lib/google-service-account.ts.
+          scope:       "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send",
           access_type: "offline",
           prompt:      "consent",
         },
