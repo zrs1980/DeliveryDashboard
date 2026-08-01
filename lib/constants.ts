@@ -102,6 +102,26 @@ export const PTO_APPROVER_EMAILS = [
   "rodrigo@cebasolutions.com",
 ];
 
+/**
+ * Email domains treated as internal (Loop Services / Loop ERP / legacy CEBA).
+ * Used to strip our own people out of meeting attendee lists so only the client
+ * side shows. Add new domains here rather than at the call site.
+ */
+export const INTERNAL_EMAIL_DOMAINS = [
+  "looperp.ai",
+  "loopservices.co",
+  "cebasolutions.com",
+];
+
+/** True when an email belongs to a Loop-side domain. Subdomains count as internal. */
+export function isInternalEmail(email: string | null | undefined): boolean {
+  const e = (email ?? "").toLowerCase().trim();
+  const at = e.lastIndexOf("@");
+  if (at === -1) return false;
+  const domain = e.slice(at + 1);
+  return INTERNAL_EMAIL_DOMAINS.some(d => domain === d || domain.endsWith(`.${d}`));
+}
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {

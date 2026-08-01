@@ -19,6 +19,8 @@
 //   cloud_recording:read:list_recording_files:admin
 //   meeting_summary:read:summary:admin
 
+import { isInternalEmail } from "./constants";
+
 const ZOOM_OAUTH = "https://zoom.us/oauth/token";
 const ZOOM_API   = "https://api.zoom.us/v2";
 
@@ -542,6 +544,83 @@ export async function fetchMeetingTranscript(uuid: string): Promise<TranscriptRe
     available: cues.length > 0,
     reason: cues.length === 0 ? "Zoom returned a transcript file, but it contained no readable cues." : undefined,
     cues, vtt, ...meta,
+  };
+}
+
+// ─── Participants ─────────────────────────────────────────────────────────────
+
+export interface ZoomParticipant {
+  name:     string;
+  email:    string;
+  internal: boolean;
+  /** Minutes in the meeting, summed across rejoins. */
+  minutes:  number;
+}
+
+export interface MeetingParticipants {
+  uuid:          string;
+  external:      ZoomParticipant[];
+  internalCount: number;
+  total:         number;
+  /** Attendees with no email at all — can't be classified by domain. */
+  unknownCount:  number;
+  error?:        string;
+}
+
+/**
+ * Attendees for one past meeting instance, split internal vs external.
+ *
+ * Uses /report/meetings/{uuid}/participants because it returns user_email, which
+ * domain classification needs — /past_meetings/{uuid}/participants often doesn't.
+ * Scope: report:read:list_meeting_participants:admin.
+ *
+ * A participant with no email is counted as external: internal staff join
+ * authenticated and always carry one, so a blank email is effectively a guest.
+ * Tracked separately as unknownCount so the UI can be honest about it.
+ */
+export async function fetchMeetingParticipants(uuid: string): Promise<MeetingParticipants> {
+  interface Page {
+    participants?: Array<{ name?: string; user_email?: string; duration?: number }>;
+    next_page_token?: string;
+  }
+
+  // Same person can appear multiple times after a rejoin — merge on email, else name.
+  const merged = new Map<string, ZoomParticipant>();
+  let unknownCount = 0;
+  let token: string | undefined;
+  let guard = 0;
+
+  do {
+    const page: Page = await zoomGetByMeeting<Page>(
+      e => `/report/meetings/${e}/participants?page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ""}`,
+      uuid,
+    );
+    for (const p of page.participants ?? []) {
+      const email = (p.user_email ?? "").trim().toLowerCase();
+      const name  = (p.name ?? "").trim() || email || "Unknown";
+      const key   = email || `name:${name.toLowerCase()}`;
+      if (!email) unknownCount++;
+
+      const existing = merged.get(key);
+      const minutes  = Math.round(((p.duration ?? 0) / 60) * 10) / 10;
+      if (existing) {
+        existing.minutes += minutes;
+      } else {
+        merged.set(key, { name, email, internal: isInternalEmail(email), minutes });
+      }
+    }
+    token = page.next_page_token || undefined;
+  } while (token && ++guard < 20);
+
+  const all      = [...merged.values()];
+  const external = all.filter(p => !p.internal).sort((a, b) => b.minutes - a.minutes);
+
+  return {
+    uuid,
+    external,
+    internalCount: all.length - external.length,
+    total:         all.length,
+    unknownCount,
   };
 }
 

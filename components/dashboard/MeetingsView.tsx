@@ -3,7 +3,7 @@
 // Past Zoom meetings for the account, from /api/meetings (Zoom Server-to-Server
 // OAuth → report/users/{id}/meetings per host).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C } from "@/lib/constants";
 import { MeetingPanel, type MeetingTarget } from "./MeetingPanel";
 
@@ -26,6 +26,16 @@ interface Summary {
 }
 
 interface Host { id: string; name: string; email: string }
+
+interface Participant { name: string; email: string; internal: boolean; minutes: number }
+interface MeetingParticipants {
+  uuid: string;
+  external: Participant[];
+  internalCount: number;
+  total: number;
+  unknownCount: number;
+  error?: string;
+}
 
 const DEFAULT_FROM = "2026-07-01";
 
@@ -80,6 +90,14 @@ export function MeetingsView() {
   const [asc, setAsc]               = useState(false);
   const [grouped, setGrouped]       = useState(true);
 
+  // Attendees are one Zoom call per meeting on a rate-limited endpoint, so they're
+  // fetched in chunks for the rows actually being shown and cached by uuid.
+  const [attendees, setAttendees]       = useState<Record<string, MeetingParticipants>>({});
+  const [loadingAtt, setLoadingAtt]     = useState<Set<string>>(new Set());
+  const [attProgress, setAttProgress]   = useState<{ done: number; total: number } | null>(null);
+  const [externalOnly, setExternalOnly] = useState(false);
+  const attRunRef = useRef(0);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null); setNS(false);
     try {
@@ -104,10 +122,53 @@ export function MeetingsView() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  /**
+   * Fetch attendees for the given meetings in chunks, updating as each lands.
+   * `runId` guards against a stale run continuing to write after the date range or
+   * host filter changed underneath it.
+   */
+  const loadAttendees = useCallback(async (uuids: string[]) => {
+    const pending = uuids.filter(u => !attendees[u] && !loadingAtt.has(u));
+    if (pending.length === 0) return;
+
+    const runId = ++attRunRef.current;
+    setLoadingAtt(prev => { const n = new Set(prev); pending.forEach(u => n.add(u)); return n; });
+    setAttProgress({ done: 0, total: pending.length });
+
+    const CHUNK = 25;   // matches MAX_PER_REQUEST on the route
+    let done = 0;
+
+    for (let i = 0; i < pending.length; i += CHUNK) {
+      if (attRunRef.current !== runId) break;   // superseded
+      const chunk = pending.slice(i, i + CHUNK);
+      try {
+        const res  = await fetch("/api/meetings/participants", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uuids: chunk }),
+        });
+        const data = await res.json();
+        if (attRunRef.current !== runId) break;
+        if (res.ok && data.participants) {
+          setAttendees(prev => ({ ...prev, ...data.participants }));
+        }
+      } catch { /* leave these uuids unresolved; the cell shows a retry affordance */ }
+      finally {
+        setLoadingAtt(prev => { const n = new Set(prev); chunk.forEach(u => n.delete(u)); return n; });
+        done += chunk.length;
+        if (attRunRef.current === runId) setAttProgress({ done, total: pending.length });
+      }
+    }
+    if (attRunRef.current === runId) setAttProgress(null);
+  }, [attendees, loadingAtt]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     const rows = meetings.filter(m =>
       (hostFilter === "all" || m.hostId === hostFilter) &&
+      // Only applied once a meeting's attendees are known, so rows don't vanish
+      // mid-load; unresolved rows stay visible.
+      (!externalOnly || !attendees[m.uuid] || attendees[m.uuid].external.length > 0) &&
       (!q || m.topic.toLowerCase().includes(q) || m.hostName.toLowerCase().includes(q) || m.hostEmail.toLowerCase().includes(q)),
     );
     const dir = asc ? 1 : -1;
@@ -120,7 +181,22 @@ export function MeetingsView() {
         default:             return (a.startTime ?? "").localeCompare(b.startTime ?? "") * dir;
       }
     });
-  }, [meetings, hostFilter, search, sort, asc]);
+  }, [meetings, hostFilter, search, sort, asc, externalOnly, attendees]);
+
+  // Kick off attendee loading for whatever is currently in view. Keyed on the row
+  // set so changing host/search/date range fetches only what's newly needed.
+  const filteredKey = filtered.map(m => m.uuid).join(",");
+  useEffect(() => {
+    if (filtered.length > 0) loadAttendees(filtered.map(m => m.uuid));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredKey]);
+
+  // Reset the cache when the date range changes — different meetings entirely.
+  useEffect(() => {
+    setAttendees({});
+    setLoadingAtt(new Set());
+    attRunRef.current++;
+  }, [from, to]);
 
   // Filtered totals — the API summary covers the whole range, not the current filter.
   const view = useMemo(() => {
@@ -269,18 +345,33 @@ export function MeetingsView() {
             {hosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
           <button
+            onClick={() => setExternalOnly(v => !v)}
+            title="Show only meetings with at least one attendee outside Loop Services / Loop ERP / CEBA"
+            style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: externalOnly ? C.orange : C.textMid, borderColor: externalOnly ? C.orangeBd : C.border, background: externalOnly ? C.orangeBg : C.surface }}
+          >
+            {externalOnly ? "🤝 Client meetings only" : "🤝 All meetings"}
+          </button>
+          <button
             onClick={() => setGrouped(g => !g)}
             style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: grouped ? C.blue : C.textMid, borderColor: grouped ? C.blueBd : C.border, background: grouped ? C.blueBg : C.surface }}
           >
             {grouped ? "📅 Grouped by day" : "☰ Flat list"}
           </button>
-          {(search || hostFilter !== "all") && (
+          {(search || hostFilter !== "all" || externalOnly) && (
             <button
-              onClick={() => { setSearch(""); setHostFilter("all"); }}
+              onClick={() => { setSearch(""); setHostFilter("all"); setExternalOnly(false); }}
               style={{ ...inputStyle, cursor: "pointer", color: C.textSub }}
             >
               Clear filters
             </button>
+          )}
+          {attProgress && (
+            <span style={{ fontSize: 11, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-block", width: 60, height: 4, background: C.border, borderRadius: 2, overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", width: `${Math.round((attProgress.done / Math.max(1, attProgress.total)) * 100)}%`, background: C.blue, transition: "width 0.3s" }} />
+              </span>
+              attendees {attProgress.done}/{attProgress.total}
+            </span>
           )}
         </div>
       )}
@@ -320,10 +411,14 @@ export function MeetingsView() {
             <thead>
               <tr>
                 {th("topic", "Meeting")}
+                <th style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.alt, whiteSpace: "nowrap", minWidth: 200 }}
+                    title="External attendees only — Loop Services / Loop ERP / CEBA addresses are excluded">
+                  External Attendees
+                </th>
                 {th("host", "Host")}
                 {th("start", "Started")}
                 {th("duration", "Duration", "right")}
-                {th("participants", "Attendees", "right")}
+                {th("participants", "Total", "right")}
                 <th style={{ padding: "8px 12px", background: C.alt, borderBottom: `1px solid ${C.border}`, width: 110 }} />
               </tr>
             </thead>
@@ -333,17 +428,17 @@ export function MeetingsView() {
                     const mins = rows.reduce((s, m) => s + (m.durationMinutes || 0), 0);
                     return [
                       <tr key={`d-${key}`}>
-                        <td colSpan={6} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
+                        <td colSpan={7} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
                           {fmtDayHeading(rows[0]?.startTime ?? "")}
                           <span style={{ marginLeft: 8, fontFamily: C.mono, fontWeight: 500, color: C.textSub }}>
                             {rows.length} meeting{rows.length !== 1 ? "s" : ""} · {fmtDuration(mins)}
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} />),
+                      ...rows.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} att={attendees[m.uuid]} attLoading={loadingAtt.has(m.uuid)} />),
                     ];
                   })
-                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} />)}
+                : filtered.map((m, i) => <MeetingRow key={m.uuid} m={m} zebra={i % 2 === 1} onOpen={setOpenMeeting} att={attendees[m.uuid]} attLoading={loadingAtt.has(m.uuid)} />)}
             </tbody>
           </table>
         </div>
@@ -356,9 +451,66 @@ export function MeetingsView() {
   );
 }
 
+/** Domain from an email, for grouping external attendees by company. */
+const domainOf = (email: string) => {
+  const at = email.lastIndexOf("@");
+  return at === -1 ? "" : email.slice(at + 1).toLowerCase();
+};
+
+function ExternalAttendeesCell({ att, loading }: { att?: MeetingParticipants; loading: boolean }) {
+  if (loading || !att) {
+    return <span style={{ fontSize: 11, color: C.mid }}>{loading ? "loading…" : "—"}</span>;
+  }
+  if (att.error) {
+    return <span style={{ fontSize: 11, color: C.orange }} title={att.error}>unavailable</span>;
+  }
+  if (att.external.length === 0) {
+    return (
+      <span style={{ fontSize: 11, color: C.textSub }} title={`${att.internalCount} internal attendee(s)`}>
+        Internal only
+      </span>
+    );
+  }
+
+  // Group by domain so a client's people read as one company rather than five chips.
+  const byDomain = new Map<string, Participant[]>();
+  for (const p of att.external) {
+    const d = domainOf(p.email) || "no email";
+    if (!byDomain.has(d)) byDomain.set(d, []);
+    byDomain.get(d)!.push(p);
+  }
+
+  const MAX = 4;
+  const shown = att.external.slice(0, MAX);
+
+  return (
+    <div title={att.external.map(p => `${p.name}${p.email ? ` <${p.email}>` : ""} · ${p.minutes}m`).join("\n")}>
+      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+        {shown.map((p, i) => (
+          <span
+            key={`${p.email || p.name}-${i}`}
+            style={{ fontSize: 10.5, padding: "1px 7px", borderRadius: 999, background: C.orangeBg, color: C.orange, border: `1px solid ${C.orangeBd}`, whiteSpace: "nowrap", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}
+          >
+            {p.name || p.email}
+          </span>
+        ))}
+        {att.external.length > MAX && (
+          <span style={{ fontSize: 10.5, color: C.textSub, padding: "1px 4px" }}>
+            +{att.external.length - MAX}
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 10, color: C.textSub, marginTop: 3 }}>
+        {[...byDomain.keys()].filter(d => d !== "no email").join(" · ") || "no email on file"}
+        {att.internalCount > 0 && <span style={{ color: C.mid }}> · +{att.internalCount} internal</span>}
+      </div>
+    </div>
+  );
+}
+
 function MeetingRow({
-  m, zebra, onOpen,
-}: { m: Meeting; zebra: boolean; onOpen: (t: MeetingTarget) => void }) {
+  m, zebra, onOpen, att, attLoading,
+}: { m: Meeting; zebra: boolean; onOpen: (t: MeetingTarget) => void; att?: MeetingParticipants; attLoading: boolean }) {
   const open = () => onOpen({ uuid: m.uuid, topic: m.topic, hostName: m.hostName, startTime: m.startTime });
   return (
     <tr
@@ -371,6 +523,9 @@ function MeetingRow({
           {m.topic}
         </div>
         <div style={{ fontSize: 10.5, color: C.textSub, fontFamily: C.mono, marginTop: 2 }}>ID {m.meetingId}</div>
+      </td>
+      <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }}>
+        <ExternalAttendeesCell att={att} loading={attLoading} />
       </td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>
         <div style={{ fontSize: 12, color: C.text }}>{m.hostName}</div>

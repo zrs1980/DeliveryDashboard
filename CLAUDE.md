@@ -953,6 +953,18 @@ Token requests hit `https://zoom.us/oauth/token?grant_type=account_credentials&a
 - **Zoom only reports meetings that actually started** — a scheduled meeting nobody joined won't appear. Worth saying out loud when a PM asks why a meeting is missing.
 - Errors are mapped to remedies in `lib/zoom.ts` (missing scope, wrong credentials, plan restriction, rate limit) rather than surfacing raw Zoom codes. The tab renders full setup instructions when the env vars are absent.
 
+### External attendees column
+
+Shows only attendees from outside Loop. `INTERNAL_EMAIL_DOMAINS` in `lib/constants.ts` (`looperp.ai`, `loopservices.co`, `cebasolutions.com`) drives `isInternalEmail()` — add domains there, never at a call site. Subdomains count as internal; lookalikes (`notloopservices.co`, `loopservices.co.uk`, `cebasolutions.com.attacker.io`) correctly don't. Unit-tested.
+
+Source is `/report/meetings/{uuid}/participants` (scope `report:read:list_meeting_participants:admin`), chosen over `/past_meetings/{uuid}/participants` because it returns `user_email`, which domain classification needs.
+
+- **Zoom has no bulk participants endpoint — it's one call per meeting.** A month can hold 400+ meetings on a rate-limited endpoint, so `/api/meetings/participants` takes a batch of ≤25 uuids at concurrency 4, and the client requests chunks for the rows on show, caching by uuid and filling in progressively. Never fetch the whole range up front.
+- **A stale run must not write over a newer one.** `attRunRef` is bumped on each run; chunks check it before calling `setAttendees`, so changing the date range or host filter mid-load can't repopulate the table with the previous range's data.
+- **The External-only filter ignores rows whose attendees aren't loaded yet**, so rows don't vanish and reappear while chunks land.
+- **A participant with no email counts as external** — internal staff join authenticated and always carry one, so a blank email is effectively a guest. Counted separately as `unknownCount` so the UI can say so.
+- **Participants are merged on email (falling back to name)** because a rejoin produces multiple rows for the same person; durations are summed.
+
 ### Meeting detail drawer
 
 Clicking a meeting opens `MeetingPanel`, a two-tab drawer:
