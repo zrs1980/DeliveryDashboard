@@ -34,12 +34,37 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+/** The flag filters. Independent toggles, ANDed — "blocked AND client" is a real question. */
+interface Flags { blocked: boolean; client: boolean; milestone: boolean; overdue: boolean }
+const NO_FLAGS: Flags = { blocked: false, client: false, milestone: false, overdue: false };
+
 export function ProjectClickUpTasks({ project }: { project: Project }) {
-  const [search, setSearch]   = useState("");
-  const [openOnly, setOpen]   = useState(true);
-  const [groupBy, setGroupBy] = useState<GroupBy>("due");
+  const [search, setSearch]     = useState("");
+  const [openOnly, setOpen]     = useState(true);
+  const [groupBy, setGroupBy]   = useState<GroupBy>("due");
+  const [status, setStatus]     = useState("all");
+  const [assignee, setAssignee] = useState("all");
+  const [bucket, setBucket]     = useState<"all" | Bucket>("all");
+  const [flags, setFlags]       = useState<Flags>(NO_FLAGS);
 
   const tasks = project.tasks ?? [];
+
+  // Options come from the tasks actually present, so the dropdowns never offer a
+  // status or person this project doesn't have.
+  const statusOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tasks) counts.set(t.status.status, (counts.get(t.status.status) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [tasks]);
+
+  const assigneeOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tasks) {
+      if (t.assignees.length === 0) counts.set("__unassigned", (counts.get("__unassigned") ?? 0) + 1);
+      for (const a of t.assignees) counts.set(a.username, (counts.get(a.username) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [tasks]);
 
   const stats = useMemo(() => ({
     total:     tasks.length,
@@ -52,14 +77,36 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return tasks.filter(t =>
-      (!openOnly || !isDone(t)) &&
-      (!q ||
+    return tasks.filter(t => {
+      if (openOnly && isDone(t)) return false;
+      if (status !== "all" && t.status.status !== status) return false;
+      if (assignee !== "all") {
+        const match = assignee === "__unassigned"
+          ? t.assignees.length === 0
+          : t.assignees.some(a => a.username === assignee);
+        if (!match) return false;
+      }
+      if (bucket !== "all" && taskBucket(t) !== bucket) return false;
+      if (flags.blocked   && !isBlocked(t)) return false;
+      if (flags.client    && !(isClientPending(t) && !isDone(t))) return false;
+      if (flags.milestone && !isMilestone(t)) return false;
+      if (flags.overdue   && !isOverdueTask(t)) return false;
+      if (q && !(
         t.name.toLowerCase().includes(q) ||
         t.status.status.toLowerCase().includes(q) ||
-        t.assignees.some(a => a.username.toLowerCase().includes(q))),
-    );
-  }, [tasks, search, openOnly]);
+        t.assignees.some(a => a.username.toLowerCase().includes(q))
+      )) return false;
+      return true;
+    });
+  }, [tasks, search, openOnly, status, assignee, bucket, flags]);
+
+  const anyFilter = !openOnly || !!search || status !== "all" || assignee !== "all" ||
+    bucket !== "all" || Object.values(flags).some(Boolean);
+
+  const clearAll = () => {
+    setSearch(""); setOpen(true); setStatus("all"); setAssignee("all");
+    setBucket("all"); setFlags(NO_FLAGS);
+  };
 
   const groups = useMemo(() => {
     const map = new Map<string, CUTask[]>();
@@ -133,25 +180,63 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
         ))}
       </div>
 
-      {/* Controls */}
-      <div style={{ display: "flex", gap: 9, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 9, flexWrap: "wrap", alignItems: "center" }}>
         <input
           placeholder="Search tasks, status or assignee…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+          style={{ ...inputStyle, flex: 1, minWidth: 200 }}
         />
-        <select value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} style={{ ...inputStyle, cursor: "pointer" }}>
-          <option value="due">Group by due date</option>
-          <option value="status">Group by status</option>
-          <option value="assignee">Group by assignee</option>
+        <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...inputStyle, cursor: "pointer", maxWidth: 210 }}>
+          <option value="all">All statuses</option>
+          {statusOptions.map(([s, n]) => (
+            <option key={s} value={s}>{STATUS_STYLES[s.toLowerCase()]?.label ?? s} ({n})</option>
+          ))}
         </select>
+        <select value={assignee} onChange={e => setAssignee(e.target.value)} style={{ ...inputStyle, cursor: "pointer", maxWidth: 200 }}>
+          <option value="all">All assignees</option>
+          {assigneeOptions.map(([a, n]) => (
+            <option key={a} value={a}>{a === "__unassigned" ? "Unassigned" : a} ({n})</option>
+          ))}
+        </select>
+        <select value={bucket} onChange={e => setBucket(e.target.value as "all" | Bucket)} style={{ ...inputStyle, cursor: "pointer" }}>
+          <option value="all">Any due date</option>
+          {BUCKET_ORDER.map(b => <option key={b} value={b}>{BUCKET_LABEL[b]}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={() => setOpen(v => !v)}
           style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: openOnly ? C.blue : C.textMid, borderColor: openOnly ? C.blueBd : C.border, background: openOnly ? C.blueBg : C.surface }}
         >
           {openOnly ? "Open only" : "All tasks"}
         </button>
+
+        <FlagBtn on={flags.blocked}   fg={C.red}    bg={C.redBg}    bd={C.redBd}
+                 onClick={() => setFlags(f => ({ ...f, blocked: !f.blocked }))}>⚠ Blocked</FlagBtn>
+        <FlagBtn on={flags.client}    fg={C.orange} bg={C.orangeBg} bd={C.orangeBd}
+                 onClick={() => setFlags(f => ({ ...f, client: !f.client }))}>👤 Client</FlagBtn>
+        <FlagBtn on={flags.milestone} fg={C.purple} bg={C.purpleBg} bd={C.purpleBd}
+                 onClick={() => setFlags(f => ({ ...f, milestone: !f.milestone }))}>★ Milestone</FlagBtn>
+        <FlagBtn on={flags.overdue}   fg={C.red}    bg={C.redBg}    bd={C.redBd}
+                 onClick={() => setFlags(f => ({ ...f, overdue: !f.overdue }))}>Overdue</FlagBtn>
+
+        <select value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} style={{ ...inputStyle, cursor: "pointer" }}>
+          <option value="due">Group by due date</option>
+          <option value="status">Group by status</option>
+          <option value="assignee">Group by assignee</option>
+        </select>
+
+        {anyFilter && (
+          <button onClick={clearAll} style={{ ...inputStyle, cursor: "pointer", color: C.textSub }}>Clear filters</button>
+        )}
+
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
+          {filtered.length} of {tasks.length}
+        </span>
         {project.clickupUrl && (
           <a href={project.clickupUrl} target="_blank" rel="noopener noreferrer"
              style={{ ...inputStyle, textDecoration: "none", fontWeight: 700, color: C.blue, background: C.blueBg, borderColor: C.blueBd }}>
@@ -162,7 +247,8 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
 
       {filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "34px 0", color: C.textSub, fontSize: 13 }}>
-          No tasks match {openOnly ? "— try switching to All tasks" : "the search"}.
+          No tasks match these filters.
+          {anyFilter && <> <button onClick={clearAll} style={{ background: "none", border: "none", color: C.blue, cursor: "pointer", fontSize: 13, fontFamily: C.font, padding: 0, textDecoration: "underline" }}>Clear them</button></>}
         </div>
       ) : (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.sh, overflowX: "auto" }}>
@@ -223,6 +309,27 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** A filter toggle that adopts its own flag's colour when active, so the bar reads at a glance. */
+function FlagBtn({ on, fg, bg, bd, onClick, children }: {
+  on: boolean; fg: string; bg: string; bd: string; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={on}
+      style={{
+        padding: "7px 11px", borderRadius: 8, fontSize: 12, fontWeight: on ? 700 : 600,
+        cursor: "pointer", fontFamily: C.font, whiteSpace: "nowrap",
+        background: on ? bg : C.surface,
+        color:      on ? fg : C.textMid,
+        border: `1px solid ${on ? bd : C.border}`,
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
