@@ -48,6 +48,7 @@ The goal is to give PMs a single-pane-of-glass view of project health without ne
 | `SLACK_BOT_TOKEN` | Bot token. Needs `chat:write` (+ optional `chat:write.public`) and `canvases:write` |
 | `SLACK_DEFAULT_CHANNEL` | Fallback channel for `chat.postMessage` (default `#service-request`) |
 | `SLACK_WEEKLY_CANVAS_ID` | Fallback canvas, used **only** when a project has no `custentity_slack_canvas_id` |
+| `FIREFLIES_API_KEY` | Fireflies → Settings → Developer Settings (Fireflies Meetings tab) |
 | `ZOOM_ACCOUNT_ID` | From the Server-to-Server OAuth app (Meetings tab) |
 | `ZOOM_CLIENT_ID` | From the Server-to-Server OAuth app |
 | `ZOOM_CLIENT_SECRET` | From the Server-to-Server OAuth app |
@@ -910,6 +911,32 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - Use `jobtype = 1` for Implementation and `jobtype = 2` for Service when filtering by project type.
 - Time entries in NetSuite use `timebill` for employee time and `vendorbill` for contractor/vendor costs — both must be summed for total cost actuals.
 - **Slack `canvases.edit` → `restricted_action` is a per-canvas access problem, not a scope problem.** The app must be added as a **collaborator** on that specific canvas (canvas → `•••` → Share / Manage access → add the app). A token holding `canvases:write` still fails on a canvas it hasn't been shared with. Confirmed July 2026 after a workspace migration, where every recreated canvas needed the app re-added by hand *and* its `custentity_slack_canvas_id` updated. `lib/slack.ts` maps this and the other common Slack codes to actionable messages via `CANVAS_ERROR_HELP` — extend that map rather than surfacing raw Slack codes. Check collaborator access first, then whether `SLACK_BOT_TOKEN` changed without a Vercel redeploy, then workspace-level canvas restrictions.
+
+---
+
+## Module: Fireflies Meetings
+
+`🪰 Fireflies Meetings` tab — same layout as the Zoom Meetings tab, sourced from Fireflies.ai. Auth is a single `FIREFLIES_API_KEY`; no OAuth, no scopes.
+
+```
+/lib/fireflies.ts                      → GraphQL client, tiered field fallback, normalising
+/app/api/fireflies/meetings/route.ts   → GET ?from=&to=&tzOffset=
+/app/api/fireflies/transcript/route.ts → GET ?id=   (sentences, on demand)
+/components/dashboard/FirefliesMeetingsView.tsx
+```
+
+**Why it exists alongside the Zoom tab.** Zoom's report API only returns meetings *hosted by* account users, so client-hosted calls are invisible to it — and Zoom Notes has no API at all. Fireflies' notetaker attends regardless of host, and one `transcripts` query returns meeting + attendees + AI summary together, so the external-attendee column populates immediately with no per-meeting fan-out.
+
+### Gotchas
+
+- **`duration` is SECONDS**, not minutes. Converted once in `normalizeMeeting`.
+- **Rate limits are per *day* on lower plans**: Free 50/day, Pro 500/day, Business/Enterprise 60/min. A list load costs one request per 50 transcripts, capped at `MAX_PAGES` (10). Don't add polling or auto-refresh — the tab loads once and relies on the Refresh button.
+- **One unknown GraphQL field fails the entire query.** The schema varies by plan/version, so `TIERS` tries richest-first and drops the least-essential block on a *field* error only (`isFieldError`), degrading rather than breaking. The tier that succeeded is returned as `tier` and surfaced in the UI when it isn't `full`.
+- **`fromDate`/`toDate` are ISO 8601 instants**, so local dates are converted with the browser's `tzOffset` in the route — the Zoom GMT-vs-local range bug applied up front rather than after losing an afternoon of meetings.
+- **`participants` may be email strings or objects**, and `action_items` / `bullet_gist` may arrive as a newline-delimited string instead of an array. `normalizeAttendees` / `normalizeSummary` handle both shapes.
+- **Deprecated args**: `date`, `title`, `organizer_email`, `participant_email`, `host_email`. Use `fromDate`/`toDate`/`organizers`/`participants`.
+- **Sentences are fetched per meeting, not in the list query** — including them would make a month's payload enormous.
+- Internal/external split reuses `isInternalEmail()`, so `INTERNAL_EMAIL_DOMAINS` governs both tabs.
 
 ---
 
