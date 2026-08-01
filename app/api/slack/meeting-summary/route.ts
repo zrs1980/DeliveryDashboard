@@ -31,7 +31,11 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
+    // `<!channel>` is Slack's raw mention syntax — it must be sent literally, not
+    // as "@channel", which posts as plain text and notifies nobody. Requires the
+    // bot to be a channel member and the workspace to permit channel-wide pings.
     const header = [
+      "<!channel>",
       body?.meetingTitle ? `*${body.meetingTitle}*` : "*Meeting summary*",
       body?.meetingDate  ? `_${body.meetingDate}_`  : null,
     ].filter(Boolean).join("  ·  ");

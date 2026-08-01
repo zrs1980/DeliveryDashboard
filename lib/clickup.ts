@@ -240,6 +240,41 @@ export interface CreateTaskInput {
 
 export interface CreatedTask { id: string; url: string; name: string }
 
+/** Current value of one custom field on a task, always as a list of option ids. */
+export async function fetchTaskFieldValue(taskId: string, fieldId: string): Promise<string[]> {
+  const data = await cuGet(`/task/${taskId}`);
+  const field = (data.custom_fields ?? []).find((f: { id: string }) => f.id === fieldId);
+  const value = field?.value;
+  if (value == null) return [];
+  return (Array.isArray(value) ? value : [value]).map(String);
+}
+
+/**
+ * Set the phase on an EXISTING task.
+ *
+ * Needed because list automations that fire on task creation overwrite whatever
+ * the create call set — verified July 2026 on the Oxide list, where the phase
+ * flipped from "8. Internal Action Points" to "3. Training & UAT" within ~10s.
+ * Re-applying after the automation has fired sticks, because the automation is
+ * create-triggered and does not re-fire on update.
+ */
+export async function applyPhase(
+  taskId: string,
+  phase: PhaseFieldTarget,
+  current: string[],
+): Promise<void> {
+  if (!phase.isMulti) {
+    await cuPost(`/task/${taskId}/field/${phase.fieldId}`, { value: phase.optionId });
+    return;
+  }
+  // A labels field is additive — clear whatever the automation put there, or the
+  // task ends up carrying both phases.
+  const rem = current.filter(id => id !== phase.optionId);
+  const value: { add: string[]; rem?: string[] } = { add: [phase.optionId] };
+  if (rem.length) value.rem = rem;
+  await cuPost(`/task/${taskId}/field/${phase.fieldId}`, { value });
+}
+
 export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
   const body: Record<string, unknown> = {
     name:        input.name,

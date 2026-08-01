@@ -48,8 +48,20 @@ const ANALYSIS_TOOL: Anthropic.Tool = {
       },
       keyDetails: {
         type: "string",
-        description:
-          "The key details the project manager needs to be aware of, as markdown bullet points using '- '. Cover decisions made, risks, blockers, scope or timeline changes, and anything awaiting the client. 4-8 bullets. No preamble, no heading, bullets only.",
+        description: [
+          "A short narrative briefing for the PROJECT MANAGER, written in plain prose — 2-4 short paragraphs, no bullet points, no headings, no markdown.",
+          "",
+          "Include ONLY things that affect whether the project succeeds:",
+          "- movement in timelines, dates, milestones or go-live",
+          "- meetings, workshops or sessions that were scheduled or need scheduling, and who must attend",
+          "- decisions that change scope, approach, budget or resourcing",
+          "- risks, blockers and dependencies — especially anything waiting on the client",
+          "- changes in client sentiment, confidence or expectations",
+          "",
+          "EXCLUDE task-level and consultant-level detail: individual configuration steps, who is doing which small task, technical how-to. That belongs on the ClickUp tasks, not here.",
+          "",
+          "Write it as if briefing the PM who was not on the call: what happened, what it means for the project, and what needs their attention. If nothing material to the project came up, say so in one sentence rather than padding it out.",
+        ].join("\n"),
       },
     },
     required: ["actionItems", "keyDetails"],
@@ -140,7 +152,7 @@ Produce two things by calling the record_meeting_analysis tool:
 
 1. The internal action items for the Loop delivery team. Use the Fireflies-detected action items as a starting point, but correct and ENRICH them from the transcript — Fireflies' versions are often one terse line with no context. Merge duplicates, drop anything resolved during the call, and add any commitment that was made in the transcript but missed. If the transcript shows no real internal actions, return an empty list rather than inventing work.
 
-2. The key details the project manager needs to be aware of.
+2. A narrative briefing for the project manager. This is read by the PM, not by consultants — it goes to the project's Slack channel. Cover only what affects the project's success: timelines, upcoming meetings, decisions, risks, blockers and anything waiting on the client. Leave the task-level detail out of it; that is already captured on the ClickUp tasks in part 1.
 
 Base everything on what was actually said. Do not invent owners, dates, or decisions.
 

@@ -128,7 +128,9 @@ export function ProcessMeetingWizard({
 
   useEffect(() => { analyse(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const selected = useMemo(() => items.filter(i => i.selected && i.name.trim()), [items]);
+  const selected     = useMemo(() => items.filter(i => i.selected && i.name.trim()), [items]);
+  const allSelected  = items.length > 0 && items.every(i => i.selected);
+  const someSelected = items.some(i => i.selected);
 
   const patch = (id: string, next: Partial<ActionItem>) =>
     setItems(list => list.map(i => (i.id === id ? { ...i, ...next } : i)));
@@ -333,6 +335,30 @@ export function ProcessMeetingWizard({
                 </Banner>
               )}
 
+              {items.length > 0 && (
+                <label style={{
+                  display: "flex", alignItems: "center", gap: 9, cursor: "pointer",
+                  padding: "7px 12px", marginBottom: 10, borderRadius: 8,
+                  background: C.alt, border: `1px solid ${C.border}`,
+                  fontSize: 12, fontWeight: 700, color: C.textMid, userSelect: "none",
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                    onChange={e => {
+                      const next = e.target.checked;
+                      setItems(l => l.map(i => ({ ...i, selected: next })));
+                    }}
+                    style={{ cursor: "pointer", width: 15, height: 15 }}
+                  />
+                  {allSelected ? "Deselect all" : "Select all"}
+                  <span style={{ fontWeight: 500, color: C.textSub }}>
+                    · {selected.length} of {items.length} selected
+                  </span>
+                </label>
+              )}
+
               {items.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "30px 10px", color: C.textSub, fontSize: 13 }}>
                   No internal action items were found in this meeting. You can add one, or skip this step.
@@ -397,8 +423,8 @@ export function ProcessMeetingWizard({
               <StepHead
                 title="Key details for the project manager"
                 sub={project.hasSlack
-                  ? `Edit as needed. This posts to ${project.slackChannel} in Slack.`
-                  : "Edit as needed."}
+                  ? `A PM-level narrative — timelines, meetings, decisions and risks, not task detail. Posts to ${project.slackChannel} and notifies the channel.`
+                  : "A PM-level narrative — timelines, meetings, decisions and risks, not task detail."}
               />
               {cuCreated.length > 0 && (
                 <Banner tone="green" title={`✓ ${cuCreated.length} ClickUp task${cuCreated.length === 1 ? "" : "s"} created`}>
@@ -418,7 +444,7 @@ export function ProcessMeetingWizard({
                 value={keyDetails}
                 onChange={e => setKeyDetails(e.target.value)}
                 rows={14}
-                placeholder="- Key decision…"
+                placeholder="What happened on this call, what it means for the project, and what needs the PM's attention…"
                 style={{ ...field, fontSize: 13, lineHeight: 1.65, resize: "vertical" }}
               />
             </>
@@ -491,7 +517,9 @@ export function ProcessMeetingWizard({
                   disabled={cuBusy || (selected.length > 0 && !project.hasClickUp)}
                   style={btn(C.blue, "#fff", C.blue, cuBusy || (selected.length > 0 && !project.hasClickUp))}
                 >
-                  {cuBusy ? "Creating…" : selected.length === 0 ? "Next" : `Create ${selected.length} task${selected.length === 1 ? "" : "s"} →`}
+                  {cuBusy
+                    ? "Creating & confirming phase…"
+                    : selected.length === 0 ? "Next" : `Create ${selected.length} task${selected.length === 1 ? "" : "s"} →`}
                 </button>
               </>
             )}

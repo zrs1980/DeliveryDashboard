@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
+  applyPhase,
   createTask,
   fetchListFields,
+  fetchTaskFieldValue,
   findPhaseTarget,
   resolveClickUpListId,
   INTERNAL_ACTION_POINTS,
@@ -12,6 +14,18 @@ import {
 
 export const revalidate = 0;
 export const maxDuration = 60;
+
+/**
+ * How long to let ClickUp's create-triggered list automations run before we
+ * re-assert the phase. Measured at ~10s on the Oxide list (July 2026); 15s
+ * leaves headroom without pushing the route near its 60s ceiling.
+ */
+const AUTOMATION_SETTLE_MS = 15_000;
+
+/** Re-apply in small batches — the write endpoint is rate limited. */
+const REAPPLY_CONCURRENCY = 4;
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
  * POST /api/clickup/action-items
@@ -95,11 +109,45 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Re-assert the phase ──────────────────────────────────────────────────
+    // The create call sets it correctly, but a create-triggered list automation
+    // can overwrite it seconds later. Wait for that to happen, then put it back
+    // and verify — an automation that fired once does not re-fire on update.
+    const phaseWrong: string[] = [];
+    if (phase && created.length > 0) {
+      await sleep(AUTOMATION_SETTLE_MS);
+
+      for (let i = 0; i < created.length; i += REAPPLY_CONCURRENCY) {
+        const batch = created.slice(i, i + REAPPLY_CONCURRENCY);
+        await Promise.all(batch.map(async t => {
+          try {
+            const current = await fetchTaskFieldValue(t.id, phase.fieldId);
+            if (current.length === 1 && current[0] === phase.optionId) return; // already right
+            await applyPhase(t.id, phase, current);
+
+            const after = await fetchTaskFieldValue(t.id, phase.fieldId);
+            if (!after.includes(phase.optionId)) phaseWrong.push(t.name);
+          } catch {
+            // The task exists and is usable; only the phase is in doubt.
+            phaseWrong.push(t.name);
+          }
+        }));
+      }
+    }
+
+    if (phaseWrong.length > 0) {
+      phaseWarning = [
+        phaseWarning,
+        `The phase could not be confirmed as "${INTERNAL_ACTION_POINTS}" on ${phaseWrong.length} task${phaseWrong.length === 1 ? "" : "s"} (${phaseWrong.join(", ")}). A ClickUp automation on this list may be overwriting it — check the list's automations.`,
+      ].filter(Boolean).join(" ");
+    }
+
     return NextResponse.json({
       created,
       failed,
       listId,
       phaseApplied: !!phase,
+      phaseCorrected: phase ? created.length - phaseWrong.length : 0,
       warning: phaseWarning,
     });
   } catch (err) {
