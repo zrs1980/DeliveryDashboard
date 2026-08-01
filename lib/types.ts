@@ -79,6 +79,9 @@ export interface Project {
   clickupError: string | null;
   isInternal?: boolean;        // true for standalone ClickUp lists with no NS project
   slackCanvasId: string | null;
+  /** Google Drive folder for the project — custentity_project_folder on the NS job.
+   *  Meeting transcripts are filed into a Transcripts subfolder beneath it. */
+  projectFolderUrl: string | null;
 }
 
 // ─── Phase (projecttask) ─────────────────────────────────────────────────────

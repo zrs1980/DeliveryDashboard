@@ -23,6 +23,7 @@ export interface MeetingDocInput {
   /** Where it's being filed, for the header. */
   customerName?:   string;
   projectName?:    string;
+  meetingType?:    string;
   preparedBy?:     string;
 }
 
@@ -48,14 +49,29 @@ const fmtDuration = (mins: number) => {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
 
-/** Filename for the Doc — date-first so a folder sorts chronologically. */
-export function meetingDocName(input: Pick<MeetingDocInput, "title" | "date">): string {
+/**
+ * Filename: "<Meeting type> - <Meeting name> - <YYYY-MM-DD>".
+ *
+ * Type leads so a transcripts folder groups by activity when sorted by name, which
+ * is more useful than chronological here — the date is in the name either way.
+ */
+export function meetingDocName(input: Pick<MeetingDocInput, "title" | "date"> & { meetingType?: string }): string {
   const d = new Date(input.date);
+  // LOCAL date components, deliberately — the grid displays local time, so a
+  // meeting at 17:00 on 30 June (00:00Z on 1 July) must be filed as 2026-06-30 to
+  // match what the PM saw. Using UTC here would put some evening meetings under
+  // the following day.
   const stamp = isNaN(d.getTime())
     ? "undated"
     : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const title = (input.title || "Meeting").replace(/[\\/:*?"<>|]/g, "-").trim();
-  return `${stamp} — ${title}`;
+
+  // Drive tolerates most characters, but these break downstream sync clients.
+  const clean = (s: string) => s.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+
+  const title = clean(input.title || "Meeting");
+  const type  = clean(input.meetingType ?? "");
+
+  return [type, title, stamp].filter(Boolean).join(" - ");
 }
 
 /**
@@ -75,6 +91,7 @@ export function renderMeetingDocHtml(input: MeetingDocInput): string {
   const filedInto = [input.customerName, input.projectName].filter(Boolean).join(" › ");
   parts.push("<table><tbody>");
   const row = (k: string, v: string) => `<tr><td><b>${esc(k)}</b></td><td>${v}</td></tr>`;
+  if (input.meetingType) parts.push(row("Meeting type", esc(input.meetingType)));
   parts.push(row("Date", esc(fmtDate(input.date))));
   parts.push(row("Duration", esc(fmtDuration(input.durationMinutes))));
   if (input.organizerEmail) parts.push(row("Organiser", esc(input.organizerEmail)));

@@ -5,7 +5,8 @@
 // attendee column is populated immediately — no progressive fetch needed.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { C } from "@/lib/constants";
+import { C, MEETING_TYPES, type MeetingType } from "@/lib/constants";
+import { scoreFolders } from "@/lib/customer-match";
 import { FileToDriveModal } from "./FileToDriveModal";
 
 interface Attendee { name: string; email: string; internal: boolean }
@@ -53,6 +54,30 @@ const domainOf = (email: string) => {
   return at === -1 ? "" : email.slice(at + 1).toLowerCase();
 };
 
+interface ProjectOption {
+  id: number; entityId: string; client: string; projectName: string;
+  label: string; folderUrl: string | null; folderId: string | null; hasFolder: boolean;
+}
+interface FiledDoc {
+  fireflies_id: string; doc_url: string; doc_name: string;
+  meeting_type: string; project_label: string | null; created_at: string; created_by: string | null;
+}
+
+/**
+ * Guess the meeting type from the title so the dropdown starts somewhere sensible.
+ * Order matters — the more specific patterns are checked first.
+ */
+function guessMeetingType(title: string): MeetingType | "" {
+  const t = title.toLowerCase();
+  if (/\buat\b|user acceptance|testing/.test(t))            return "UAT";
+  if (/data migration|migration|import|cutover/.test(t))    return "Data Migration";
+  if (/discovery|kick.?off|requirements|scoping/.test(t))   return "Discovery";
+  if (/walkthrough|solution review|show and tell|demo/.test(t)) return "Solution Walkthroughs";
+  if (/working session|workshop|config/.test(t))            return "Working Session";
+  if (/status|weekly|cadence|check.?in|standup|pmo/.test(t)) return "Project Management";
+  return "";
+}
+
 type SortKey = "start" | "duration" | "attendees" | "organiser" | "title";
 
 export function FirefliesMeetingsView() {
@@ -75,6 +100,30 @@ export function FirefliesMeetingsView() {
   const [externalOnly, setExternalOnly] = useState(false);
   const [openId, setOpenId]             = useState<string | null>(null);
 
+  // ── Transcript filing ──
+  const [projects, setProjects]   = useState<ProjectOption[]>([]);
+  const [projErr, setProjErr]     = useState<string | null>(null);
+  const [filed, setFiled]         = useState<Record<string, FiledDoc>>({});
+  const [rowProject, setRowProj]  = useState<Record<string, string>>({});
+  const [rowType, setRowType]     = useState<Record<string, string>>({});
+  const [creating, setCreating]   = useState<Record<string, boolean>>({});
+  const [rowError, setRowError]   = useState<Record<string, string>>({});
+  const [unfiledOnly, setUnfiled] = useState(false);
+
+  // Active NetSuite projects with their Drive folder — loaded once.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch("/api/projects/folders");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Could not load projects");
+        setProjects(data.projects ?? []);
+      } catch (e) {
+        setProjErr(e instanceof Error ? e.message : "Could not load projects");
+      }
+    })();
+  }, []);
+
   const load = useCallback(async () => {
     setLoad(true); setError(null); setNS(false);
     try {
@@ -95,11 +144,116 @@ export function FirefliesMeetingsView() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  // Which meetings are already filed. One request for the whole page.
+  useEffect(() => {
+    if (meetings.length === 0) return;
+    (async () => {
+      try {
+        const ids = meetings.map(m => m.id).join(",");
+        const res = await fetch(`/api/meeting-docs?ids=${encodeURIComponent(ids)}`);
+        const data = await res.json();
+        if (res.ok) setFiled(data.docs ?? {});
+      } catch { /* absence of this data just means the Create buttons stay available */ }
+    })();
+  }, [meetings]);
+
+  /**
+   * Pre-select project and type per row.
+   *
+   * Matching runs client-side with the deterministic scorer — an AI call per row
+   * would be hundreds of requests, and the PM confirms via the dropdown anyway.
+   * Only fills blanks, so a manual choice is never overwritten.
+   */
+  useEffect(() => {
+    if (meetings.length === 0 || projects.length === 0) return;
+    const folderish = projects.filter(p => p.hasFolder).map(p => ({ id: String(p.id), name: p.label }));
+
+    setRowProj(prev => {
+      const next = { ...prev };
+      for (const m of meetings) {
+        if (next[m.id]) continue;
+        const hits = scoreFolders(folderish, {
+          title: m.title,
+          attendees: m.attendees.map(a => ({ name: a.name, email: a.email })),
+          overview: m.summary?.overview,
+        });
+        // 0.5 is roughly "the attendee domain matched, or the title clearly names it".
+        if (hits[0] && hits[0].score >= 0.5) next[m.id] = hits[0].folderId;
+      }
+      return next;
+    });
+
+    setRowType(prev => {
+      const next = { ...prev };
+      for (const m of meetings) {
+        if (next[m.id]) continue;
+        const guess = guessMeetingType(m.title);
+        if (guess) next[m.id] = guess;
+      }
+      return next;
+    });
+  }, [meetings, projects]);
+
+  const createDoc = useCallback(async (m: Meeting) => {
+    const projectId = rowProject[m.id];
+    const type      = rowType[m.id];
+    const project   = projects.find(p => String(p.id) === projectId);
+
+    if (!project || !type) return;
+    setCreating(c => ({ ...c, [m.id]: true }));
+    setRowError(e => ({ ...e, [m.id]: "" }));
+
+    try {
+      const res = await fetch("/api/meeting-docs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meeting: {
+            id: m.id, title: m.title, date: m.date, durationMinutes: m.durationMinutes,
+            organizerEmail: m.organizerEmail, meetingLink: m.meetingLink,
+            transcriptUrl: m.transcriptUrl, attendees: m.attendees, summary: m.summary,
+          },
+          projectNsId:      String(project.id),
+          projectLabel:     project.label,
+          projectFolderUrl: project.folderUrl,
+          meetingType:      type,
+        }),
+      });
+      const data = await res.json();
+
+      // 409 means someone else filed it first — adopt their link rather than erroring.
+      if (res.status === 409 && data.doc) {
+        setFiled(f => ({ ...f, [m.id]: { ...data.doc, fireflies_id: m.id } as FiledDoc }));
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? "Could not create the document");
+
+      setFiled(f => ({
+        ...f,
+        [m.id]: {
+          fireflies_id: m.id,
+          doc_url:  data.doc?.webViewLink ?? "",
+          doc_name: data.doc?.name ?? "",
+          meeting_type: type,
+          project_label: project.label,
+          created_at: new Date().toISOString(),
+          created_by: null,
+        },
+      }));
+      if (data.note) setRowError(e => ({ ...e, [m.id]: data.note }));
+    } catch (e) {
+      setRowError(er => ({ ...er, [m.id]: e instanceof Error ? e.message : "Failed" }));
+    } finally {
+      setCreating(c => ({ ...c, [m.id]: false }));
+    }
+  }, [projects, rowProject, rowType]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     const rows = meetings.filter(m =>
       (orgFilter === "all" || m.organizerEmail === orgFilter) &&
       (!externalOnly || m.external.length > 0) &&
+      (!unfiledOnly || !filed[m.id]) &&
       (!q || m.title.toLowerCase().includes(q) ||
              m.organizerEmail.includes(q) ||
              m.attendees.some(a => a.name.toLowerCase().includes(q) || a.email.includes(q)) ||
@@ -115,7 +269,7 @@ export function FirefliesMeetingsView() {
         default:          return (a.date ?? "").localeCompare(b.date ?? "") * dir;
       }
     });
-  }, [meetings, orgFilter, search, sort, asc, externalOnly]);
+  }, [meetings, orgFilter, search, sort, asc, externalOnly, unfiledOnly, filed]);
 
   const view = useMemo(() => {
     const mins = filtered.reduce((s, m) => s + (m.durationMinutes || 0), 0);
@@ -196,6 +350,20 @@ export function FirefliesMeetingsView() {
         </div>
       )}
 
+      {projErr && (
+        <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: C.red, fontSize: 12.5, lineHeight: 1.6 }}>
+          Could not load the project list, so transcripts can&apos;t be filed: {projErr}
+        </div>
+      )}
+
+      {projects.length > 0 && projects.every(p => !p.hasFolder) && (
+        <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: C.yellow, fontSize: 12.5, lineHeight: 1.6 }}>
+          None of the {projects.length} active NetSuite projects has a Drive folder set. Populate
+          <strong> custentity_project_folder</strong> on the NetSuite project records with each project&apos;s
+          Drive folder link, then refresh.
+        </div>
+      )}
+
       {notes.length > 0 && (
         <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: C.yellow, fontSize: 12, lineHeight: 1.6 }}>
           {notes.map((n, i) => <div key={i}>{n}</div>)}
@@ -245,16 +413,26 @@ export function FirefliesMeetingsView() {
             {externalOnly ? "🤝 Client meetings only" : "🤝 All meetings"}
           </button>
           <button
+            onClick={() => setUnfiled(v => !v)}
+            title="Only meetings whose transcript hasn't been filed to Drive yet"
+            style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: unfiledOnly ? C.purple : C.textMid, borderColor: unfiledOnly ? C.purpleBd : C.border, background: unfiledOnly ? C.purpleBg : C.surface }}
+          >
+            {unfiledOnly ? "📄 Not yet filed" : "📄 All"}
+          </button>
+          <button
             onClick={() => setGrouped(g => !g)}
             style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: grouped ? C.blue : C.textMid, borderColor: grouped ? C.blueBd : C.border, background: grouped ? C.blueBg : C.surface }}
           >
             {grouped ? "📅 Grouped by day" : "☰ Flat list"}
           </button>
-          {(search || orgFilter !== "all" || externalOnly) && (
-            <button onClick={() => { setSearch(""); setOrgFilter("all"); setExternalOnly(false); }} style={{ ...inputStyle, cursor: "pointer", color: C.textSub }}>
+          {(search || orgFilter !== "all" || externalOnly || unfiledOnly) && (
+            <button onClick={() => { setSearch(""); setOrgFilter("all"); setExternalOnly(false); setUnfiled(false); }} style={{ ...inputStyle, cursor: "pointer", color: C.textSub }}>
               Clear filters
             </button>
           )}
+          <span style={{ fontSize: 11, color: C.textSub }}>
+            {Object.keys(filed).length} filed
+          </span>
         </div>
       )}
 
@@ -274,8 +452,8 @@ export function FirefliesMeetingsView() {
           </div>
         </div>
       ) : (
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.sh, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.sh, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
             <thead>
               <tr>
                 {th("title", "Meeting")}
@@ -283,11 +461,17 @@ export function FirefliesMeetingsView() {
                     title="External attendees only — Loop Services / Loop ERP / CEBA addresses excluded">
                   External Attendees
                 </th>
-                {th("organiser", "Organiser")}
+                <th style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.alt, minWidth: 210 }}
+                    title="Active NetSuite projects with a Drive folder set (custentity_project_folder)">
+                  Project
+                </th>
+                <th style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.alt, minWidth: 150 }}>
+                  Meeting Type
+                </th>
                 {th("start", "Started")}
                 {th("duration", "Duration", "right")}
                 {th("attendees", "Total", "right")}
-                <th style={{ padding: "8px 12px", background: C.alt, borderBottom: `1px solid ${C.border}`, width: 100 }} />
+                <th style={{ padding: "8px 12px", background: C.alt, borderBottom: `1px solid ${C.border}`, width: 130 }} />
               </tr>
             </thead>
             <tbody>
@@ -296,17 +480,17 @@ export function FirefliesMeetingsView() {
                     const mins = rows.reduce((s, m) => s + (m.durationMinutes || 0), 0);
                     return [
                       <tr key={`d-${key}`}>
-                        <td colSpan={7} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
+                        <td colSpan={8} style={{ padding: "6px 12px", background: C.alt, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMid }}>
                           {fmtDayHeading(rows[0]?.date ?? "")}
                           <span style={{ marginLeft: 8, fontFamily: C.mono, fontWeight: 500, color: C.textSub }}>
                             {rows.length} meeting{rows.length !== 1 ? "s" : ""} · {fmtDuration(mins)}
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} />),
+                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onCreate={() => createDoc(m)} busy={!!creating[m.id]} rowError={rowError[m.id]} />),
                     ];
                   })
-                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} />)}
+                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onCreate={() => createDoc(m)} busy={!!creating[m.id]} rowError={rowError[m.id]} />)}
             </tbody>
           </table>
         </div>
@@ -345,7 +529,23 @@ function ExternalCell({ m }: { m: Meeting }) {
   );
 }
 
-function Row({ m, zebra, onOpen }: { m: Meeting; zebra: boolean; onOpen: (id: string) => void }) {
+function Row({
+  m, zebra, onOpen, projects, filed, projectId, meetingType,
+  onProject, onType, onCreate, busy, rowError,
+}: {
+  m: Meeting; zebra: boolean; onOpen: (id: string) => void;
+  projects: ProjectOption[]; filed?: FiledDoc;
+  projectId: string; meetingType: string;
+  onProject: (v: string) => void; onType: (v: string) => void;
+  onCreate: () => void; busy: boolean; rowError?: string;
+}) {
+  const cellInput: React.CSSProperties = {
+    width: "100%", padding: "5px 7px", borderRadius: 6, border: `1px solid ${C.border}`,
+    fontSize: 11.5, fontFamily: C.font, color: C.text, background: C.surface,
+    outline: "none", boxSizing: "border-box", cursor: "pointer",
+  };
+  const canCreate = !!projectId && !!meetingType && !busy;
+
   return (
     <tr style={{ background: zebra ? C.alt : C.surface, cursor: "pointer" }} onClick={() => onOpen(m.id)} title="View notes and transcript">
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, maxWidth: 380 }}>
@@ -366,17 +566,63 @@ function Row({ m, zebra, onOpen }: { m: Meeting; zebra: boolean; onOpen: (id: st
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }}>
         <ExternalCell m={m} />
       </td>
-      <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, whiteSpace: "nowrap" }}>{m.organizerEmail || "—"}</td>
+      {/* Project — NetSuite active projects that have a Drive folder set */}
+      <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
+        {filed ? (
+          <div style={{ fontSize: 11.5, color: C.textMid }}>{filed.project_label ?? "—"}</div>
+        ) : (
+          <select value={projectId} onChange={e => onProject(e.target.value)} style={cellInput} title="Where the transcript will be filed">
+            <option value="">Choose project…</option>
+            {projects.filter(p => p.hasFolder).map(p => (
+              <option key={p.id} value={String(p.id)}>{p.label}</option>
+            ))}
+          </select>
+        )}
+      </td>
+
+      {/* Meeting type — becomes the filename prefix */}
+      <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
+        {filed ? (
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>
+            {filed.meeting_type}
+          </span>
+        ) : (
+          <select value={meetingType} onChange={e => onType(e.target.value)} style={cellInput} title="Prefixes the document name">
+            <option value="">Choose type…</option>
+            {MEETING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+      </td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, fontFamily: C.mono, whiteSpace: "nowrap" }}>{fmtDateTime(m.date)}</td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.text, fontFamily: C.mono, textAlign: "right", whiteSpace: "nowrap" }}>{fmtDuration(m.durationMinutes)}</td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, fontFamily: C.mono, textAlign: "right" }}>{m.attendees.length || "—"}</td>
-      <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, textAlign: "right", whiteSpace: "nowrap" }}>
-        <button
-          onClick={e => { e.stopPropagation(); onOpen(m.id); }}
-          style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font }}
-        >
-          📝 Open
-        </button>
+      {/* Action — link if already filed, otherwise create */}
+      <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
+        {filed ? (
+          <a
+            href={filed.doc_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={filed.doc_name}
+            style={{ display: "inline-block", padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, textDecoration: "none", background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` }}
+          >
+            ↗ Transcript
+          </a>
+        ) : (
+          <>
+            <button
+              onClick={onCreate}
+              disabled={!canCreate}
+              title={canCreate ? "Create the Google Doc in the project's Transcripts folder" : "Choose a project and meeting type first"}
+              style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: canCreate ? "pointer" : "not-allowed", background: canCreate ? C.blue : C.alt, color: canCreate ? "#fff" : C.mid, border: `1px solid ${canCreate ? C.blue : C.border}`, fontFamily: C.font }}
+            >
+              {busy ? "Creating…" : "Create"}
+            </button>
+            {rowError && (
+              <div style={{ fontSize: 10, color: C.red, marginTop: 4, maxWidth: 130, whiteSpace: "normal", lineHeight: 1.4, textAlign: "left" }}>{rowError}</div>
+            )}
+          </>
+        )}
       </td>
     </tr>
   );

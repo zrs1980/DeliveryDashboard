@@ -82,7 +82,7 @@ function project(tasks: CUTask[], over: Partial<Project> = {}): Project {
     clientPending: tasks.filter(t => ["awaiting confirmation", "input required"].includes(t.status.status.toLowerCase())),
     milestones:    tasks.filter(t => t.tags.some(g => g.name === "milestone")),
     timebillWarning: true,
-    notes: [], clickupError: null, slackCanvasId: null,
+    notes: [], clickupError: null, slackCanvasId: null, projectFolderUrl: null,
     ...over,
   };
 }

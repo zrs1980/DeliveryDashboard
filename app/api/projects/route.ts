@@ -169,6 +169,7 @@ export async function GET() {
           notes: parseNotes(p.user_notes),
           clickupError,
           slackCanvasId: p.slack_canvas_id ?? null,
+          projectFolderUrl: p.project_folder ?? null,
         } satisfies Project;
       })
     );
@@ -217,6 +218,7 @@ export async function GET() {
           clickupError,
           isInternal:    true,
           slackCanvasId: null,
+          projectFolderUrl: null,
         } satisfies Project;
       })
     );

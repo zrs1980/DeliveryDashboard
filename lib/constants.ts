@@ -140,6 +140,27 @@ export const DRIVE_CUSTOMER_ROOT_FOLDER_ID =
  */
 export const DRIVE_PROJECTS_FOLDER_NAMES = ["projects", "project", "project folder", "projects folder"];
 
+/**
+ * Subfolder inside a project folder that meeting transcripts are filed into.
+ * Matched case-insensitively; created if absent rather than failing the operation.
+ */
+export const DRIVE_TRANSCRIPT_FOLDER_NAMES = ["transcripts", "transcript", "meeting transcripts", "meetings", "call transcripts"];
+
+/** Canonical name used when a transcripts subfolder has to be created. */
+export const DRIVE_TRANSCRIPT_FOLDER_DEFAULT = "Transcripts";
+
+/** Meeting types offered when filing a transcript; becomes the filename prefix. */
+export const MEETING_TYPES = [
+  "Project Management",
+  "Discovery",
+  "UAT",
+  "Data Migration",
+  "Working Session",
+  "Solution Walkthroughs",
+] as const;
+
+export type MeetingType = typeof MEETING_TYPES[number];
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {

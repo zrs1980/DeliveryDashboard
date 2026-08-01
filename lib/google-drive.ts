@@ -9,7 +9,10 @@
 
 import { google, type drive_v3 } from "googleapis";
 import { getGoogleClient } from "./google-tokens";
-import { DRIVE_CUSTOMER_ROOT_FOLDER_ID, DRIVE_PROJECTS_FOLDER_NAMES } from "./constants";
+import {
+  DRIVE_CUSTOMER_ROOT_FOLDER_ID, DRIVE_PROJECTS_FOLDER_NAMES,
+  DRIVE_TRANSCRIPT_FOLDER_DEFAULT, DRIVE_TRANSCRIPT_FOLDER_NAMES,
+} from "./constants";
 
 export class DriveError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -97,6 +100,66 @@ async function listSubfolders(drive: drive_v3.Drive, parentId: string, context: 
   }
 
   return out;
+}
+
+/**
+ * Folder id out of whatever is stored in NetSuite's custentity_project_folder.
+ * Accepts a full Drive URL or a bare id, since the field is free text and both
+ * turn up in practice.
+ *
+ *   https://drive.google.com/drive/u/2/folders/<id>       → <id>
+ *   https://drive.google.com/drive/folders/<id>?usp=...   → <id>
+ *   https://drive.google.com/open?id=<id>                 → <id>
+ */
+export function extractDriveFolderId(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim();
+  if (!v) return null;
+
+  const byPath = v.match(/\/folders\/([A-Za-z0-9_-]{10,})/);
+  if (byPath) return byPath[1];
+
+  const byQuery = v.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  if (byQuery) return byQuery[1];
+
+  // A bare id — no scheme, no slashes.
+  if (/^[A-Za-z0-9_-]{10,}$/.test(v)) return v;
+
+  return null;
+}
+
+/**
+ * The transcripts subfolder inside a project folder, created if it doesn't exist.
+ *
+ * Creating rather than erroring: a project folder that simply hasn't been set up
+ * yet shouldn't block filing, and an empty Transcripts folder is harmless. The
+ * caller is told whether it was created so the UI can mention it.
+ */
+export async function ensureTranscriptFolder(
+  userEmail: string,
+  projectFolderId: string,
+): Promise<{ folder: DriveFolder; created: boolean }> {
+  const drive    = await driveFor(userEmail);
+  const children = await listSubfolders(drive, projectFolderId, "Looking for the transcripts folder");
+
+  const existing = children.find(c => DRIVE_TRANSCRIPT_FOLDER_NAMES.includes(c.name.trim().toLowerCase()));
+  if (existing) return { folder: existing, created: false };
+
+  try {
+    const res = await drive.files.create({
+      requestBody: {
+        name:     DRIVE_TRANSCRIPT_FOLDER_DEFAULT,
+        mimeType: FOLDER_MIME,
+        parents:  [projectFolderId],
+      },
+      fields: "id, name",
+      supportsAllDrives: true,
+    });
+    if (!res.data.id) throw new DriveError("Drive created the transcripts folder but returned no id.");
+    return { folder: { id: res.data.id, name: res.data.name ?? DRIVE_TRANSCRIPT_FOLDER_DEFAULT }, created: true };
+  } catch (e) {
+    if (e instanceof DriveError) throw e;
+    throw wrapDriveError(e, "Creating the transcripts folder");
+  }
 }
 
 /** Customer folders directly under the configured root. */

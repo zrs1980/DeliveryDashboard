@@ -916,21 +916,32 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 
 ## Module: File meeting to Google Drive
 
-From a Fireflies meeting, **→ File to Drive** creates a Google Doc holding the notes and transcript in the right customer/project folder. Claude suggests the customer; the PM confirms both levels before anything is written.
+Each row of the Fireflies grid carries a **Project** dropdown, a **Meeting Type** dropdown and a **Create** button; once filed the button becomes a **↗ Transcript** link. Nothing needs opening to file a meeting.
 
 ```
-/lib/google-drive.ts    → folder navigation + Doc creation
-/lib/customer-match.ts  → deterministic scorer + Claude prompt
-/lib/meeting-doc.ts     → HTML the Doc is built from (client-safe, so the preview matches)
-/app/api/drive/{customers,projects,match,meeting-doc}/route.ts
-/components/dashboard/FileToDriveModal.tsx
+/lib/google-drive.ts    → folder id parsing, transcripts subfolder, Doc creation
+/lib/customer-match.ts  → deterministic scorer (also used client-side to pre-select)
+/lib/meeting-doc.ts     → HTML the Doc is built from
+/app/api/projects/folders/route.ts  → slim active-project list with Drive folders
+/app/api/meeting-docs/route.ts      → GET already-filed, POST create
+/supabase/meeting-docs-schema.sql
 ```
 
-Expected Drive shape, from `DRIVE_CUSTOMER_ROOT_FOLDER_ID`:
+### Destination comes from NetSuite, not Drive browsing
 
-```
-<customer root> / <Customer> / <Projects> / <Specific project> / …meeting docs
-```
+`custentity_project_folder` on the NetSuite job holds the project's Drive folder link. `extractDriveFolderId()` accepts a full URL (`/drive/u/2/folders/<id>`, `?usp=sharing`, `open?id=`) or a bare id. The doc is filed **one level deeper**, in a transcripts subfolder — matched against `DRIVE_TRANSCRIPT_FOLDER_NAMES` and **created if absent** rather than failing.
+
+The dropdown label is `"<Client> — <Project name>"`, built in `/api/projects/folders`. That route exists rather than reusing `/api/projects` because the latter fans out to ClickUp per project, which is far too heavy for a dropdown.
+
+Filename: **`<Meeting Type> - <Meeting name> - <YYYY-MM-DD>`**. `MEETING_TYPES` in `lib/constants.ts` is the source of the type list.
+
+### Gotchas
+
+- **`meetingDocName` uses LOCAL date components deliberately.** The grid shows local time, so a 17:00 meeting on 30 June (`00:00Z` on 1 July) must file as `2026-06-30` to match what the PM saw. Switching to UTC would push evening meetings onto the following day. Unit-tested both ways.
+- **Filed docs are tracked in Supabase, not inferred from Drive.** Drive can't answer "has this meeting been filed?" without a per-row search, and the filename isn't a reliable key. `meeting_docs.fireflies_id` is unique, and a POST for an already-filed meeting returns **409 with the existing doc** — the grid adopts that link rather than erroring, so two people filing at once can't create duplicates.
+- **If the Supabase insert fails after the Doc is created**, the response says so explicitly. The doc exists; the grid may just offer to file it again.
+- **Per-row project pre-selection runs the deterministic scorer client-side, not the AI route.** An AI call per row would be hundreds of requests for one grid load. It only fills blanks, so a manual choice is never overwritten.
+- **Older browse-based route group** (`/api/drive/{customers,projects,match,meeting-doc}` + `FileToDriveModal`) still exists for the drawer flow and the `<customer root>/<Customer>/<Projects>/` tree. The grid path above supersedes it for day-to-day use.
 
 ### Gotchas
 
