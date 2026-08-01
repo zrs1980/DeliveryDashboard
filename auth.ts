@@ -41,13 +41,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (account?.access_token && token.email) {
         try {
           const db = getSupabaseAdmin();
-          await db.from("google_tokens").upsert({
-            user_email:    token.email,
-            access_token:  account.access_token,
-            refresh_token: account.refresh_token ?? null,
-            expires_at:    account.expires_at ?? null,
-            updated_at:    new Date().toISOString(),
-          }, { onConflict: "user_email" });
+          // refresh_token is only included when Google actually returned one.
+          // Writing `?? null` would destroy a working refresh token on any grant
+          // that omits it (Google doesn't always re-issue), leaving the account
+          // unable to refresh until the next full consent. Omitting the column
+          // from the upsert payload leaves the stored value untouched.
+          const row: Record<string, unknown> = {
+            user_email:   token.email,
+            access_token: account.access_token,
+            expires_at:   account.expires_at ?? null,
+            updated_at:   new Date().toISOString(),
+          };
+          if (account.refresh_token) row.refresh_token = account.refresh_token;
+
+          await db.from("google_tokens").upsert(row, { onConflict: "user_email" });
         } catch (e) {
           console.error("[auth] Failed to store Google tokens:", e);
         }
