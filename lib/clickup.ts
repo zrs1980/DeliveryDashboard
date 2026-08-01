@@ -26,8 +26,10 @@ function parseClickUpUrl(url: string | null): { type: "list" | "view"; id: strin
   const liMatch = clean.match(/\/v\/li\/(\d+)\/\d+/i);
   if (liMatch) return { type: "list", id: liMatch[1] };
 
-  // /v/l/{hash}-{viewId} — the numeric part after hyphen is a VIEW id, not a list id
-  const lHyphenMatch = clean.match(/\/v\/l\/[a-z0-9]+-(\d+)/i);
+  // /v/l/{hash}-{viewId} — this whole segment is the VIEW id, not a list id.
+  // The hash is NOT a separable prefix: GET /view/182ddq-334693 resolves, while
+  // GET /view/334693 (the numeric tail alone) 404s. Verified against Salt & Stone.
+  const lHyphenMatch = clean.match(/\/v\/l\/([a-z0-9]+-\d+)/i);
   if (lHyphenMatch) return { type: "view", id: lHyphenMatch[1] };
 
   // /v/l/{numericListId} — plain list id
@@ -154,6 +156,110 @@ export async function fetchListTasks(listId: string): Promise<CUTask[]> {
     page++;
   }
   return all;
+}
+
+// ─── Custom fields & task creation ───────────────────────────────────────────
+//
+// The only write path to ClickUp in this app. Used by the "Process meeting"
+// wizard to file a meeting's action items against the project's own list.
+
+/**
+ * Exact name of the phase field. Matched exactly, NOT by substring: Salt & Stone's
+ * list also carries a separate "Task Phase;l" dropdown, so /Phase/ matches two
+ * different fields there and would pick whichever came back first.
+ */
+export const PHASE_FIELD_NAME = "Phase (v4)";
+
+/** The option the wizard files action items under. */
+export const INTERNAL_ACTION_POINTS = "8. Internal Action Points";
+
+export interface CUFieldOption { id: string; name?: string; label?: string }
+export interface CUField {
+  id: string;
+  name: string;
+  type: string;                            // "labels" | "drop_down" | …
+  type_config?: { options?: CUFieldOption[] };
+}
+
+/** Punctuation/spacing-insensitive compare — "8. Internal Action Points" === "8.Internal action points". */
+const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+async function cuPost(path: string, body: unknown) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    // ClickUp puts a human-readable reason in the body; the bare status doesn't help.
+    throw new Error(`ClickUp ${res.status}: ${text.slice(0, 400)}`);
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+/** Custom field definitions available on a list. */
+export async function fetchListFields(listId: string): Promise<CUField[]> {
+  const data = await cuGet(`/list/${listId}/field`);
+  return (data.fields ?? []) as CUField[];
+}
+
+export interface PhaseFieldTarget {
+  fieldId: string;
+  optionId: string;
+  /** "labels" takes an ARRAY of option ids; "drop_down" takes a single id. */
+  isMulti: boolean;
+}
+
+/**
+ * Locate the phase field and the requested option on a list.
+ *
+ * Returns null rather than throwing when the list has no such field — JGL's list
+ * genuinely doesn't have one, and a missing label is not a good reason to refuse
+ * to create the task. Callers surface it as a warning.
+ */
+export function findPhaseTarget(fields: CUField[], optionLabel = INTERNAL_ACTION_POINTS): PhaseFieldTarget | null {
+  const field = fields.find(f => f.name?.trim() === PHASE_FIELD_NAME);
+  if (!field) return null;
+
+  const wanted = normalise(optionLabel);
+  const option = (field.type_config?.options ?? []).find(
+    o => normalise(o.label ?? o.name ?? "") === wanted,
+  );
+  if (!option) return null;
+
+  return { fieldId: field.id, optionId: option.id, isMulti: field.type === "labels" };
+}
+
+export interface CreateTaskInput {
+  listId:      string;
+  name:        string;
+  description: string;
+  phase?:      PhaseFieldTarget | null;
+}
+
+export interface CreatedTask { id: string; url: string; name: string }
+
+export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
+  const body: Record<string, unknown> = {
+    name:        input.name,
+    description: input.description,
+  };
+
+  if (input.phase) {
+    body.custom_fields = [{
+      id: input.phase.fieldId,
+      // A "labels" field rejects a bare string — it must be an array of option ids.
+      value: input.phase.isMulti ? [input.phase.optionId] : input.phase.optionId,
+    }];
+  }
+
+  const data = await cuPost(`/list/${input.listId}/task`, body);
+  return {
+    id:   String(data.id ?? ""),
+    url:  String(data.url ?? (data.id ? `https://app.clickup.com/t/${data.id}` : "")),
+    name: String(data.name ?? input.name),
+  };
 }
 
 // ─── Task classification helpers ─────────────────────────────────────────────

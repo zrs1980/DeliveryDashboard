@@ -152,6 +152,34 @@ const TIERS: Array<{ label: string; fields: string }> = [
 // ─── Normalising ──────────────────────────────────────────────────────────────
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/**
+ * Fireflies types `date` as a Float — epoch milliseconds — but returns an ISO
+ * string on some plans/schema versions. `str()` silently yields "" for the
+ * numeric form, which reaches `meetingDocName()` as an invalid Date and files
+ * documents named "… - undated" (and blanks the grid's Started column).
+ *
+ * `duration` already had the number-aware treatment; `date` did not.
+ * Accepts: ISO string, epoch-ms number, epoch-seconds number, numeric string.
+ */
+function isoDate(v: unknown): string {
+  if (typeof v === "string") {
+    const trimmed = v.trim();
+    if (!trimmed) return "";
+    // A numeric string is an epoch, not something Date can parse meaningfully.
+    if (/^\d+$/.test(trimmed)) return isoDate(Number(trimmed));
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? "" : d.toISOString();
+  }
+  if (typeof v === "number" && isFinite(v) && v > 0) {
+    // Fireflies has used both. Seconds-since-epoch for any plausible meeting
+    // date is < 1e11; milliseconds is ~1.7e12.
+    const ms = v < 1e11 ? v * 1000 : v;
+    const d  = new Date(ms);
+    return isNaN(d.getTime()) ? "" : d.toISOString();
+  }
+  return "";
+}
 const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(x => (typeof x === "string" ? x.trim() : "")).filter(Boolean) : [];
 
@@ -210,7 +238,7 @@ function normalizeMeeting(raw: Record<string, unknown>): FirefliesMeeting {
   return {
     id:              str(raw.id),
     title:           str(raw.title).trim() || "(No title)",
-    date:            str(raw.date),
+    date:            isoDate(raw.date),
     durationMinutes: Math.round((seconds / 60) * 10) / 10,
     organizerEmail:  str(raw.organizer_email).toLowerCase(),
     meetingLink:     str(raw.meeting_link) || null,

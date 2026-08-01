@@ -898,6 +898,7 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - NetSuite project internal IDs (e.g., `18380`) differ from project numbers (e.g., `406`) — store both and use the internal ID for API calls.
 - `custentity20` may be null, an empty string, or a full ClickUp URL — always validate before parsing.
 - Some ClickUp URLs may point to a Space, Folder, or List — the ID extraction regex may need to handle multiple URL patterns.
+- **In a `/v/l/{hash}-{viewId}` ClickUp URL the view id is the WHOLE segment**, hash included. `GET /view/182ddq-334693` resolves; `GET /view/334693` (the numeric tail alone, which the old regex captured) returns 404. That silently broke list resolution for Salt & Stone (18403) — `resolveClickUpListId` returned null, so the project fell through to `matchListByCompanyName`. Fixed July 2026; verified across all 9 active projects that carry a ClickUp URL.
 - `custentity_project_remaining_hours` is manually maintained by PMs and may lag behind actual logged time — surface a "last updated" note if possible, or cross-check against `timebill` actuals. **Salt & Stone (18403) is a known example of severe drift** — NS shows 244.75h remaining (5.25h consumed) but timebill records ~249h already logged. Always show a data integrity warning when `timebill total > budget_hours - remaining_hours` by more than 20h.
 - **Never use the standard `enddate` field as the project deadline.** Always use `custentity_project_golive_date`. The `enddate` field may reflect contract dates or NetSuite defaults that don't match the actual go-live target.
 - **Never use `projectbudget.budgetedcost` for hours budget.** Always use `custentity_ceba_project_budget_hours`. The `projectbudget` record tracks cost, not hours, and may be empty or misaligned.
@@ -982,6 +983,38 @@ Filename: **`<Meeting Type> - <Meeting name> - <YYYY-MM-DD>`**. `MEETING_TYPES` 
 
 ---
 
+## Module: Process meeting (Fireflies → ClickUp → Slack → Drive)
+
+The Fireflies grid's row button is **Process**, not Create. It opens a four-step wizard; every step can be skipped independently, and each writes to a different per-project destination read off the NetSuite job.
+
+```
+/app/api/meetings/analysis/route.ts      → one Claude call → action items + PM summary
+/app/api/clickup/action-items/route.ts   → creates the tasks
+/app/api/slack/meeting-summary/route.ts  → posts the summary
+/components/dashboard/ProcessMeetingWizard.tsx
+```
+
+| Step | Destination | NetSuite field |
+|---|---|---|
+| 1. Action items | ClickUp tasks, `Phase (v4)` = `8. Internal Action Points` | `custentity20` |
+| 2. Key details | Slack `chat.postMessage` | `custentity_slack_channel` |
+| 3. File to Drive | Google Doc in the Transcripts folder | `custentity_project_folder` |
+| 4. Done | Links to everything created | — |
+
+### Gotchas
+
+- **`Phase (v4)` is a `labels` field, not `drop_down`** — the value must be an **array** of option ids (`value: [optionId]`). A bare string is rejected. `createTask()` branches on `isMulti` so a list that defines it as a dropdown still works.
+- **Resolve the phase field by exact name at runtime, never by substring.** Salt & Stone's list carries *two* fields matching `/Phase/` — `Phase (v4)` and a separate `Task Phase;l` dropdown — so a loose match picks whichever came back first. The field/option ids are workspace-wide today (`78dc1f53…` / `9212d39e…`) but hardcoding them breaks the moment a list is rebuilt.
+- **A list with no phase field is not an error.** Verified July 2026: 8 of 9 projects with a ClickUp URL have it; one doesn't. Tasks are created anyway and the wizard warns.
+- **`custentity_slack_channel` holds a bare channel name** (`"oxide"`), not a URL or ID. `/api/projects/folders` prefixes `#`. Only 2 of 11 active projects had it set in July 2026, so the "no Slack channel" path is the common one — say so rather than failing silently. Distinct from `custentity_slack_canvas_id`, which is the *canvas* the weekly task post writes to.
+- **The project dropdown lists ALL active projects, not just those with a Drive folder.** It used to filter on `hasFolder`, which would now hide 9 of 11 projects from the ClickUp and Slack steps too. Missing destinations are shown inline as `(no ClickUp/Slack/Drive)`.
+- **Action items and the PM summary come from ONE model call.** The transcript is the expensive part; two endpoints would fetch and pay for it twice per meeting. Structured output is via **tool use with forced `tool_choice`**, not `output_config.format` — `claude-sonnet-4-6` (the model the rest of the app standardises on) does not support structured outputs.
+- **Every AI field is re-validated server-side** before it reaches the wizard; a malformed item degrades to a row the PM can fix, not a crash.
+- **ClickUp tasks are created sequentially, not in parallel.** The write endpoint is rate-limited, and a partial failure is only reportable if we know how far we got — the wizard keeps the PM on step 1 and names the failures.
+- **`/api/clickup/*` is the first write path to ClickUp in this repo.** `cuGet` is GET-only; `cuPost` surfaces ClickUp's response body, since the bare status says nothing useful.
+
+---
+
 ## Module: Fireflies Meetings
 
 `🪰 Fireflies Meetings` tab — same layout as the Zoom Meetings tab, sourced from Fireflies.ai. Auth is a single `FIREFLIES_API_KEY`; no OAuth, no scopes.
@@ -998,6 +1031,7 @@ Filename: **`<Meeting Type> - <Meeting name> - <YYYY-MM-DD>`**. `MEETING_TYPES` 
 ### Gotchas
 
 - **`duration` is SECONDS**, not minutes. Converted once in `normalizeMeeting`.
+- **`date` may arrive as epoch millis, not an ISO string.** Fireflies types it as a Float, and the old `str()` mapping returned `""` for the numeric form — which reached `meetingDocName()` as an invalid Date and filed documents named `"… - undated"` (and blanked the grid's Started column). `duration` already had the number-aware treatment; `date` did not. `isoDate()` now accepts ISO strings, epoch millis, epoch seconds and numeric strings. Fixed July 2026 — this was the cause of "the filed document has no date on it".
 - **Rate limits are per *day* on lower plans**: Free 50/day, Pro 500/day, Business/Enterprise 60/min. A list load costs one request per 50 transcripts, capped at `MAX_PAGES` (10). Don't add polling or auto-refresh — the tab loads once and relies on the Refresh button.
 - **One unknown GraphQL field fails the entire query.** The schema varies by plan/version, so `TIERS` tries richest-first and drops the least-essential block on a *field* error only (`isFieldError`), degrading rather than breaking. The tier that succeeded is returned as `tier` and surfaced in the UI when it isn't `full`.
 - **`fromDate`/`toDate` are ISO 8601 instants**, so local dates are converted with the browser's `tzOffset` in the route — the Zoom GMT-vs-local range bug applied up front rather than after losing an afternoon of meetings.

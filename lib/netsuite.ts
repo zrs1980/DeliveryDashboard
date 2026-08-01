@@ -302,6 +302,7 @@ export async function fetchActiveProjects() {
     remaining_hours: string;
     user_notes: string | null;
     slack_canvas_id: string | null;
+    slack_channel: string | null;
     project_folder: string | null;
   }>(`
     SELECT
@@ -318,6 +319,7 @@ export async function fetchActiveProjects() {
       custentity_project_remaining_hours   AS remaining_hours,
       custentity_user_notes                AS user_notes,
       custentity_slack_canvas_id           AS slack_canvas_id,
+      custentity_slack_channel             AS slack_channel,
       custentity_project_folder            AS project_folder
     FROM job
     WHERE entitystatus = 2

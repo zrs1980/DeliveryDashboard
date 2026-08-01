@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { C, MEETING_TYPES, type MeetingType } from "@/lib/constants";
 import { scoreFolders } from "@/lib/customer-match";
 import { FileToDriveModal } from "./FileToDriveModal";
+import { ProcessMeetingWizard } from "./ProcessMeetingWizard";
 
 interface Attendee { name: string; email: string; internal: boolean }
 interface Summary {
@@ -57,6 +58,10 @@ const domainOf = (email: string) => {
 interface ProjectOption {
   id: number; entityId: string; client: string; projectName: string;
   label: string; folderUrl: string | null; folderId: string | null; hasFolder: boolean;
+  // Wizard destinations, each independently missing-able.
+  clickupUrl: string | null; hasClickUp: boolean;
+  slackChannel: string | null; hasSlack: boolean;
+  slackCanvasId: string | null;
 }
 interface FiledDoc {
   fireflies_id: string; doc_url: string; doc_name: string;
@@ -106,9 +111,9 @@ export function FirefliesMeetingsView() {
   const [filed, setFiled]         = useState<Record<string, FiledDoc>>({});
   const [rowProject, setRowProj]  = useState<Record<string, string>>({});
   const [rowType, setRowType]     = useState<Record<string, string>>({});
-  const [creating, setCreating]   = useState<Record<string, boolean>>({});
-  const [rowError, setRowError]   = useState<Record<string, string>>({});
   const [unfiledOnly, setUnfiled] = useState(false);
+  // Which row's Process wizard is open. One at a time — it's a modal.
+  const [wizardId, setWizardId]   = useState<string | null>(null);
 
   // Active NetSuite projects with their Drive folder — loaded once.
   useEffect(() => {
@@ -166,7 +171,7 @@ export function FirefliesMeetingsView() {
    */
   useEffect(() => {
     if (meetings.length === 0 || projects.length === 0) return;
-    const folderish = projects.filter(p => p.hasFolder).map(p => ({ id: String(p.id), name: p.label }));
+    const folderish = projects.map(p => ({ id: String(p.id), name: p.label }));
 
     setRowProj(prev => {
       const next = { ...prev };
@@ -194,59 +199,16 @@ export function FirefliesMeetingsView() {
     });
   }, [meetings, projects]);
 
-  const createDoc = useCallback(async (m: Meeting) => {
-    const projectId = rowProject[m.id];
-    const type      = rowType[m.id];
-    const project   = projects.find(p => String(p.id) === projectId);
-
-    if (!project || !type) return;
-    setCreating(c => ({ ...c, [m.id]: true }));
-    setRowError(e => ({ ...e, [m.id]: "" }));
-
-    try {
-      const res = await fetch("/api/meeting-docs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          meeting: {
-            id: m.id, title: m.title, date: m.date, durationMinutes: m.durationMinutes,
-            organizerEmail: m.organizerEmail, meetingLink: m.meetingLink,
-            transcriptUrl: m.transcriptUrl, attendees: m.attendees, summary: m.summary,
-          },
-          projectNsId:      String(project.id),
-          projectLabel:     project.label,
-          projectFolderUrl: project.folderUrl,
-          meetingType:      type,
-        }),
-      });
-      const data = await res.json();
-
-      // 409 means someone else filed it first — adopt their link rather than erroring.
-      if (res.status === 409 && data.doc) {
-        setFiled(f => ({ ...f, [m.id]: { ...data.doc, fireflies_id: m.id } as FiledDoc }));
-        return;
-      }
-      if (!res.ok) throw new Error(data.error ?? "Could not create the document");
-
-      setFiled(f => ({
-        ...f,
-        [m.id]: {
-          fireflies_id: m.id,
-          doc_url:  data.doc?.webViewLink ?? "",
-          doc_name: data.doc?.name ?? "",
-          meeting_type: type,
-          project_label: project.label,
-          created_at: new Date().toISOString(),
-          created_by: null,
-        },
-      }));
-      if (data.note) setRowError(e => ({ ...e, [m.id]: data.note }));
-    } catch (e) {
-      setRowError(er => ({ ...er, [m.id]: e instanceof Error ? e.message : "Failed" }));
-    } finally {
-      setCreating(c => ({ ...c, [m.id]: false }));
-    }
-  }, [projects, rowProject, rowType]);
+  // The wizard owns creating the ClickUp tasks, the Slack post and the Drive doc;
+  // the grid only decides which meeting it opens for.
+  const wizardMeeting = useMemo(
+    () => meetings.find(m => m.id === wizardId) ?? null,
+    [meetings, wizardId],
+  );
+  const wizardProject = useMemo(
+    () => (wizardId ? projects.find(p => String(p.id) === rowProject[wizardId]) ?? null : null),
+    [projects, rowProject, wizardId],
+  );
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -358,9 +320,10 @@ export function FirefliesMeetingsView() {
 
       {projects.length > 0 && projects.every(p => !p.hasFolder) && (
         <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: C.yellow, fontSize: 12.5, lineHeight: 1.6 }}>
-          None of the {projects.length} active NetSuite projects has a Drive folder set. Populate
-          <strong> custentity_project_folder</strong> on the NetSuite project records with each project&apos;s
-          Drive folder link, then refresh.
+          None of the {projects.length} active NetSuite projects has a Drive folder set, so the
+          filing step can&apos;t run. Populate <strong>custentity_project_folder</strong> on the NetSuite
+          project records with each project&apos;s Drive folder link, then refresh. The action-item and
+          Slack steps still work without it.
         </div>
       )}
 
@@ -462,7 +425,7 @@ export function FirefliesMeetingsView() {
                   External Attendees
                 </th>
                 <th style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.alt, minWidth: 210 }}
-                    title="Active NetSuite projects with a Drive folder set (custentity_project_folder)">
+                    title="Active NetSuite projects. Each supplies the ClickUp list (custentity20), Slack channel (custentity_slack_channel) and Drive folder (custentity_project_folder).">
                   Project
                 </th>
                 <th style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.alt, minWidth: 150 }}>
@@ -487,16 +450,27 @@ export function FirefliesMeetingsView() {
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onCreate={() => createDoc(m)} busy={!!creating[m.id]} rowError={rowError[m.id]} />),
+                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />),
                     ];
                   })
-                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onCreate={() => createDoc(m)} busy={!!creating[m.id]} rowError={rowError[m.id]} />)}
+                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />)}
             </tbody>
           </table>
         </div>
       )}
 
       {openMeeting && <FirefliesPanel m={openMeeting} onClose={() => setOpenId(null)} />}
+
+      {wizardId && wizardMeeting && wizardProject && (
+        <ProcessMeetingWizard
+          meeting={wizardMeeting}
+          project={wizardProject}
+          meetingType={rowType[wizardId] ?? ""}
+          existingDoc={filed[wizardId]}
+          onClose={() => setWizardId(null)}
+          onFiled={doc => setFiled(f => ({ ...f, [doc.fireflies_id]: doc }))}
+        />
+      )}
     </div>
   );
 }
@@ -531,20 +505,20 @@ function ExternalCell({ m }: { m: Meeting }) {
 
 function Row({
   m, zebra, onOpen, projects, filed, projectId, meetingType,
-  onProject, onType, onCreate, busy, rowError,
+  onProject, onType, onProcess,
 }: {
   m: Meeting; zebra: boolean; onOpen: (id: string) => void;
   projects: ProjectOption[]; filed?: FiledDoc;
   projectId: string; meetingType: string;
   onProject: (v: string) => void; onType: (v: string) => void;
-  onCreate: () => void; busy: boolean; rowError?: string;
+  onProcess: () => void;
 }) {
   const cellInput: React.CSSProperties = {
     width: "100%", padding: "5px 7px", borderRadius: 6, border: `1px solid ${C.border}`,
     fontSize: 11.5, fontFamily: C.font, color: C.text, background: C.surface,
     outline: "none", boxSizing: "border-box", cursor: "pointer",
   };
-  const canCreate = !!projectId && !!meetingType && !busy;
+  const canProcess = !!projectId && !!meetingType;
 
   return (
     <tr style={{ background: zebra ? C.alt : C.surface, cursor: "pointer" }} onClick={() => onOpen(m.id)} title="View notes and transcript">
@@ -571,11 +545,22 @@ function Row({
         {filed ? (
           <div style={{ fontSize: 11.5, color: C.textMid }}>{filed.project_label ?? "—"}</div>
         ) : (
-          <select value={projectId} onChange={e => onProject(e.target.value)} style={cellInput} title="Where the transcript will be filed">
+          <select value={projectId} onChange={e => onProject(e.target.value)} style={cellInput} title="Which project's ClickUp list, Slack channel and Drive folder to use">
             <option value="">Choose project…</option>
-            {projects.filter(p => p.hasFolder).map(p => (
-              <option key={p.id} value={String(p.id)}>{p.label}</option>
-            ))}
+            {/* Projects missing a destination are still selectable — the wizard's
+                other steps still work, and it says which one is unavailable. */}
+            {projects.map(p => {
+              const missing = [
+                !p.hasClickUp && "ClickUp",
+                !p.hasSlack   && "Slack",
+                !p.hasFolder  && "Drive",
+              ].filter(Boolean);
+              return (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}{missing.length ? `  (no ${missing.join("/")})` : ""}
+                </option>
+              );
+            })}
           </select>
         )}
       </td>
@@ -609,19 +594,16 @@ function Row({
             ↗ Transcript
           </a>
         ) : (
-          <>
-            <button
-              onClick={onCreate}
-              disabled={!canCreate}
-              title={canCreate ? "Create the Google Doc in the project's Transcripts folder" : "Choose a project and meeting type first"}
-              style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: canCreate ? "pointer" : "not-allowed", background: canCreate ? C.blue : C.alt, color: canCreate ? "#fff" : C.mid, border: `1px solid ${canCreate ? C.blue : C.border}`, fontFamily: C.font }}
-            >
-              {busy ? "Creating…" : "Create"}
-            </button>
-            {rowError && (
-              <div style={{ fontSize: 10, color: C.red, marginTop: 4, maxWidth: 130, whiteSpace: "normal", lineHeight: 1.4, textAlign: "left" }}>{rowError}</div>
-            )}
-          </>
+          <button
+            onClick={onProcess}
+            disabled={!canProcess}
+            title={canProcess
+              ? "Review action items, post a summary to Slack and file the transcript"
+              : "Choose a project and meeting type first"}
+            style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: canProcess ? "pointer" : "not-allowed", background: canProcess ? C.blue : C.alt, color: canProcess ? "#fff" : C.mid, border: `1px solid ${canProcess ? C.blue : C.border}`, fontFamily: C.font }}
+          >
+            Process
+          </button>
         )}
       </td>
     </tr>

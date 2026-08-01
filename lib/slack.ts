@@ -25,6 +25,71 @@ const CANVAS_ERROR_HELP: Record<string, string> = {
     "The bot lacks permission to edit this canvas. Add the app as a collaborator on the canvas, and check workspace-level canvas restrictions.",
 };
 
+/**
+ * Posting to a channel fails for different reasons than editing a canvas, and the
+ * remedies aren't interchangeable — a channel the bot was never invited to is the
+ * common one, and it looks nothing like a canvas collaborator problem.
+ */
+const CHANNEL_ERROR_HELP: Record<string, string> = {
+  channel_not_found:
+    "Slack doesn't recognise that channel. Check custentity_slack_channel on the NetSuite project — it should hold the channel name (e.g. \"oxide\"), not a URL or channel ID.",
+  not_in_channel:
+    "The Slack app isn't a member of this channel. Either invite it (/invite @<app> in the channel) or add the chat:write.public scope, then reinstall and redeploy.",
+  is_archived:
+    "That Slack channel is archived, so nothing can be posted to it. Update custentity_slack_channel on the NetSuite project.",
+  invalid_auth:
+    "SLACK_BOT_TOKEN is invalid. Check the token in Vercel — Vercel does not pick up changed env vars without a redeploy.",
+  not_authed:
+    "No SLACK_BOT_TOKEN was sent. Confirm it is set in Vercel and that the app has been redeployed since it was added.",
+  token_revoked:
+    "SLACK_BOT_TOKEN has been revoked. Reinstall the app to the workspace, update the token in Vercel, then redeploy.",
+  missing_scope:
+    "The bot token is missing the chat:write scope. Add it in the Slack app config, reinstall to the workspace, update the token in Vercel, then redeploy.",
+};
+
+export interface PostedMessage { channel: string; ts: string }
+
+/**
+ * Post a plain message to a channel.
+ *
+ * The channel comes from custentity_slack_channel on the NetSuite job, which holds
+ * a bare name ("oxide"). chat.postMessage accepts a name or an ID, so both the
+ * "#oxide" and "C0123" forms work without translation.
+ */
+export async function postToChannel(channel: string, text: string): Promise<PostedMessage> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) throw new Error("SLACK_BOT_TOKEN is not configured.");
+
+  const target = channel.trim();
+  if (!target) {
+    throw new Error(
+      "No Slack channel for this project. Set custentity_slack_channel on the NetSuite project record.",
+    );
+  }
+
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel: target, text, unfurl_links: false }),
+  });
+
+  const data = (await res.json()) as { ok: boolean; error?: string; ts?: string; channel?: string };
+  if (!data.ok) {
+    const code = data.error ?? "unknown";
+    const help = CHANNEL_ERROR_HELP[code];
+    throw new Error(
+      help
+        ? `${help}\n\nSlack error: ${code} · channel ${target}`
+        : `Slack chat.postMessage error: ${code} · channel ${target}`,
+    );
+  }
+
+  return { channel: data.channel ?? target, ts: data.ts ?? "" };
+}
+
 export async function prependToCanvas(markdown: string, canvasId?: string | null): Promise<void> {
   const token = process.env.SLACK_BOT_TOKEN;
   const id    = canvasId || process.env.SLACK_WEEKLY_CANVAS_ID;
