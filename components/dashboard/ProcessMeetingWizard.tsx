@@ -32,6 +32,14 @@ export interface WizardProject {
   slackChannel: string | null; hasSlack: boolean;
 }
 
+/** What a previous run already did to this meeting, from `meeting_processing`. */
+export interface WizardProcessing {
+  clickup_tasks?: { id: string; name: string; url: string }[] | null;
+  slack_channel?: string | null;
+  doc_url?: string | null;
+  doc_name?: string | null;
+}
+
 export interface WizardFiledDoc {
   fireflies_id: string; doc_url: string; doc_name: string;
   meeting_type: string; project_label: string | null;
@@ -52,14 +60,17 @@ const STEPS: { key: Step; label: string }[] = [
 ];
 
 export function ProcessMeetingWizard({
-  meeting, project, meetingType, existingDoc, onClose, onFiled,
+  meeting, project, meetingType, existingDoc, existingProcessing, onClose, onFiled, onProcessed,
 }: {
   meeting: WizardMeeting;
   project: WizardProject;
   meetingType: string;
   existingDoc?: WizardFiledDoc;
+  existingProcessing?: WizardProcessing;
   onClose: () => void;
   onFiled: (doc: WizardFiledDoc) => void;
+  /** Tells the grid to re-read processing state so the row's chips update. */
+  onProcessed: () => void;
 }) {
   const [step, setStep] = useState<Step>("analyse");
 
@@ -75,19 +86,37 @@ export function ProcessMeetingWizard({
   const [cuBusy, setCuBusy]       = useState(false);
   const [cuErr, setCuErr]         = useState<string | null>(null);
   const [cuWarn, setCuWarn]       = useState<string | null>(null);
-  const [cuCreated, setCuCreated] = useState<{ name: string; url: string }[]>([]);
+  // Seeded from a previous run so re-opening a processed meeting shows what
+  // already happened instead of implying nothing has.
+  const [cuCreated, setCuCreated] = useState<{ name: string; url: string }[]>(
+    existingProcessing?.clickup_tasks ?? [],
+  );
   const [cuFailed, setCuFailed]   = useState<{ name: string; error: string }[]>([]);
 
   // Step 2 — Slack
   const [slackBusy, setSlackBusy]     = useState(false);
   const [slackErr, setSlackErr]       = useState<string | null>(null);
-  const [slackPosted, setSlackPosted] = useState<string | null>(null);
+  const [slackWarn, setSlackWarn]     = useState<string | null>(null);
+  const [slackPosted, setSlackPosted] = useState<string | null>(
+    existingProcessing?.slack_channel ?? null,
+  );
 
   // Step 3 — Drive
   const [docBusy, setDocBusy] = useState(false);
   const [docErr, setDocErr]   = useState<string | null>(null);
   const [docNote, setDocNote] = useState<string | null>(null);
-  const [doc, setDoc]         = useState<WizardFiledDoc | null>(existingDoc ?? null);
+  const [doc, setDoc]         = useState<WizardFiledDoc | null>(
+    existingDoc
+      ?? (existingProcessing?.doc_url
+        ? {
+            fireflies_id: meeting.id,
+            doc_url:  existingProcessing.doc_url,
+            doc_name: existingProcessing.doc_name ?? "",
+            meeting_type: meetingType, project_label: project.label,
+            created_at: "", created_by: null,
+          }
+        : null),
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -145,8 +174,12 @@ export function ProcessMeetingWizard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clickupUrl:   project.clickupUrl,
+          firefliesId:  meeting.id,
           meetingTitle: meeting.title,
           meetingDate:  meeting.date,
+          meetingType,
+          projectNsId:  String(project.id),
+          projectLabel: project.label,
           tasks: selected.map(i => ({
             name:        i.name,
             description: i.owner ? `${i.description}\n\nRaised by: ${i.owner}` : i.description,
@@ -159,6 +192,7 @@ export function ProcessMeetingWizard({
       setCuCreated(data.created ?? []);
       setCuFailed(data.failed ?? []);
       setCuWarn(data.warning ?? null);
+      onProcessed();
       // A partial failure keeps the PM on this step so the misses are visible.
       if ((data.failed ?? []).length === 0) setStep("summary");
     } catch (e) {
@@ -177,17 +211,24 @@ export function ProcessMeetingWizard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel:      project.slackChannel,
-          summary:      keyDetails,
-          meetingTitle: meeting.title,
-          meetingDate:  fmtDate(meeting.date),
-          docUrl:       doc?.doc_url,
-          taskCount:    cuCreated.length,
+          channel:        project.slackChannel,
+          summary:        keyDetails,
+          firefliesId:    meeting.id,
+          meetingTitle:   meeting.title,
+          meetingDate:    fmtDate(meeting.date),
+          meetingDateIso: meeting.date,
+          meetingType,
+          projectNsId:    String(project.id),
+          projectLabel:   project.label,
+          docUrl:         doc?.doc_url,
+          taskCount:      cuCreated.length,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not post to Slack");
       setSlackPosted(data.channel ?? project.slackChannel);
+      setSlackWarn(data.warning ?? null);
+      onProcessed();
       setStep("file");
     } catch (e) {
       setSlackErr(e instanceof Error ? e.message : "Unknown error");
@@ -221,7 +262,7 @@ export function ProcessMeetingWizard({
       // 409 means someone else filed it first — adopt their link rather than erroring.
       if (res.status === 409 && data.doc) {
         const adopted = { ...data.doc, fireflies_id: meeting.id } as WizardFiledDoc;
-        setDoc(adopted); onFiled(adopted); setStep("done");
+        setDoc(adopted); onFiled(adopted); onProcessed(); setStep("done");
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Could not create the document");
@@ -235,7 +276,7 @@ export function ProcessMeetingWizard({
         created_at:    new Date().toISOString(),
         created_by:    null,
       };
-      setDoc(filed); onFiled(filed); setDocNote(data.note ?? null); setStep("done");
+      setDoc(filed); onFiled(filed); onProcessed(); setDocNote(data.note ?? null); setStep("done");
     } catch (e) {
       setDocErr(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -457,6 +498,7 @@ export function ProcessMeetingWizard({
                 sub="Creates a Google Doc with the notes, action items and full transcript in the project's Transcripts folder."
               />
               {slackPosted && <Banner tone="green" title={`✓ Posted to ${slackPosted}`} />}
+              {slackWarn && <Banner tone="yellow">{slackWarn}</Banner>}
               {!project.hasFolder && (
                 <Banner tone="yellow" title="No Drive folder for this project">
                   <strong>custentity_project_folder</strong> isn&apos;t set on the NetSuite project, so the document can&apos;t be filed. Set the field and refresh.

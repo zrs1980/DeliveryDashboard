@@ -5,6 +5,7 @@ import { createGoogleDoc, DriveError, ensureTranscriptFolder, extractDriveFolder
 import { fetchFirefliesTranscript, firefliesConfigured } from "@/lib/fireflies";
 import { meetingDocName, renderMeetingDocHtml, type MeetingDocInput } from "@/lib/meeting-doc";
 import { MEETING_TYPES } from "@/lib/constants";
+import { recordProcessingStep } from "@/lib/meeting-processing";
 
 export const revalidate = 0;
 export const maxDuration = 60;
@@ -136,12 +137,27 @@ export async function POST(req: NextRequest) {
       ? `The document was created, but recording it failed (${insertError.message}), so the grid may still offer to file it again.`
       : null;
 
+    const processingNote = await recordProcessingStep({
+      firefliesId:  String(meeting.id),
+      meetingTitle: input.title,
+      meetingDate:  input.date || null,
+      meetingType,
+      projectNsId:  body?.projectNsId ? String(body.projectNsId) : null,
+      projectLabel: body?.projectLabel ?? null,
+      processedBy:  session.user.name ?? session.user.email ?? null,
+    }, {
+      doc_id:   doc.id,
+      doc_url:  doc.webViewLink,
+      doc_name: doc.name,
+      doc_at:   new Date().toISOString(),
+    });
+
     return NextResponse.json({
       doc,
       folderCreated,
       transcriptFolderName: transcriptFolder.name,
       transcriptLines: sentences.length,
-      note: [transcriptNote, recordNote].filter(Boolean).join(" ") || null,
+      note: [transcriptNote, recordNote, processingNote].filter(Boolean).join(" ") || null,
     });
   } catch (err) {
     console.error("[/api/meeting-docs POST]", err);

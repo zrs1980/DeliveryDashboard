@@ -991,8 +991,21 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 /app/api/meetings/analysis/route.ts      → one Claude call → action items + PM summary
 /app/api/clickup/action-items/route.ts   → creates the tasks
 /app/api/slack/meeting-summary/route.ts  → posts the summary
+/app/api/meetings/processing/route.ts    → GET ?ids= → what's already been done
+/lib/meeting-processing.ts               → best-effort upsert, one row per meeting
+/supabase/meeting-processing-schema.sql
 /components/dashboard/ProcessMeetingWizard.tsx
 ```
+
+### Processing state is persisted — `meeting_processing`
+
+`meeting_docs` only ever recorded the **Google Doc**, which made every other step invisible after a refresh: a meeting whose ClickUp tasks were created and whose summary was posted, but where the PM skipped filing, came back looking completely unprocessed — so it was easy to run the whole thing again and create duplicate tasks. `meeting_processing` records all three steps against `fireflies_id`.
+
+- **Each route upserts its own columns server-side**, as the step completes — not from the browser. A closed tab must not lose the record of work that actually happened. Supabase issues `INSERT … ON CONFLICT DO UPDATE` over the supplied columns only, so steps patch independently.
+- **Recording never throws.** The tasks, post and doc are already real by the time we record them; failing the request because a bookkeeping insert failed would tell the PM the step didn't happen when it did. Failures come back as a `warning` alongside the success.
+- **The grid surfaces read failures instead of swallowing them.** The old `catch {}` around the filed-docs fetch meant a missing table read as "nothing is processed" *forever*, with nothing on screen to explain it — precisely the bug this table exists to prevent. A missing table now names the SQL file to run.
+- Rows show chips for what's done (`✓ N tasks` · `✓ Slack` · `✓ Doc`) and the button becomes **Re-process**. Project and meeting-type stay editable once processed — hiding them left rows that could never be re-run — and both are seeded from what was actually used last time, in preference to the client-side scorer's guess.
+- **Both SQL files must be run by hand** in the Supabase SQL editor. They are not applied by a migration step.
 
 | Step | Destination | NetSuite field |
 |---|---|---|

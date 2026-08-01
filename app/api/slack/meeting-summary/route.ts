@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { postToChannel } from "@/lib/slack";
+import { recordProcessingStep } from "@/lib/meeting-processing";
 
 export const revalidate = 0;
 export const maxDuration = 30;
@@ -55,7 +56,24 @@ export async function POST(req: NextRequest) {
     ].filter(v => v !== null).join("\n");
 
     const posted = await postToChannel(channel, text);
-    return NextResponse.json({ ok: true, channel: posted.channel, ts: posted.ts });
+
+    const recordWarning = await recordProcessingStep({
+      firefliesId:  String(body?.firefliesId ?? ""),
+      meetingTitle: body?.meetingTitle ?? null,
+      meetingDate:  body?.meetingDateIso ?? null,
+      meetingType:  body?.meetingType ?? null,
+      projectNsId:  body?.projectNsId ? String(body.projectNsId) : null,
+      projectLabel: body?.projectLabel ?? null,
+      processedBy:  session.user.name ?? session.user.email ?? null,
+    }, {
+      slack_channel: posted.channel,
+      slack_ts:      posted.ts,
+      slack_at:      new Date().toISOString(),
+    });
+
+    return NextResponse.json({
+      ok: true, channel: posted.channel, ts: posted.ts, warning: recordWarning,
+    });
   } catch (err) {
     console.error("[/api/slack/meeting-summary]", err);
     return NextResponse.json(

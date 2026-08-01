@@ -68,6 +68,24 @@ interface FiledDoc {
   meeting_type: string; project_label: string | null; created_at: string; created_by: string | null;
 }
 
+/** What the Process wizard already did to a meeting — survives a refresh. */
+interface ProcessingRow {
+  fireflies_id: string;
+  meeting_type: string | null;
+  project_ns_id: string | null;
+  project_label: string | null;
+  clickup_task_count: number;
+  clickup_tasks: { id: string; name: string; url: string }[] | null;
+  slack_channel: string | null;
+  doc_url: string | null;
+  doc_name: string | null;
+  processed_by: string | null;
+  updated_at: string | null;
+}
+
+const isProcessed = (p?: ProcessingRow) =>
+  !!p && (p.clickup_task_count > 0 || !!p.slack_channel || !!p.doc_url);
+
 /**
  * Guess the meeting type from the title so the dropdown starts somewhere sensible.
  * Order matters — the more specific patterns are checked first.
@@ -115,6 +133,12 @@ export function FirefliesMeetingsView() {
   // Which row's Process wizard is open. One at a time — it's a modal.
   const [wizardId, setWizardId]   = useState<string | null>(null);
 
+  // Persisted processing state. `procTick` forces a re-read after each wizard
+  // step, so the row's chips update without a full page refresh.
+  const [processing, setProcessing] = useState<Record<string, ProcessingRow>>({});
+  const [stateWarn, setStateWarn]   = useState<string | null>(null);
+  const [procTick, setProcTick]     = useState(0);
+
   // Active NetSuite projects with their Drive folder — loaded once.
   useEffect(() => {
     (async () => {
@@ -149,18 +173,37 @@ export function FirefliesMeetingsView() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Which meetings are already filed. One request for the whole page.
+  // Which meetings are already filed, and what else has been done to them.
+  // Two requests for the whole page, re-run when a wizard step completes.
+  //
+  // Failures are SURFACED, not swallowed: if the backing tables are missing,
+  // every meeting silently reads as unprocessed forever, which is precisely the
+  // confusion this state exists to prevent.
   useEffect(() => {
     if (meetings.length === 0) return;
+    const ids = encodeURIComponent(meetings.map(m => m.id).join(","));
+
     (async () => {
+      const warnings: string[] = [];
       try {
-        const ids = meetings.map(m => m.id).join(",");
-        const res = await fetch(`/api/meeting-docs?ids=${encodeURIComponent(ids)}`);
+        const res  = await fetch(`/api/meeting-docs?ids=${ids}`);
         const data = await res.json();
         if (res.ok) setFiled(data.docs ?? {});
-      } catch { /* absence of this data just means the Create buttons stay available */ }
+        if (data?.warning) warnings.push(data.warning);
+      } catch (e) {
+        warnings.push(`Filed documents could not be read: ${e instanceof Error ? e.message : "unknown error"}`);
+      }
+      try {
+        const res  = await fetch(`/api/meetings/processing?ids=${ids}`);
+        const data = await res.json();
+        if (res.ok) setProcessing(data.processing ?? {});
+        if (data?.warning) warnings.push(data.warning);
+      } catch (e) {
+        warnings.push(`Processing history could not be read: ${e instanceof Error ? e.message : "unknown error"}`);
+      }
+      setStateWarn(warnings.join(" ") || null);
     })();
-  }, [meetings]);
+  }, [meetings, procTick]);
 
   /**
    * Pre-select project and type per row.
@@ -177,6 +220,9 @@ export function FirefliesMeetingsView() {
       const next = { ...prev };
       for (const m of meetings) {
         if (next[m.id]) continue;
+        // What was actually used last time beats a fresh guess.
+        const recorded = processing[m.id]?.project_ns_id;
+        if (recorded) { next[m.id] = String(recorded); continue; }
         const hits = scoreFolders(folderish, {
           title: m.title,
           attendees: m.attendees.map(a => ({ name: a.name, email: a.email })),
@@ -192,12 +238,14 @@ export function FirefliesMeetingsView() {
       const next = { ...prev };
       for (const m of meetings) {
         if (next[m.id]) continue;
+        const recorded = processing[m.id]?.meeting_type ?? filed[m.id]?.meeting_type;
+        if (recorded) { next[m.id] = recorded; continue; }
         const guess = guessMeetingType(m.title);
         if (guess) next[m.id] = guess;
       }
       return next;
     });
-  }, [meetings, projects]);
+  }, [meetings, projects, processing, filed]);
 
   // The wizard owns creating the ClickUp tasks, the Slack post and the Drive doc;
   // the grid only decides which meeting it opens for.
@@ -215,7 +263,7 @@ export function FirefliesMeetingsView() {
     const rows = meetings.filter(m =>
       (orgFilter === "all" || m.organizerEmail === orgFilter) &&
       (!externalOnly || m.external.length > 0) &&
-      (!unfiledOnly || !filed[m.id]) &&
+      (!unfiledOnly || !(isProcessed(processing[m.id]) || filed[m.id])) &&
       (!q || m.title.toLowerCase().includes(q) ||
              m.organizerEmail.includes(q) ||
              m.attendees.some(a => a.name.toLowerCase().includes(q) || a.email.includes(q)) ||
@@ -231,7 +279,7 @@ export function FirefliesMeetingsView() {
         default:          return (a.date ?? "").localeCompare(b.date ?? "") * dir;
       }
     });
-  }, [meetings, orgFilter, search, sort, asc, externalOnly, unfiledOnly, filed]);
+  }, [meetings, orgFilter, search, sort, asc, externalOnly, unfiledOnly, filed, processing]);
 
   const view = useMemo(() => {
     const mins = filtered.reduce((s, m) => s + (m.durationMinutes || 0), 0);
@@ -324,6 +372,13 @@ export function FirefliesMeetingsView() {
           filing step can&apos;t run. Populate <strong>custentity_project_folder</strong> on the NetSuite
           project records with each project&apos;s Drive folder link, then refresh. The action-item and
           Slack steps still work without it.
+        </div>
+      )}
+
+      {stateWarn && (
+        <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: C.yellow, fontSize: 12.5, lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, marginBottom: 3 }}>⚠ Processing history is incomplete</div>
+          {stateWarn}
         </div>
       )}
 
@@ -450,10 +505,10 @@ export function FirefliesMeetingsView() {
                           </span>
                         </td>
                       </tr>,
-                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />),
+                      ...rows.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} proc={processing[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />),
                     ];
                   })
-                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />)}
+                : filtered.map((m, i) => <Row key={m.id} m={m} zebra={i % 2 === 1} onOpen={setOpenId} projects={projects} filed={filed[m.id]} proc={processing[m.id]} projectId={rowProject[m.id] ?? ""} meetingType={rowType[m.id] ?? ""} onProject={v => setRowProj(p => ({ ...p, [m.id]: v }))} onType={v => setRowType(t => ({ ...t, [m.id]: v }))} onProcess={() => setWizardId(m.id)} />)}
             </tbody>
           </table>
         </div>
@@ -467,8 +522,10 @@ export function FirefliesMeetingsView() {
           project={wizardProject}
           meetingType={rowType[wizardId] ?? ""}
           existingDoc={filed[wizardId]}
+          existingProcessing={processing[wizardId]}
           onClose={() => setWizardId(null)}
           onFiled={doc => setFiled(f => ({ ...f, [doc.fireflies_id]: doc }))}
+          onProcessed={() => setProcTick(t => t + 1)}
         />
       )}
     </div>
@@ -476,6 +533,16 @@ export function FirefliesMeetingsView() {
 }
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
+
+function Chip({ bg, fg, bd, title, children }: {
+  bg: string; fg: string; bd: string; title?: string; children: React.ReactNode;
+}) {
+  return (
+    <span title={title} style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, whiteSpace: "nowrap" }}>
+      {children}
+    </span>
+  );
+}
 
 function ExternalCell({ m }: { m: Meeting }) {
   if (m.external.length === 0) {
@@ -504,11 +571,11 @@ function ExternalCell({ m }: { m: Meeting }) {
 }
 
 function Row({
-  m, zebra, onOpen, projects, filed, projectId, meetingType,
+  m, zebra, onOpen, projects, filed, proc, projectId, meetingType,
   onProject, onType, onProcess,
 }: {
   m: Meeting; zebra: boolean; onOpen: (id: string) => void;
-  projects: ProjectOption[]; filed?: FiledDoc;
+  projects: ProjectOption[]; filed?: FiledDoc; proc?: ProcessingRow;
   projectId: string; meetingType: string;
   onProject: (v: string) => void; onType: (v: string) => void;
   onProcess: () => void;
@@ -519,6 +586,13 @@ function Row({
     outline: "none", boxSizing: "border-box", cursor: "pointer",
   };
   const canProcess = !!projectId && !!meetingType;
+
+  // `filed` covers meetings filed before processing state existed; `proc` covers
+  // everything since. Either is enough to call the meeting touched.
+  const tasks   = proc?.clickup_task_count ?? 0;
+  const docUrl  = filed?.doc_url ?? proc?.doc_url ?? null;
+  const docName = filed?.doc_name ?? proc?.doc_name ?? undefined;
+  const done    = isProcessed(proc) || !!filed;
 
   return (
     <tr style={{ background: zebra ? C.alt : C.surface, cursor: "pointer" }} onClick={() => onOpen(m.id)} title="View notes and transcript">
@@ -542,10 +616,9 @@ function Row({
       </td>
       {/* Project — NetSuite active projects that have a Drive folder set */}
       <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
-        {filed ? (
-          <div style={{ fontSize: 11.5, color: C.textMid }}>{filed.project_label ?? "—"}</div>
-        ) : (
-          <select value={projectId} onChange={e => onProject(e.target.value)} style={cellInput} title="Which project's ClickUp list, Slack channel and Drive folder to use">
+        {/* Always editable, even once processed — re-processing needs a project,
+            and hiding the control left rows that could never be re-run. */}
+        <select value={projectId} onChange={e => onProject(e.target.value)} style={cellInput} title="Which project's ClickUp list, Slack channel and Drive folder to use">
             <option value="">Choose project…</option>
             {/* Projects missing a destination are still selectable — the wizard's
                 other steps still work, and it says which one is unavailable. */}
@@ -561,50 +634,63 @@ function Row({
                 </option>
               );
             })}
-          </select>
-        )}
+        </select>
       </td>
 
       {/* Meeting type — becomes the filename prefix */}
       <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
-        {filed ? (
-          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}` }}>
-            {filed.meeting_type}
-          </span>
-        ) : (
-          <select value={meetingType} onChange={e => onType(e.target.value)} style={cellInput} title="Prefixes the document name">
-            <option value="">Choose type…</option>
-            {MEETING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        )}
+        <select value={meetingType} onChange={e => onType(e.target.value)} style={cellInput} title="Prefixes the document name">
+          <option value="">Choose type…</option>
+          {MEETING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
       </td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, fontFamily: C.mono, whiteSpace: "nowrap" }}>{fmtDateTime(m.date)}</td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.text, fontFamily: C.mono, textAlign: "right", whiteSpace: "nowrap" }}>{fmtDuration(m.durationMinutes)}</td>
       <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMid, fontFamily: C.mono, textAlign: "right" }}>{m.attendees.length || "—"}</td>
       {/* Action — link if already filed, otherwise create */}
       <td style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
-        {filed ? (
+        {/* What's already been done, from the database — so this survives a refresh. */}
+        {done && (
+          <div style={{ display: "flex", gap: 3, justifyContent: "flex-end", flexWrap: "wrap", marginBottom: 5 }}>
+            {tasks > 0 && (
+              <Chip bg={C.blueBg} fg={C.blue} bd={C.blueBd}
+                    title={(proc?.clickup_tasks ?? []).map(t => t.name).join("\n") || undefined}>
+                ✓ {tasks} task{tasks === 1 ? "" : "s"}
+              </Chip>
+            )}
+            {proc?.slack_channel && (
+              <Chip bg={C.purpleBg} fg={C.purple} bd={C.purpleBd} title={`Posted to ${proc.slack_channel}`}>✓ Slack</Chip>
+            )}
+            {docUrl && <Chip bg={C.greenBg} fg={C.green} bd={C.greenBd} title={docName}>✓ Doc</Chip>}
+          </div>
+        )}
+
+        {docUrl && (
           <a
-            href={filed.doc_url}
+            href={docUrl}
             target="_blank"
             rel="noopener noreferrer"
-            title={filed.doc_name}
-            style={{ display: "inline-block", padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, textDecoration: "none", background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` }}
+            title={docName}
+            style={{ display: "inline-block", padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, textDecoration: "none", background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}`, marginBottom: 4 }}
           >
             ↗ Transcript
           </a>
-        ) : (
+        )}
+
+        <div>
           <button
             onClick={onProcess}
             disabled={!canProcess}
             title={canProcess
-              ? "Review action items, post a summary to Slack and file the transcript"
+              ? (done
+                  ? "Run the remaining steps, or repeat one. Already-filed documents are not duplicated."
+                  : "Review action items, post a summary to Slack and file the transcript")
               : "Choose a project and meeting type first"}
-            style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: canProcess ? "pointer" : "not-allowed", background: canProcess ? C.blue : C.alt, color: canProcess ? "#fff" : C.mid, border: `1px solid ${canProcess ? C.blue : C.border}`, fontFamily: C.font }}
+            style={{ padding: "4px 11px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: canProcess ? "pointer" : "not-allowed", background: canProcess ? (done ? C.surface : C.blue) : C.alt, color: canProcess ? (done ? C.textMid : "#fff") : C.mid, border: `1px solid ${canProcess ? (done ? C.border : C.blue) : C.border}`, fontFamily: C.font }}
           >
-            Process
+            {done ? "Re-process" : "Process"}
           </button>
-        )}
+        </div>
       </td>
     </tr>
   );

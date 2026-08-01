@@ -11,6 +11,7 @@ import {
   PHASE_FIELD_NAME,
   type PhaseFieldTarget,
 } from "@/lib/clickup";
+import { recordProcessingStep } from "@/lib/meeting-processing";
 
 export const revalidate = 0;
 export const maxDuration = 60;
@@ -142,13 +143,31 @@ export async function POST(req: NextRequest) {
       ].filter(Boolean).join(" ");
     }
 
+    // Record what happened, so a refresh doesn't show this meeting as untouched.
+    const recordWarning = created.length > 0
+      ? await recordProcessingStep({
+          firefliesId:  String(body?.firefliesId ?? ""),
+          meetingTitle: body?.meetingTitle ?? null,
+          meetingDate:  body?.meetingDate ?? null,
+          meetingType:  body?.meetingType ?? null,
+          projectNsId:  body?.projectNsId ? String(body.projectNsId) : null,
+          projectLabel: body?.projectLabel ?? null,
+          processedBy:  session.user.name ?? session.user.email ?? null,
+        }, {
+          clickup_list_id:    listId,
+          clickup_task_count: created.length,
+          clickup_tasks:      created,
+          clickup_at:         new Date().toISOString(),
+        })
+      : null;
+
     return NextResponse.json({
       created,
       failed,
       listId,
       phaseApplied: !!phase,
       phaseCorrected: phase ? created.length - phaseWrong.length : 0,
-      warning: phaseWarning,
+      warning: [phaseWarning, recordWarning].filter(Boolean).join(" ") || null,
     });
   } catch (err) {
     console.error("[/api/clickup/action-items]", err);
