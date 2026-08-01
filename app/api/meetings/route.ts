@@ -37,8 +37,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "`from` is after `to`." }, { status: 400 });
   }
 
+  // The picker means LOCAL dates, but Zoom's report range and every start_time it
+  // returns are UTC. Without the browser's offset, an account behind UTC loses its
+  // afternoon meetings off the end of the range. Defaults to 0 (treat as UTC) when
+  // the caller doesn't say.
+  const tzOffsetMin = Number(sp.get("tzOffset") ?? "0");
+  const tzOffset    = Number.isFinite(tzOffsetMin) && Math.abs(tzOffsetMin) <= 900 ? tzOffsetMin : 0;
+
+  const dayMs      = 86_400_000;
+  const localStart = Date.parse(`${sp.get("from") ?? DEFAULT_FROM}T00:00:00Z`) + tzOffset * 60_000;
+  const localEnd   = Date.parse(`${sp.get("to") ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`) + tzOffset * 60_000 + dayMs - 1;
+
   try {
-    const { meetings, hosts, warnings } = await fetchPastMeetings(from, to);
+    // fetchPastMeetings pads the Zoom query a day either side so boundary meetings
+    // are actually retrieved; trim back to the caller's local window here.
+    const { meetings: fetched, hosts, warnings } = await fetchPastMeetings(from, to);
+
+    const meetings = Number.isFinite(localStart) && Number.isFinite(localEnd)
+      ? fetched.filter(m => {
+          const t = Date.parse(m.startTime);
+          return !Number.isFinite(t) || (t >= localStart && t <= localEnd);
+        })
+      : fetched;
 
     const totalMinutes = meetings.reduce((s, m) => s + (m.durationMinutes || 0), 0);
     const participants = meetings.reduce((s, m) => s + (m.participantCount || 0), 0);

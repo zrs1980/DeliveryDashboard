@@ -292,8 +292,19 @@ export interface FetchMeetingsResult {
  * Business plan, whereas the report endpoint works on Pro.
  */
 export async function fetchPastMeetings(from: Date, to: Date): Promise<FetchMeetingsResult> {
-  const hosts  = await listZoomUsers();
-  const chunks = monthChunks(from, to);
+  const hosts = await listZoomUsers();
+
+  // Zoom interprets report from/to as GMT dates, while the caller means LOCAL dates.
+  // For an account behind UTC (e.g. America/Los_Angeles) an afternoon meeting is
+  // already "tomorrow" in GMT, so it falls outside to=<local today> and silently
+  // disappears until the local date rolls over. Ahead-of-UTC accounts have the
+  // mirror-image problem on `from`. Pad a day either side and let the uuid dedupe
+  // handle the overlap — over-including an edge meeting is far better than hiding
+  // one the user just held.
+  const paddedFrom = new Date(from); paddedFrom.setDate(paddedFrom.getDate() - 1);
+  const paddedTo   = new Date(to);   paddedTo.setDate(paddedTo.getDate() + 1);
+
+  const chunks = monthChunks(paddedFrom, paddedTo);
   const warnings: string[] = [];
 
   const jobs = hosts.flatMap(h => chunks.map(c => ({ host: h, ...c })));

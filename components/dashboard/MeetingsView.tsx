@@ -101,7 +101,10 @@ export function MeetingsView() {
   const load = useCallback(async () => {
     setLoading(true); setError(null); setNS(false);
     try {
-      const res  = await fetch(`/api/meetings?from=${from}&to=${to}`);
+      // Zoom's report range is GMT; send the browser offset so the server can trim
+      // to the local dates actually chosen in the picker.
+      const tzOffset = new Date().getTimezoneOffset();
+      const res  = await fetch(`/api/meetings?from=${from}&to=${to}&tzOffset=${tzOffset}`);
       const data = await res.json();
       if (!res.ok) {
         setNS(!!data.needsSetup);
@@ -255,8 +258,13 @@ export function MeetingsView() {
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: C.text }}>Meetings</h2>
           <p style={{ margin: "3px 0 0", fontSize: 12.5, color: C.textSub }}>
-            Past Zoom meetings hosted by the Loop Services account
+            Past Zoom meetings <strong>hosted by</strong> the Loop Services account
             {updatedAt && <> · updated {new Date(updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}</>}
+          </p>
+          <p style={{ margin: "4px 0 0", fontSize: 11, color: C.textSub, lineHeight: 1.5, maxWidth: 620 }}>
+            A meeting can be missing for two reasons Zoom controls: it was <strong>hosted by someone
+            outside the account</strong> (Zoom only reports meetings by host), or Zoom hasn&apos;t finished
+            processing it — very recent meetings can take a few minutes to appear.
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
