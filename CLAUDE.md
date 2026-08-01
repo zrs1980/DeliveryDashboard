@@ -983,6 +983,35 @@ Filename: **`<Meeting Type> - <Meeting name> - <YYYY-MM-DD>`**. `MEETING_TYPES` 
 
 ---
 
+## Module: PM tab project drill-down
+
+Drilling into a project in the PM tab shows a summary band and four tabs. The band and tabs render **only when a NetSuite-backed project is in focus** (`reportProject`) — ClickUp tasks, the NS task table and meeting history are all per-project and have nothing to show for "All Projects" or a native project with no `ns_project_id`. Those fall through to the phases view exactly as before.
+
+```
+/components/dashboard/ProjectSummaryHeader.tsx  → health, progress vs burn, hours, SPI, gap, go-live, links
+/components/dashboard/ProjectClickUpTasks.tsx   → ClickUp tasks, grouped
+/components/dashboard/ProjectMeetings.tsx       → meetings filed against the project
+/app/api/pm/meetings/route.ts                   → GET ?projectNsId=
+```
+
+| Tab | Source |
+|---|---|
+| 🗂️ Phases & PM Tasks | `ProjectManagementView` — native `pm_phases` / `pm_tasks` (unchanged) |
+| ✅ ClickUp Tasks | `project.tasks` — already on the `Project` object, **no new request** |
+| ☰ Project Tasks | `ProjectTaskPanel`, the same component Portfolio Overview uses |
+| 🪰 Meetings | `meeting_processing` + `meeting_docs`, by `project_ns_id` |
+
+### Gotchas
+
+- **The ClickUp tab needs no API.** `/api/projects` already fans out to ClickUp per project, so `project.tasks` / `blocked` / `clientPending` / `milestones` are in memory. Adding a fetch here would duplicate that work on every tab switch.
+- **`ProjectTaskPanel` is reused, not reimplemented.** It takes only `projectId` and owns its own fetching, so the same NetSuite phase/hours table renders in both places and can't drift between them.
+- **The meetings list is deliberately "processed only".** It reads what the Process wizard recorded, not a live Fireflies match — matching unprocessed meetings to a project is a guess, and a wrong row here reads as fact. The empty state says so rather than implying the project had no calls.
+- **`/api/pm/meetings` reads both tables and merges on `fireflies_id`.** `meeting_docs` alone would miss meetings that were processed but never filed; `meeting_processing` alone would miss anything filed before that table existed. A field present on the doc row is never blanked by a null on the processing row.
+- **Summary thresholds are copied from the portfolio table** (SPI ≥ 1 / ≥ 0.85, gap > 15% / > 5%). If those change, change both — a project must not look healthier in one view than the other.
+- The header surfaces `timebillWarning`, a missing go-live date and `clickupError` inline. These already existed on the `Project` object but were only visible on the portfolio table, so a PM working in this tab never saw them.
+
+---
+
 ## Module: Process meeting (Fireflies → ClickUp → Slack → Drive)
 
 The Fireflies grid's row button is **Process**, not Create. It opens a four-step wizard; every step can be skipped independently, and each writes to a different per-project destination read off the NetSuite job.

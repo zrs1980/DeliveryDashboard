@@ -4,6 +4,10 @@ import { C, PMS } from "@/lib/constants";
 import type { Project } from "@/lib/types";
 import { ProjectManagementView } from "./ProjectManagementView";
 import { StatusReportWizard } from "./StatusReportWizard";
+import { ProjectSummaryHeader } from "./ProjectSummaryHeader";
+import { ProjectClickUpTasks } from "./ProjectClickUpTasks";
+import { ProjectMeetings } from "./ProjectMeetings";
+import { ProjectTaskPanel } from "./ProjectTaskPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -562,10 +566,26 @@ function PMHomeScreen({
 
 type Screen = "home" | "tasks";
 
+/**
+ * Drill-down tabs. Only shown once a single NetSuite-backed project is in focus —
+ * ClickUp tasks, the NetSuite task table and the meeting history are all
+ * per-project, so they have nothing to render for "All Projects" or for a native
+ * project with no NS link.
+ */
+type DetailTab = "phases" | "clickup" | "nstasks" | "meetings";
+
+const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
+  { id: "phases",   label: "🗂️ Phases & PM Tasks" },
+  { id: "clickup",  label: "✅ ClickUp Tasks" },
+  { id: "nstasks",  label: "☰ Project Tasks" },
+  { id: "meetings", label: "🪰 Meetings" },
+];
+
 interface PMViewProps { projects: Project[] }
 
 export function PMView({ projects }: PMViewProps) {
   const [screen, setScreen]               = useState<Screen>("home");
+  const [detailTab, setDetailTab]         = useState<DetailTab>("phases");
   const [focusProjectId, setFocusNS]      = useState<number | null>(null);
   const [focusNativeId, setFocusNative]   = useState<string | null>(null);
   const [nativeProjects, setNativeProjects] = useState<PMProject[]>([]);
@@ -581,7 +601,7 @@ export function PMView({ projects }: PMViewProps) {
       .finally(() => setLoadingNative(false));
   }, []);
 
-  function goHome() { setScreen("home"); setFocusNS(null); setFocusNative(null); }
+  function goHome() { setScreen("home"); setFocusNS(null); setFocusNative(null); setDetailTab("phases"); }
 
   // Determine which projects to show in the task view
   const taskProjects = (() => {
@@ -664,14 +684,40 @@ export function PMView({ projects }: PMViewProps) {
           nsProjects={activeNSProjects}
           nativeProjects={nativeProjects}
           loadingNative={loadingNative}
-          onOpenProject={id => { setFocusNS(id); setFocusNative(null); setScreen("tasks"); }}
-          onOpenNativeProject={id => { setFocusNative(id); setFocusNS(null); setScreen("tasks"); }}
+          onOpenProject={id => { setFocusNS(id); setFocusNative(null); setDetailTab("phases"); setScreen("tasks"); }}
+          onOpenNativeProject={id => { setFocusNative(id); setFocusNS(null); setDetailTab("phases"); setScreen("tasks"); }}
           onProjectCreated={p => setNativeProjects(prev => [{ ...p, phase_count: 5, task_count: 0, done_count: 0 }, ...prev])}
         />
       )}
 
+      {/* ── Project summary + drill-down tabs ── */}
+      {screen === "tasks" && reportProject && (
+        <>
+          <ProjectSummaryHeader project={reportProject} />
+          <div style={{ display: "flex", gap: 2, marginBottom: 16, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+            {DETAIL_TABS.map(t => {
+              const active = detailTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setDetailTab(t.id)}
+                  style={{
+                    padding: "8px 15px", fontSize: 12.5, fontWeight: active ? 700 : 600,
+                    cursor: "pointer", background: "none", border: "none", fontFamily: C.font,
+                    color: active ? C.blue : C.textSub,
+                    borderBottom: `2px solid ${active ? C.blue : "transparent"}`, marginBottom: -1,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* ── Task management view ── */}
-      {screen === "tasks" && (
+      {screen === "tasks" && (!reportProject || detailTab === "phases") && (
         <NativeTasksOrFallback
           allNSProjects={activeNSProjects}
           focusNativeId={focusNativeId}
@@ -679,6 +725,18 @@ export function PMView({ projects }: PMViewProps) {
           taskProjects={taskProjects}
           nativePhasesOverride={nativePhasesOverride}
         />
+      )}
+
+      {screen === "tasks" && reportProject && detailTab === "clickup" && (
+        <ProjectClickUpTasks project={reportProject} />
+      )}
+
+      {screen === "tasks" && reportProject && detailTab === "nstasks" && (
+        <ProjectTaskPanel projectId={reportProject.id} />
+      )}
+
+      {screen === "tasks" && reportProject && detailTab === "meetings" && (
+        <ProjectMeetings projectNsId={reportProject.id} projectLabel={reportProject.label} />
       )}
     </div>
   );
