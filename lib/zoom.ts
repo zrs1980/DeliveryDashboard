@@ -592,6 +592,50 @@ export function normalizeSections(details: ZoomSummaryResponse["summary_details"
     .filter(d => d.summary || d.label);
 }
 
+export interface PastMeetingInfo {
+  uuid:              string;
+  meetingId:         number;
+  topic:             string;
+  startTime:         string;
+  endTime:           string;
+  durationMinutes:   number;
+  participantsCount: number;
+  source:            string;
+  /** Zoom's own flag — authoritative on whether an AI Companion summary exists. */
+  hasMeetingSummary: boolean;
+}
+
+/**
+ * Details for a past meeting instance.
+ *
+ * `/past_meetings/{uuid}` is the endpoint that reliably resolves a past instance —
+ * `/meetings/{numericId}` resolves the *scheduled* meeting instead and returns a
+ * different UUID for the next occurrence, which is a good way to end up reading the
+ * wrong meeting entirely.
+ */
+export async function fetchPastMeetingInfo(uuid: string): Promise<PastMeetingInfo | null> {
+  interface Raw {
+    uuid?: string; id?: number; topic?: string; start_time?: string; end_time?: string;
+    duration?: number; participants_count?: number; source?: string; has_meeting_summary?: boolean;
+  }
+  try {
+    const r = await zoomGetByMeeting<Raw>(e => `/past_meetings/${e}`, uuid);
+    return {
+      uuid:              r.uuid ?? uuid,
+      meetingId:         r.id ?? 0,
+      topic:             r.topic ?? "",
+      startTime:         r.start_time ?? "",
+      endTime:           r.end_time ?? "",
+      durationMinutes:   r.duration ?? 0,
+      participantsCount: r.participants_count ?? 0,
+      source:            r.source ?? "",
+      hasMeetingSummary: r.has_meeting_summary === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface SummaryListEntry {
   meetingUuid: string;
   meetingId:   number;
@@ -647,15 +691,18 @@ export async function fetchMeetingSummary(uuid: string): Promise<MeetingSummary>
     raw = await zoomGetByMeeting<ZoomSummaryResponse>(e => `/meetings/${e}/meeting_summary`, uuid);
   } catch (e) {
     if (e instanceof ZoomError && (e.status === 404 || e.code === 3001)) {
-      // 404 here is ambiguous: no summary for this meeting, OR Zoom couldn't resolve
-      // the meeting at all. Say so rather than asserting "no notes exist" — that
-      // wording sent a real addressing bug looking like a Zoom settings problem.
-      return {
-        available: false,
-        reason:
-          "Zoom returned no summary for this meeting (404). That usually means AI Companion's Meeting Summary wasn't on for it — but it is also what Zoom returns when it can't resolve the meeting, so if you can see notes for this meeting in the Zoom portal, run /api/debug/zoom-meeting?uuid=… to see the raw lookup.",
-        sections: [], nextSteps: [], edited: false,
-      };
+      // Zoom returns 3001 "Meeting does not exist" both when the meeting can't be
+      // resolved AND when it simply has no summary. Ask /past_meetings, which carries
+      // an explicit has_meeting_summary flag, so the reason we show is the true one
+      // rather than a guess. Confirmed against a real meeting where the summary
+      // endpoint 3001'd while /past_meetings resolved fine with the flag false.
+      const info = await fetchPastMeetingInfo(uuid);
+      const reason = !info
+        ? "Zoom could not resolve this meeting instance at all. Run /api/debug/zoom-meeting?uuid=… for the raw lookup."
+        : info.hasMeetingSummary
+          ? "Zoom reports this meeting HAS a summary but wouldn't return it — likely a scope problem. The account needs meeting:read:summary:admin."
+          : "Zoom reports no AI Companion summary for this meeting (has_meeting_summary = false). It's only generated when AI Companion's Meeting Summary ran during the meeting, and can't be added afterwards. Any notes you can see in the Zoom portal for this meeting are Zoom Notes, which is a separate feature.";
+      return { available: false, reason, sections: [], nextSteps: [], edited: false };
     }
     throw e;
   }

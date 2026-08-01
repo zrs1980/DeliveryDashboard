@@ -113,6 +113,32 @@ export async function GET(req: NextRequest) {
       out.hostRecordings = { path: `/users/${hostId}/recordings`, ...(await probe(`/users/${encodeURIComponent(hostId)}/recordings?from=${from}&to=${to}&page_size=30`)) };
     }
 
+    // ── 2c. Zoom Notes / Docs surface ──
+    // The token carries my_notes:read:{note,content,notes_transcript}:admin and
+    // docs:read:*, and /past_meetings reported has_meeting_summary:false — so what's
+    // visible in the portal is Notes, not an AI Companion summary. Zoom's Notes API
+    // paths aren't something to guess at: probe candidates and let 200 vs 2300
+    // ("endpoint not recognized") identify the real one.
+    const notesProbes: Array<[string, string]> = [
+      ["notes__list",              `/notes`],
+      ["notes__list_paged",        `/notes?page_size=30`],
+      ["notes__user_scoped",       `/users/${encodeURIComponent(hostId)}/notes`],
+      ["notes__me",                `/users/me/notes`],
+      ["docs__list",               `/docs`],
+      ["docs__files",              `/docs/files`],
+      ["meeting_notes__by_uuid",   `/meetings/${candidates[0]}/notes`],
+      ["past_meeting_notes",       `/past_meetings/${candidates[0]}/notes`],
+      ["meeting_summary_by_uuid2", `/meetings/${candidates[0]}/summary`],
+    ];
+    const notesAttempts: Record<string, unknown> = {};
+    for (const [label, path] of notesProbes) {
+      notesAttempts[label] = { path, ...(await probe(path)) };
+    }
+    out.notesProbes = {
+      note: "200 = endpoint exists. code 2300 = path doesn't exist on this account. 4711/401 = scope issue.",
+      attempts: notesAttempts,
+    };
+
     // ── 3. What scopes does the token actually carry? ──
     // Settles "is the scope missing" vs "the address is wrong" without ambiguity.
     out.tokenScopes = await (async () => {
@@ -123,12 +149,14 @@ export async function GET(req: NextRequest) {
       });
       const b = await res.json().catch(() => ({}));
       const scopes: string[] = typeof b.scope === "string" ? b.scope.split(/\s+/).filter(Boolean) : [];
+      // `all` is several hundred entries on this account and drowns the output —
+      // report only the families that matter here, plus a count.
       return {
         status: res.status,
-        all: scopes.sort(),
-        summaryRelated:   scopes.filter(s => /summary/i.test(s)),
-        recordingRelated: scopes.filter(s => /recording/i.test(s)),
-        reportRelated:    scopes.filter(s => /report/i.test(s)),
+        total: scopes.length,
+        notes:      scopes.filter(s => /my_notes|docs:/i.test(s)).sort(),
+        summary:    scopes.filter(s => /summary/i.test(s)).sort(),
+        transcript: scopes.filter(s => /transcript/i.test(s)).sort(),
       };
     })();
 
