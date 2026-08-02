@@ -34,9 +34,41 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-/** The flag filters. Independent toggles, ANDed — "blocked AND client" is a real question. */
-interface Flags { blocked: boolean; client: boolean; milestone: boolean; overdue: boolean }
-const NO_FLAGS: Flags = { blocked: false, client: false, milestone: false, overdue: false };
+type TabId = "all" | "overdue" | "this_week" | "next_week" | "upcoming" | "milestones" | "blocked" | "client";
+
+/**
+ * Same tabs as the Task Command Center, plus "All".
+ *
+ * All exists because the due-date tabs between them do NOT cover everything:
+ * a task with no due date buckets to `no_date` and would otherwise appear in no
+ * tab at all unless it happened to be a milestone, blocked or client-pending.
+ * That's a live gap in the Task Command Center; at project level, where plenty
+ * of tasks are undated, silently hiding them would be worse.
+ */
+const TAB_DEFS: Array<{ id: TabId; label: string; icon: string }> = [
+  { id: "all",        label: "All",        icon: "☰" },
+  { id: "overdue",    label: "Overdue",    icon: "🔴" },
+  { id: "this_week",  label: "This Week",  icon: "📅" },
+  { id: "next_week",  label: "Next Week",  icon: "📆" },
+  { id: "upcoming",   label: "Upcoming",   icon: "🗓" },
+  { id: "milestones", label: "Milestones", icon: "★" },
+  { id: "blocked",    label: "Blocked",    icon: "⚠" },
+  { id: "client",     label: "Client",     icon: "🤝" },
+];
+
+/** Mirrors TaskCommandCenter's filterForTab so the two views agree on what a tab means. */
+function filterForTab(rows: CUTask[], tab: TabId): CUTask[] {
+  switch (tab) {
+    case "all":        return rows;
+    case "overdue":    return rows.filter(t => taskBucket(t) === "overdue"   && !isDone(t));
+    case "this_week":  return rows.filter(t => taskBucket(t) === "this_week" && !isDone(t));
+    case "next_week":  return rows.filter(t => taskBucket(t) === "next_week" && !isDone(t));
+    case "upcoming":   return rows.filter(t => taskBucket(t) === "upcoming"  && !isDone(t));
+    case "milestones": return rows.filter(isMilestone);
+    case "blocked":    return rows.filter(isBlocked);
+    case "client":     return rows.filter(t => isClientPending(t) && !isDone(t));
+  }
+}
 
 export function ProjectClickUpTasks({ project }: { project: Project }) {
   const [search, setSearch]     = useState("");
@@ -44,8 +76,7 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
   const [groupBy, setGroupBy]   = useState<GroupBy>("due");
   const [status, setStatus]     = useState("all");
   const [assignee, setAssignee] = useState("all");
-  const [bucket, setBucket]     = useState<"all" | Bucket>("all");
-  const [flags, setFlags]       = useState<Flags>(NO_FLAGS);
+  const [tab, setTab]           = useState<TabId>("all");
 
   const tasks = project.tasks ?? [];
 
@@ -75,7 +106,10 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
     overdue:   tasks.filter(isOverdueTask).length,
   }), [tasks]);
 
-  const filtered = useMemo(() => {
+  // Everything except the tab. Tab counts are derived from this, so they stay
+  // honest under a search or an assignee filter instead of advertising rows the
+  // tab would not actually show.
+  const base = useMemo(() => {
     const q = search.toLowerCase().trim();
     return tasks.filter(t => {
       if (openOnly && isDone(t)) return false;
@@ -86,11 +120,6 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
           : t.assignees.some(a => a.username === assignee);
         if (!match) return false;
       }
-      if (bucket !== "all" && taskBucket(t) !== bucket) return false;
-      if (flags.blocked   && !isBlocked(t)) return false;
-      if (flags.client    && !(isClientPending(t) && !isDone(t))) return false;
-      if (flags.milestone && !isMilestone(t)) return false;
-      if (flags.overdue   && !isOverdueTask(t)) return false;
       if (q && !(
         t.name.toLowerCase().includes(q) ||
         t.status.status.toLowerCase().includes(q) ||
@@ -98,14 +127,20 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
       )) return false;
       return true;
     });
-  }, [tasks, search, openOnly, status, assignee, bucket, flags]);
+  }, [tasks, search, openOnly, status, assignee]);
 
-  const anyFilter = !openOnly || !!search || status !== "all" || assignee !== "all" ||
-    bucket !== "all" || Object.values(flags).some(Boolean);
+  const tabCounts = useMemo(() => {
+    const out = {} as Record<TabId, number>;
+    for (const t of TAB_DEFS) out[t.id] = filterForTab(base, t.id).length;
+    return out;
+  }, [base]);
+
+  const filtered = useMemo(() => filterForTab(base, tab), [base, tab]);
+
+  const anyFilter = !openOnly || !!search || status !== "all" || assignee !== "all" || tab !== "all";
 
   const clearAll = () => {
-    setSearch(""); setOpen(true); setStatus("all"); setAssignee("all");
-    setBucket("all"); setFlags(NO_FLAGS);
+    setSearch(""); setOpen(true); setStatus("all"); setAssignee("all"); setTab("all");
   };
 
   const groups = useMemo(() => {
@@ -200,49 +235,51 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
             <option key={a} value={a}>{a === "__unassigned" ? "Unassigned" : a} ({n})</option>
           ))}
         </select>
-        <select value={bucket} onChange={e => setBucket(e.target.value as "all" | Bucket)} style={{ ...inputStyle, cursor: "pointer" }}>
-          <option value="all">Any due date</option>
-          {BUCKET_ORDER.map(b => <option key={b} value={b}>{BUCKET_LABEL[b]}</option>)}
-        </select>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={() => setOpen(v => !v)}
           style={{ ...inputStyle, cursor: "pointer", fontWeight: 600, color: openOnly ? C.blue : C.textMid, borderColor: openOnly ? C.blueBd : C.border, background: openOnly ? C.blueBg : C.surface }}
         >
           {openOnly ? "Open only" : "All tasks"}
         </button>
-
-        <FlagBtn on={flags.blocked}   fg={C.red}    bg={C.redBg}    bd={C.redBd}
-                 onClick={() => setFlags(f => ({ ...f, blocked: !f.blocked }))}>⚠ Blocked</FlagBtn>
-        <FlagBtn on={flags.client}    fg={C.orange} bg={C.orangeBg} bd={C.orangeBd}
-                 onClick={() => setFlags(f => ({ ...f, client: !f.client }))}>👤 Client</FlagBtn>
-        <FlagBtn on={flags.milestone} fg={C.purple} bg={C.purpleBg} bd={C.purpleBd}
-                 onClick={() => setFlags(f => ({ ...f, milestone: !f.milestone }))}>★ Milestone</FlagBtn>
-        <FlagBtn on={flags.overdue}   fg={C.red}    bg={C.redBg}    bd={C.redBd}
-                 onClick={() => setFlags(f => ({ ...f, overdue: !f.overdue }))}>Overdue</FlagBtn>
-
         <select value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} style={{ ...inputStyle, cursor: "pointer" }}>
           <option value="due">Group by due date</option>
           <option value="status">Group by status</option>
           <option value="assignee">Group by assignee</option>
         </select>
-
         {anyFilter && (
           <button onClick={clearAll} style={{ ...inputStyle, cursor: "pointer", color: C.textSub }}>Clear filters</button>
         )}
-
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
-          {filtered.length} of {tasks.length}
-        </span>
         {project.clickupUrl && (
           <a href={project.clickupUrl} target="_blank" rel="noopener noreferrer"
              style={{ ...inputStyle, textDecoration: "none", fontWeight: 700, color: C.blue, background: C.blueBg, borderColor: C.blueBd }}>
             ↗ ClickUp
           </a>
         )}
+      </div>
+
+      {/* Tabs — same set and semantics as the Task Command Center */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${C.border}`, marginBottom: 12, overflowX: "auto" }}>
+        {TAB_DEFS.map(t => {
+          const count   = tabCounts[t.id];
+          const active  = tab === t.id;
+          const isAlert = t.id === "overdue" || t.id === "blocked";
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                padding: "8px 14px", fontSize: 13, fontWeight: active ? 700 : 600,
+                fontFamily: C.font, background: "none", border: "none",
+                borderBottom: active ? `2px solid ${C.blue}` : "2px solid transparent",
+                color: active ? C.blue : (isAlert && count > 0 ? C.red : C.textMid),
+                cursor: "pointer", marginBottom: -2, whiteSpace: "nowrap", flexShrink: 0,
+                opacity: count === 0 && !active ? 0.5 : 1,
+              }}
+            >
+              {t.icon} {t.label} ({count})
+            </button>
+          );
+        })}
       </div>
 
       {filtered.length === 0 ? (
@@ -312,28 +349,7 @@ export function ProjectClickUpTasks({ project }: { project: Project }) {
   );
 }
 
-/** A filter toggle that adopts its own flag's colour when active, so the bar reads at a glance. */
-function FlagBtn({ on, fg, bg, bd, onClick, children }: {
-  on: boolean; fg: string; bg: string; bd: string; onClick: () => void; children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={on}
-      style={{
-        padding: "7px 11px", borderRadius: 8, fontSize: 12, fontWeight: on ? 700 : 600,
-        cursor: "pointer", fontFamily: C.font, whiteSpace: "nowrap",
-        background: on ? bg : C.surface,
-        color:      on ? fg : C.textMid,
-        border: `1px solid ${on ? bd : C.border}`,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-const Tag = ({ bg, fg, bd, children }: { bg: string; fg: string; bd: string; children: React.ReactNode }) => (
+const Tag =({ bg, fg, bd, children }: { bg: string; fg: string; bd: string; children: React.ReactNode }) => (
   <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, whiteSpace: "nowrap" }}>
     {children}
   </span>
