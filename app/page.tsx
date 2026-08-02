@@ -51,14 +51,15 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
   { id: "calendar",   label: "Calendar",    icon: "📅" },
-  { id: "meetings",   label: "Meetings",    icon: "🎥" },
+  // "meetings" (Zoom) and "utilization" are intentionally absent from the nav.
+  // Their Tab ids, routes and views are left in place so restoring either is a
+  // one-line change here.
   { id: "fireflies",  label: "Fireflies Meetings", icon: "🪰" },
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
   { id: "service-requests", label: "Service Requests", icon: "💼" },
   { id: "employee",         label: "My Leave",         icon: "🌴" },
   { id: "customers",        label: "Customers",        icon: "🏢" },
   { id: "projectMgmt",      label: "PM",               icon: "📋" },
-  { id: "utilization",      label: "Utilization",      icon: "📈" },
   { id: "mgr-pto",          label: "Manager PTO",      icon: "🗓️" },
 ];
 
@@ -391,7 +392,6 @@ export default function DashboardPage() {
         <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, padding: "6px 0" }}>
           {TABS.filter(t => {
             const email = session?.user?.email?.toLowerCase() ?? "";
-            if (t.id === "utilization") return email === "zabe@cebasolutions.com";
             if (t.id === "mgr-pto") return ["zabe@cebasolutions.com", "rodrigo@cebasolutions.com"].includes(email);
             return true;
           }).map(t => {
