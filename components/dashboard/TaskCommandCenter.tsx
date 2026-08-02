@@ -495,8 +495,11 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             style={selectStyle}
           >
             <option value="">All Projects</option>
+            {/* `label` is already "Customer — Project Name". Showing the client
+                alone made the several projects a customer can have at once
+                indistinguishable in this list. */}
             {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.client}</option>
+              <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </select>
         </div>
