@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
@@ -404,6 +404,17 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
+
+  // Dropdown order only — a copy, because `projects` drives the rest of this view
+  // (and its parent) in go-live order, which the grouped task lists rely on.
+  // Client first, then project, so a customer's projects sit together and in a
+  // stable order rather than however NetSuite returned them.
+  const projectOptions = useMemo(
+    () => [...projects].sort((a, b) =>
+      a.client.localeCompare(b.client, undefined, { sensitivity: "base" }) ||
+      a.projectName.localeCompare(b.projectName, undefined, { sensitivity: "base" })),
+    [projects],
+  );
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
   const [myWork, setMyWork]                   = useState<boolean>(false);
@@ -498,7 +509,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             {/* `label` is already "Customer — Project Name". Showing the client
                 alone made the several projects a customer can have at once
                 indistinguishable in this list. */}
-            {projects.map(p => (
+            {projectOptions.map(p => (
               <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </select>
