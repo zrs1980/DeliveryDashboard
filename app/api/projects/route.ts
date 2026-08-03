@@ -129,7 +129,9 @@ export async function GET() {
           .sort((a, b) => parseFloat(b.total_hours) - parseFloat(a.total_hours))[0];
         const pm = pmEntry ? PMS[parseInt(pmEntry.employee)] : "—";
 
-        // Timebill integrity warning
+        // Timebill integrity warning. timebillByProject is actual time only
+        // (timetype='A') — allocated time is a forecast, not work done, and
+        // counting it here made this fire on almost every project.
         const timebillTotal = timebillByProject[id] ?? 0;
         const consumed = budget_hours - remaining;
         const timebillWarning = timebillTotal > consumed + 20;

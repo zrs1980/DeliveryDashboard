@@ -348,6 +348,16 @@ export async function fetchProjectHours(projectId: number) {
   return rows[0] ?? null;
 }
 
+// Worked hours per employee per project.
+//
+// timetype='A' (actual) ONLY — allocated time must not be counted as work done.
+// Without this filter the sums were roughly 2–5x too high on most projects: an
+// unfiltered query returned 784h for Oxide against 313h actually logged, the
+// rest being 'B' (allocated) rows. That drove a false "remaining hours look out
+// of date" warning on 7 of 11 active projects. With the filter, logged actual
+// hours match NetSuite's own consumed figure exactly on every active project.
+//
+// Same rule as fetchBillableHours; 'P' (planned) is excluded for the same reason.
 export async function fetchTimebillHours(projectIds: number[]) {
   if (projectIds.length === 0) return [];
   const placeholders = projectIds.map(() => "?").join(", ");
@@ -355,6 +365,7 @@ export async function fetchTimebillHours(projectIds: number[]) {
     SELECT tb.employee, tb.customer AS project_id, SUM(tb.hours) AS total_hours
     FROM timebill tb
     WHERE tb.customer IN (${placeholders})
+      AND tb.timetype = 'A'
     GROUP BY tb.customer, tb.employee
     ORDER BY tb.customer, total_hours DESC
   `, projectIds);
