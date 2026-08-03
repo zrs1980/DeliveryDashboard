@@ -1,33 +1,63 @@
--- ─── Filed meeting transcripts ────────────────────────────────────────────────
--- Run in Supabase SQL Editor.
+-- ─── RETIRED — do not run ─────────────────────────────────────────────────────
 --
--- Records which Fireflies meetings have already been filed to Google Drive, so the
--- grid can show a link instead of offering to create a duplicate. Drive itself
--- can't answer "has this meeting been filed?" without a per-row search, and the
--- filename alone is not a reliable key.
-
-CREATE TABLE IF NOT EXISTS meeting_docs (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Fireflies transcript id — the natural key for a meeting.
-  fireflies_id      text NOT NULL UNIQUE,
-
-  meeting_title     text,
-  meeting_date      timestamptz,
-  meeting_type      text NOT NULL,        -- e.g. "Project Management", "UAT"
-
-  project_ns_id     text,                 -- NetSuite job.id the doc was filed against
-  project_label     text,                 -- "Client — Project" at time of filing
-
-  drive_folder_id   text NOT NULL,        -- the transcripts folder written into
-  doc_id            text NOT NULL,
-  doc_url           text NOT NULL,
-  doc_name          text NOT NULL,
-
-  created_by        text,
-  created_at        timestamptz DEFAULT now()
-);
-
--- The grid looks these up by Fireflies id in bulk.
-CREATE INDEX IF NOT EXISTS meeting_docs_fireflies ON meeting_docs(fireflies_id);
-CREATE INDEX IF NOT EXISTS meeting_docs_project   ON meeting_docs(project_ns_id, meeting_date DESC);
+-- `meeting_docs` has been replaced by `meeting_processing`. Run
+-- supabase/meeting-processing-schema.sql instead; nothing in the app reads or
+-- writes this table any more.
+--
+-- Why it went:
+--
+--   * It recorded only the Google Doc, so every other step of the Process wizard
+--     was invisible after a refresh — the problem meeting_processing was added
+--     to solve. Once that table also stored doc_id / doc_url / doc_name, the two
+--     overlapped and there were two answers to "was this meeting filed?".
+--
+--   * Its `fireflies_id` uniqueness was the only thing preventing a re-run from
+--     creating a second Google Doc, and the duplicate check IGNORED read errors.
+--     When the table turned out never to have been created, every check read as
+--     "not yet filed" and duplicate-doc protection was silently off.
+--     `meeting_processing.fireflies_id` is unique too, so one table does the job
+--     and the check now refuses rather than guessing.
+--
+-- If this table EXISTS in your Supabase project and holds rows, copy them across
+-- before dropping it. Safe to run more than once — rows already in
+-- meeting_processing win, and nothing is overwritten.
+--
+--   INSERT INTO meeting_processing (
+--     fireflies_id, meeting_title, meeting_date, meeting_type,
+--     project_ns_id, project_label,
+--     doc_id, doc_url, doc_name, doc_at,
+--     processed_by, created_at, updated_at
+--   )
+--   SELECT
+--     d.fireflies_id, d.meeting_title, d.meeting_date, d.meeting_type,
+--     d.project_ns_id, d.project_label,
+--     d.doc_id, d.doc_url, d.doc_name, d.created_at,
+--     d.created_by, d.created_at, d.created_at
+--   FROM meeting_docs d
+--   ON CONFLICT (fireflies_id) DO UPDATE SET
+--     doc_id   = COALESCE(meeting_processing.doc_id,   EXCLUDED.doc_id),
+--     doc_url  = COALESCE(meeting_processing.doc_url,  EXCLUDED.doc_url),
+--     doc_name = COALESCE(meeting_processing.doc_name, EXCLUDED.doc_name),
+--     doc_at   = COALESCE(meeting_processing.doc_at,   EXCLUDED.doc_at);
+--
+--   -- Then, once you've confirmed the rows landed:
+--   -- DROP TABLE meeting_docs;
+--
+-- The original definition is kept below, commented out, purely so the migration
+-- above can be read against it. Creating the table again serves no purpose.
+--
+-- CREATE TABLE IF NOT EXISTS meeting_docs (
+--   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+--   fireflies_id      text NOT NULL UNIQUE,
+--   meeting_title     text,
+--   meeting_date      timestamptz,
+--   meeting_type      text NOT NULL,
+--   project_ns_id     text,
+--   project_label     text,
+--   drive_folder_id   text NOT NULL,
+--   doc_id            text NOT NULL,
+--   doc_url           text NOT NULL,
+--   doc_name          text NOT NULL,
+--   created_by        text,
+--   created_at        timestamptz DEFAULT now()
+-- );

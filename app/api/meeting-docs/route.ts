@@ -11,38 +11,19 @@ export const revalidate = 0;
 export const maxDuration = 60;
 
 /**
- * GET /api/meeting-docs?ids=a,b,c
- * Which of these Fireflies meetings already have a filed doc, keyed by fireflies id.
- * Called once per grid load so each row can show a link instead of a Create button.
- */
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const idsParam = req.nextUrl.searchParams.get("ids") ?? "";
-  const ids = idsParam.split(",").map(s => s.trim()).filter(Boolean);
-
-  const db = getSupabaseAdmin();
-  let query = db.from("meeting_docs").select("fireflies_id, doc_url, doc_name, meeting_type, project_label, created_at, created_by");
-  if (ids.length > 0) query = query.in("fireflies_id", ids);
-
-  const { data, error } = await query;
-  if (error) {
-    // A missing table shouldn't break the grid — the Create buttons still work.
-    console.error("[/api/meeting-docs GET]", error.message);
-    return NextResponse.json({ docs: {}, warning: `Could not read filed documents: ${error.message}` });
-  }
-
-  const docs: Record<string, unknown> = {};
-  for (const row of data ?? []) docs[row.fireflies_id] = row;
-  return NextResponse.json({ docs });
-}
-
-/**
  * POST /api/meeting-docs
  * { meeting, projectNsId, projectLabel, projectFolderUrl, meetingType, includeTranscript? }
  *
  * Files the transcript into <project folder>/Transcripts, records it, returns the link.
+ *
+ * `meeting_processing` is the single source of truth — the old `meeting_docs`
+ * table has been retired. It held only the Doc, duplicating three columns
+ * `meeting_processing` now stores, and its `fireflies_id` uniqueness was the only
+ * thing standing between a re-run and a second Google Doc. `meeting_processing`
+ * already has that same unique key, so one table does the job.
+ *
+ * There is no GET here any more: the grid reads /api/meetings/processing, which
+ * returns the Doc alongside the ClickUp and Slack state in a single request.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -70,13 +51,27 @@ export async function POST(req: NextRequest) {
     const db = getSupabaseAdmin();
 
     // Don't silently create a second copy if someone else just filed it.
-    const { data: existing } = await db
-      .from("meeting_docs")
+    //
+    // A FAILED CHECK IS FATAL, not something to shrug past. The previous version
+    // ignored the error, so when the table was missing every request read as
+    // "not yet filed" and re-processing a meeting produced a duplicate Doc in
+    // the customer's Drive folder. Refusing is the safe direction: the cost is a
+    // retry, not a stray document nobody knows about.
+    const { data: existing, error: lookupError } = await db
+      .from("meeting_processing")
       .select("doc_url, doc_name, meeting_type, project_label")
       .eq("fireflies_id", String(meeting.id))
       .maybeSingle();
 
-    if (existing) {
+    if (lookupError) {
+      return NextResponse.json({
+        error: /does not exist|schema cache|relation/i.test(lookupError.message)
+          ? "Can't check whether this meeting was already filed: the meeting_processing table is missing. Run supabase/meeting-processing-schema.sql in the Supabase SQL editor. Filing is blocked until then, so a duplicate document isn't created."
+          : `Can't check whether this meeting was already filed (${lookupError.message}), so filing was stopped rather than risk a duplicate document.`,
+      }, { status: 503 });
+    }
+
+    if (existing?.doc_url) {
       return NextResponse.json({ alreadyFiled: true, doc: existing }, { status: 409 });
     }
 
@@ -118,26 +113,10 @@ export async function POST(req: NextRequest) {
     const html = renderMeetingDocHtml(input);
     const doc  = await createGoogleDoc(session.user.email, transcriptFolder.id, name, html);
 
-    const { error: insertError } = await db.from("meeting_docs").insert({
-      fireflies_id:    String(meeting.id),
-      meeting_title:   input.title,
-      meeting_date:    input.date || null,
-      meeting_type:    meetingType,
-      project_ns_id:   body?.projectNsId ? String(body.projectNsId) : null,
-      project_label:   body?.projectLabel ?? null,
-      drive_folder_id: transcriptFolder.id,
-      doc_id:          doc.id,
-      doc_url:         doc.webViewLink,
-      doc_name:        doc.name,
-      created_by:      session.user.name ?? session.user.email,
-    });
-
     // The doc exists either way — say so rather than implying nothing happened.
-    const recordNote = insertError
-      ? `The document was created, but recording it failed (${insertError.message}), so the grid may still offer to file it again.`
-      : null;
-
-    const processingNote = await recordProcessingStep({
+    // This record is now also what prevents a duplicate next time, so a failure
+    // here is worth more than a passing mention.
+    const recordNote = await recordProcessingStep({
       firefliesId:  String(meeting.id),
       meetingTitle: input.title,
       meetingDate:  input.date || null,
@@ -157,7 +136,10 @@ export async function POST(req: NextRequest) {
       folderCreated,
       transcriptFolderName: transcriptFolder.name,
       transcriptLines: sentences.length,
-      note: [transcriptNote, recordNote, processingNote].filter(Boolean).join(" ") || null,
+      note: [
+        transcriptNote,
+        recordNote && `${recordNote} Until that is fixed, filing this meeting again would create a second document.`,
+      ].filter(Boolean).join(" ") || null,
     });
   } catch (err) {
     console.error("[/api/meeting-docs POST]", err);

@@ -1,7 +1,7 @@
 "use client";
 // ─── Meetings recorded against one project ────────────────────────────────────
-// Sourced from meeting_processing / meeting_docs, i.e. meetings the Process
-// wizard actually filed against this project — not a live Fireflies match.
+// Sourced from meeting_processing, i.e. meetings the Process wizard actually
+// recorded against this project — not a live Fireflies match.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { C, MEETING_TYPES } from "@/lib/constants";

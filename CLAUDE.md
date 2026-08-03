@@ -927,8 +927,7 @@ Each row of the Fireflies grid carries a **Project** dropdown, a **Meeting Type*
 /lib/customer-match.ts  → deterministic scorer (also used client-side to pre-select)
 /lib/meeting-doc.ts     → HTML the Doc is built from
 /app/api/projects/folders/route.ts  → slim active-project list with Drive folders
-/app/api/meeting-docs/route.ts      → GET already-filed, POST create
-/supabase/meeting-docs-schema.sql
+/app/api/meeting-docs/route.ts      → POST create (no GET — see meeting_processing)
 ```
 
 ### ⚠ Drive auth is a service account, NOT user OAuth
@@ -965,7 +964,7 @@ Filename: **`<Meeting Type> - <Meeting name> - <YYYY-MM-DD>`**. `MEETING_TYPES` 
 ### Gotchas
 
 - **`meetingDocName` uses LOCAL date components deliberately.** The grid shows local time, so a 17:00 meeting on 30 June (`00:00Z` on 1 July) must file as `2026-06-30` to match what the PM saw. Switching to UTC would push evening meetings onto the following day. Unit-tested both ways.
-- **Filed docs are tracked in Supabase, not inferred from Drive.** Drive can't answer "has this meeting been filed?" without a per-row search, and the filename isn't a reliable key. `meeting_docs.fireflies_id` is unique, and a POST for an already-filed meeting returns **409 with the existing doc** — the grid adopts that link rather than erroring, so two people filing at once can't create duplicates.
+- **Filed docs are tracked in Supabase, not inferred from Drive.** Drive can't answer "has this meeting been filed?" without a per-row search, and the filename isn't a reliable key. `meeting_processing.fireflies_id` is unique, and a POST for an already-filed meeting returns **409 with the existing doc** — the grid adopts that link rather than erroring, so two people filing at once can't create duplicates. If the check itself can't run, the POST returns **503 and files nothing** rather than risking a duplicate.
 - **If the Supabase insert fails after the Doc is created**, the response says so explicitly. The doc exists; the grid may just offer to file it again.
 - **Per-row project pre-selection runs the deterministic scorer client-side, not the AI route.** An AI call per row would be hundreds of requests for one grid load. It only fills blanks, so a manual choice is never overwritten.
 - **Older browse-based route group** (`/api/drive/{customers,projects,match,meeting-doc}` + `FileToDriveModal`) still exists for the drawer flow and the `<customer root>/<Customer>/<Projects>/` tree. The grid path above supersedes it for day-to-day use.
@@ -999,14 +998,14 @@ Drilling into a project in the PM tab shows a summary band and four tabs. The ba
 | 🗂️ Phases & PM Tasks | `ProjectManagementView` — native `pm_phases` / `pm_tasks` (unchanged) |
 | ✅ ClickUp Tasks | `project.tasks` — already on the `Project` object, **no new request** |
 | ☰ Project Tasks | `ProjectTaskPanel`, the same component Portfolio Overview uses |
-| 🪰 Meetings | `meeting_processing` + `meeting_docs`, by `project_ns_id` |
+| 🪰 Meetings | `meeting_processing`, by `project_ns_id` |
 
 ### Gotchas
 
 - **The ClickUp tab needs no API.** `/api/projects` already fans out to ClickUp per project, so `project.tasks` / `blocked` / `clientPending` / `milestones` are in memory. Adding a fetch here would duplicate that work on every tab switch.
 - **`ProjectTaskPanel` is reused, not reimplemented.** It takes only `projectId` and owns its own fetching, so the same NetSuite phase/hours table renders in both places and can't drift between them.
 - **The meetings list is deliberately "processed only".** It reads what the Process wizard recorded, not a live Fireflies match — matching unprocessed meetings to a project is a guess, and a wrong row here reads as fact. The empty state says so rather than implying the project had no calls.
-- **`/api/pm/meetings` reads both tables and merges on `fireflies_id`.** `meeting_docs` alone would miss meetings that were processed but never filed; `meeting_processing` alone would miss anything filed before that table existed. A field present on the doc row is never blanked by a null on the processing row.
+- **`/api/pm/meetings` reads `meeting_processing` only.** It used to merge `meeting_docs` as well; that table is retired, so there is no second source to reconcile.
 - **Summary thresholds are copied from the portfolio table** (SPI ≥ 1 / ≥ 0.85, gap > 15% / > 5%). If those change, change both — a project must not look healthier in one view than the other.
 - The header surfaces `timebillWarning`, a missing go-live date and `clickupError` inline. These already existed on the `Project` object but were only visible on the portfolio table, so a PM working in this tab never saw them.
 
@@ -1026,9 +1025,14 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 /components/dashboard/ProcessMeetingWizard.tsx
 ```
 
-### Processing state is persisted — `meeting_processing`
+### Processing state is persisted — `meeting_processing` (the only table)
 
-`meeting_docs` only ever recorded the **Google Doc**, which made every other step invisible after a refresh: a meeting whose ClickUp tasks were created and whose summary was posted, but where the PM skipped filing, came back looking completely unprocessed — so it was easy to run the whole thing again and create duplicate tasks. `meeting_processing` records all three steps against `fireflies_id`.
+`meeting_docs` recorded only the **Google Doc**, which made every other step invisible after a refresh: a meeting whose ClickUp tasks were created and whose summary was posted, but where the PM skipped filing, came back looking completely unprocessed — so it was easy to run the whole thing again and create duplicate tasks. `meeting_processing` records all three steps against `fireflies_id`.
+
+> **`meeting_docs` is retired (August 2026).** Once `meeting_processing` also stored `doc_id`/`doc_url`/`doc_name` the two overlapped, and there were two answers to "was this meeting filed?". Worse, `meeting_docs.fireflies_id` was the *only* thing preventing a re-run from creating a second Google Doc — and the duplicate check **ignored read errors**, so when the table turned out never to have been created, every check read as "not yet filed" and duplicate protection was silently off. `supabase/meeting-docs-schema.sql` is now a retired file carrying the backfill SQL; don't run it.
+>
+> - **The duplicate check now refuses rather than guesses.** A failed lookup returns **503** and files nothing. The cost of refusing is a retry; the cost of guessing is a stray document in a customer's Drive folder that nobody knows about.
+> - **`GET /api/meeting-docs` is gone.** The grid reads `/api/meetings/processing`, which returns the Doc alongside the ClickUp and Slack state in one request, and derives its filed-doc map from those same rows.
 
 - **Each route upserts its own columns server-side**, as the step completes — not from the browser. A closed tab must not lose the record of work that actually happened. Supabase issues `INSERT … ON CONFLICT DO UPDATE` over the supplied columns only, so steps patch independently.
 - **Recording never throws.** The tasks, post and doc are already real by the time we record them; failing the request because a bookkeeping insert failed would tell the PM the step didn't happen when it did. Failures come back as a `warning` alongside the success.

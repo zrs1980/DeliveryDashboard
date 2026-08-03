@@ -173,35 +173,46 @@ export function FirefliesMeetingsView() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Which meetings are already filed, and what else has been done to them.
-  // Two requests for the whole page, re-run when a wizard step completes.
+  // What's already been done to each meeting, including the filed document.
+  // ONE request: meeting_processing carries the Doc alongside the ClickUp and
+  // Slack state, so the separate meeting_docs read this used to make is gone
+  // along with that table.
   //
-  // Failures are SURFACED, not swallowed: if the backing tables are missing,
-  // every meeting silently reads as unprocessed forever, which is precisely the
-  // confusion this state exists to prevent.
+  // Failures are SURFACED, not swallowed: if the table is missing, every meeting
+  // silently reads as unprocessed forever, which is precisely the confusion this
+  // state exists to prevent.
   useEffect(() => {
     if (meetings.length === 0) return;
     const ids = encodeURIComponent(meetings.map(m => m.id).join(","));
 
     (async () => {
-      const warnings: string[] = [];
-      try {
-        const res  = await fetch(`/api/meeting-docs?ids=${ids}`);
-        const data = await res.json();
-        if (res.ok) setFiled(data.docs ?? {});
-        if (data?.warning) warnings.push(data.warning);
-      } catch (e) {
-        warnings.push(`Filed documents could not be read: ${e instanceof Error ? e.message : "unknown error"}`);
-      }
       try {
         const res  = await fetch(`/api/meetings/processing?ids=${ids}`);
         const data = await res.json();
-        if (res.ok) setProcessing(data.processing ?? {});
-        if (data?.warning) warnings.push(data.warning);
+        if (res.ok) {
+          const rows: Record<string, ProcessingRow> = data.processing ?? {};
+          setProcessing(rows);
+
+          // Derive the filed-doc map from the same rows rather than fetching it.
+          const docs: Record<string, FiledDoc> = {};
+          for (const [id, r] of Object.entries(rows)) {
+            if (!r.doc_url) continue;
+            docs[id] = {
+              fireflies_id: id,
+              doc_url:      r.doc_url,
+              doc_name:     r.doc_name ?? "",
+              meeting_type: r.meeting_type ?? "",
+              project_label: r.project_label,
+              created_at:   r.updated_at ?? "",
+              created_by:   r.processed_by,
+            };
+          }
+          setFiled(docs);
+        }
+        setStateWarn(data?.warning ?? null);
       } catch (e) {
-        warnings.push(`Processing history could not be read: ${e instanceof Error ? e.message : "unknown error"}`);
+        setStateWarn(`Processing history could not be read: ${e instanceof Error ? e.message : "unknown error"}`);
       }
-      setStateWarn(warnings.join(" ") || null);
     })();
   }, [meetings, procTick]);
 
