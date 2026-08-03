@@ -42,7 +42,7 @@ export interface FirefliesMeeting {
   id:              string;
   title:           string;
   date:            string;        // ISO
-  durationMinutes: number;        // Fireflies returns SECONDS; converted here
+  durationMinutes: number;        // Fireflies returns MINUTES; passed through
   organizerEmail:  string;
   meetingLink:     string | null;
   transcriptUrl:   string | null;
@@ -232,14 +232,17 @@ function normalizeMeeting(raw: Record<string, unknown>): FirefliesMeeting {
   const external  = attendees.filter(a => !a.internal);
   const summary   = normalizeSummary(raw.summary);
 
-  // Fireflies `duration` is seconds.
-  const seconds = typeof raw.duration === "number" ? raw.duration : parseFloat(str(raw.duration)) || 0;
+  // Fireflies `duration` is MINUTES, not seconds. Dividing by 60 here reported
+  // every meeting as roughly a minute long: a 45-minute call rendered as "1m",
+  // and the tab's Total Hours was ~60x under. Confirmed August 2026 against the
+  // live tab. Kept number-aware because the field can arrive as a string.
+  const minutes = typeof raw.duration === "number" ? raw.duration : parseFloat(str(raw.duration)) || 0;
 
   return {
     id:              str(raw.id),
     title:           str(raw.title).trim() || "(No title)",
     date:            isoDate(raw.date),
-    durationMinutes: Math.round((seconds / 60) * 10) / 10,
+    durationMinutes: Math.round(minutes * 10) / 10,
     organizerEmail:  str(raw.organizer_email).toLowerCase(),
     meetingLink:     str(raw.meeting_link) || null,
     transcriptUrl:   str(raw.transcript_url) || null,

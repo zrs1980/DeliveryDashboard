@@ -1080,7 +1080,8 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 
 ### Gotchas
 
-- **`duration` is SECONDS**, not minutes. Converted once in `normalizeMeeting`.
+- **`duration` is MINUTES**, not seconds — pass it through, don't divide. This note previously claimed the opposite and `normalizeMeeting` divided by 60, so every meeting rendered as about a minute long (a 45-minute call showed as `1m`) and the tab's Total Hours ran ~60x under. Corrected August 2026. Note the Zoom tab is the reverse — Zoom's report API *does* return seconds — so don't carry an assumption between the two.
+  - **Filed Google Docs carry the duration that was current when they were filed**, so anything filed before this fix has the wrong figure baked into its metadata table. Only a re-file corrects it; the transcript and notes are unaffected.
 - **`date` may arrive as epoch millis, not an ISO string.** Fireflies types it as a Float, and the old `str()` mapping returned `""` for the numeric form — which reached `meetingDocName()` as an invalid Date and filed documents named `"… - undated"` (and blanked the grid's Started column). `duration` already had the number-aware treatment; `date` did not. `isoDate()` now accepts ISO strings, epoch millis, epoch seconds and numeric strings. Fixed July 2026 — this was the cause of "the filed document has no date on it".
 - **Rate limits are per *day* on lower plans**: Free 50/day, Pro 500/day, Business/Enterprise 60/min. A list load costs one request per 50 transcripts, capped at `MAX_PAGES` (10). Don't add polling or auto-refresh — the tab loads once and relies on the Refresh button.
 - **One unknown GraphQL field fails the entire query.** The schema varies by plan/version, so `TIERS` tries richest-first and drops the least-essential block on a *field* error only (`isFieldError`), degrading rather than breaking. The tier that succeeded is returned as `tier` and surfaced in the UI when it isn't `full`.
