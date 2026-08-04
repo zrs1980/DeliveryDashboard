@@ -334,6 +334,25 @@ function defaultCustomRange(today: Date): CustomRange {
 
 const FORECAST_BILL_RATIO = 0.87;
 
+/**
+ * Forecast RAG: the target is a floor. At or above it is green, below it is red.
+ * There is no amber band — being under target is under target.
+ *
+ * Compared in HOURS against the hour target, not percentage against percentage.
+ * The old form (`pct >= tgt * 0.95`) put consultants on a band edge and let
+ * floating point decide which side they fell: 24h of a 30h target computed
+ * 0.6 >= 0.6000000000000001 → false → red, while 19h of a 20h target computed
+ * 0.475 >= 0.4749999999999999 → true → green. Two people equally on a boundary,
+ * coloured oppositely by rounding dust.
+ *
+ * EPS is half the display precision (cells show 0.1h), so someone exactly at
+ * target reads green even when the arithmetic lands a hair under.
+ */
+const RAG_EPSILON_H = 0.05;
+
+const ragFromGap = (gapHours: number): "green" | "yellow" | "red" =>
+  gapHours >= -RAG_EPSILON_H ? "green" : "red";
+
 function getPeriodBounds(period: ForecastPeriod, today: Date, custom?: CustomRange): { start: Date; end: Date } {
   const d = new Date(today);
   d.setHours(0, 0, 0, 0);
@@ -572,8 +591,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       const utilizedPct    = capPerPerson > 0 ? utilized / capPerPerson : 0;
       const billableTgtPct = targetUtil * FORECAST_BILL_RATIO;
       const utilizedTgtPct = targetUtil;
-      const billableRAG: "green" | "yellow" | "red" = billablePct >= billableTgtPct * 0.95 ? "green" : billablePct >= billableTgtPct * 0.8 ? "yellow" : "red";
-      const utilizedRAG: "green" | "yellow" | "red" = utilizedPct >= utilizedTgtPct * 0.95 ? "green" : utilizedPct >= utilizedTgtPct * 0.8 ? "yellow" : "red";
+      const billableRAG = ragFromGap(billable - billableTarget);
+      const utilizedRAG = ragFromGap(utilized - utilizedTarget);
 
       // Per-project breakdown for expandable rows
       const projMap = new Map<number, { projectId: number; name: string; companyName: string; type: string; hours: number; classifyAsBillable: boolean; classifyAsUtilized: boolean; classifyAsProductive: boolean }>();
@@ -621,8 +640,6 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
     const teamProductivePct  = teamCap > 0 ? teamProductive / teamCap : 0;
     const teamBillableTgtPct = teamCap > 0 ? teamBillableTarget / teamCap : 0;
     const teamUtilizedTgtPct = teamCap > 0 ? teamUtilizedTarget / teamCap : 0;
-    const ragFn = (pct: number, tgt: number): "green" | "yellow" | "red" => pct >= tgt * 0.95 ? "green" : pct >= tgt * 0.8 ? "yellow" : "red";
-
     return {
       rows, workDays, capPerPerson,
       teamCap, teamBillable, teamUtilized, teamProductive,
@@ -630,8 +647,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       teamBillableTarget, teamUtilizedTarget,
       teamBillablePct, teamUtilizedPct, teamProductivePct,
       teamBillableTgtPct, teamUtilizedTgtPct,
-      teamBillableRAG: ragFn(teamBillablePct, teamBillableTgtPct),
-      teamUtilizedRAG: ragFn(teamUtilizedPct, teamUtilizedTgtPct),
+      teamBillableRAG: ragFromGap(teamBillable - teamBillableTarget),
+      teamUtilizedRAG: ragFromGap(teamUtilized - teamUtilizedTarget),
     };
   }, [byEmployee, forecastPeriod, customRange, consultantRoster]);
 
@@ -1862,7 +1879,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               <strong>Utilized</strong>: hours on projects flagged &ldquo;utilized time&rdquo; ·{" "}
               <strong>Productive</strong>: hours on projects flagged &ldquo;productive time&rdquo; ·{" "}
               <strong>Bench</strong>: unallocated time ·{" "}
-              Status based on Billable vs. target. All three classifications are read from the NetSuite project record;
+              Status based on Billable vs. target. <strong>Target is a floor</strong> — at or above it is green, below it is red.
+              All three classifications are read from the NetSuite project record;
               target utilization from the NetSuite employee record (default 75%).
             </div>
           </>

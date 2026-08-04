@@ -613,6 +613,15 @@ Verified August 2026 across every project with a live allocation: where the NetS
 - **Non-billable projects now show their full budget as remaining, forever.** If a project's time is logged non-billable, `billableHours` is 0 and nothing is ever consumed — e.g. **413 Salt and Stone Phase 2** has 128.3h of actual time, all non-billable, so it reads 250.0h remaining rather than 121.8h. That follows from measuring billable spend; it is not a bug, but it means the column answers "how much billable budget is left", not "how much work is left". The greyed **B** chip in the Class column is the tell.
 - If the billable lookup fails the map is left empty, so remaining reads as the *full* budget — visibly wrong rather than subtly wrong, and not mistakable for real headroom.
 
+### Forecast RAG — the target is a floor
+
+At or above target is **green**, below it is **red**. There is no amber band: being under target is under target.
+
+- **Compare HOURS against the hour target, never percentage against percentage.** The old rule (`pct >= tgt * 0.95`, amber to `* 0.8`) put people exactly on a band edge and let floating point pick a side: 24h of a 30h target evaluated `0.6 >= 0.6000000000000001` → false → red, while 19h of a 20h target evaluated `0.475 >= 0.4749999999999999` → true → green. Two consultants equally on a boundary, coloured oppositely by rounding dust.
+- `RAG_EPSILON_H` (0.05h) is half the 0.1h display precision, so someone exactly at target reads green even when the arithmetic lands a hair under. Without it, a target derived as `0.5 * 0.87 * 40` misses an exact 17.4h by float noise.
+- `ragFromGap` never returns `"yellow"`. The union keeps it so `ragColor`/`ragLabel` stay total, but "At Risk" is unreachable on this tab by design.
+- The **Status** pill is billable-only, so a consultant above their billable target but below their utilized target reads "On Track" with a red Utilized cell. That is intended — the two measure different things.
+
 ### Class column (by-project table)
 
 Column order is **Project / Resource · Class · Orig. Budget · Rem. Budget · Allocated · Gap · weeks** — 6 non-week columns. `Class` holds the `ClassChips` B/U/P indicators (filled = flag set on the NetSuite project).
