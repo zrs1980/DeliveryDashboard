@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, postRecord, getActiveJobResources } from "@/lib/netsuite";
+import { runSuiteQL, postRecord, getActiveJobResources, fetchBillableHours } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 import type { NSAllocation } from "@/lib/types";
 
@@ -76,6 +76,20 @@ export async function GET() {
       }
     }
     const rows = rowsRaw.filter(r => !inactiveEmpIds.has(parseInt(r.employee_id)));
+
+    // Billable time logged per project — the basis for remaining budget below.
+    // Non-fatal: if this fails, every project reports 0 billable and remaining
+    // budget reads as the full budget, which is visibly wrong rather than
+    // subtly wrong, so it can't be mistaken for real headroom.
+    const allocProjectIds = [...new Set(rows.map(r => parseInt(r.project_id)).filter(Boolean))];
+    const billableByProject: Record<string, number> = {};
+    try {
+      for (const b of await fetchBillableHours(allocProjectIds)) {
+        billableByProject[String(b.project_id)] = parseFloat(b.billable_hours) || 0;
+      }
+    } catch {
+      // leave empty
+    }
 
     // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
@@ -162,8 +176,19 @@ export async function GET() {
         allocationUnit: r.allocationunit ?? "H",
         percentOfMax:   parseFloat(r.percentoftime) || 0,
         hoursPerDay:    parseFloat(r.numberhours) || 0,
-        remainingHours:    r.remaining_hours != null ? parseFloat(r.remaining_hours) : null,
+        // Remaining budget is DERIVED from billable time logged, not read from
+        // custentity_project_remaining_hours. That field is hand-maintained and
+        // drifts: project 268 carried -626h against a 0h budget. Where the field
+        // is kept up to date the two agree exactly, so this mostly changes
+        // nothing and corrects the stale ones.
+        //
+        // Null budget stays null rather than becoming 0 − billable: "no budget
+        // set" and "nothing left" must not look the same.
+        remainingHours:    r.budget_hours != null
+          ? parseFloat(r.budget_hours) - (billableByProject[String(r.project_id)] ?? 0)
+          : null,
         budgetHours:       r.budget_hours != null ? parseFloat(r.budget_hours) : null,
+        billableHours:     billableByProject[String(r.project_id)] ?? 0,
         targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
         // Time classification comes straight off the NetSuite project record — never
         // inferred from jobtype. A project's type says nothing about whether its time

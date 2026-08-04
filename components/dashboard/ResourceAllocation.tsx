@@ -714,6 +714,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           companyName:    cell.companyName ?? "",
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
+          // Adding an allocation logs no time, so the project's billable hours are
+          // unchanged — take them from a sibling row rather than defaulting to 0,
+          // so the new row can't disagree with the rest of its own project.
+          billableHours:  localAllocs.find(a => a.projectId === cell.projectId)?.billableHours ?? 0,
           classifyAsBillable:   cell.classifyAsBillable,
           classifyAsUtilized:   cell.classifyAsUtilized,
           classifyAsProductive: cell.classifyAsProductive,
@@ -1164,8 +1168,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               <th style={{ ...thStyle, minWidth: 74 }} title="Billable / Utilized / Productive — from the NetSuite project record">
                 Class
               </th>
-              <th style={{ ...thStyle, minWidth: 90 }}>Orig. Budget</th>
-              <th style={{ ...thStyle, minWidth: 90 }}>Rem. Budget</th>
+              <th style={{ ...thStyle, minWidth: 90 }} title="Budgeted hours on the NetSuite project (custentity_ceba_project_budget_hours)">Orig. Budget</th>
+              <th style={{ ...thStyle, minWidth: 90 }} title="Original budget minus billable time logged (timetype='A' and isbillable='T'). Calculated from time entries, not read from custentity_project_remaining_hours.">Rem. Budget</th>
               <th style={{ ...thStyle, minWidth: 90 }}>Allocated</th>
               <th style={{ ...thStyle, minWidth: 80 }}>Gap</th>
               {weeks.map(w => (

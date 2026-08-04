@@ -603,6 +603,16 @@ The span cap matters: `countWorkDays()` and `hoursInRange()` both walk the range
 
 **Parse date inputs with `parseISODate()`, never bare `new Date(iso)`.** `new Date("2026-08-03")` is parsed as UTC midnight and renders as Aug **2** for anyone behind Greenwich; `parseISODate` appends `T00:00:00` to force local. Verified: the naive form shifts every date back a day on a US-timezone machine.
 
+### Remaining budget is calculated, not read
+
+`Rem. Budget` in the by-project table is **`budgetHours − billableHours`**, where billable means `timetype = 'A' AND isbillable = 'T'`. It is deliberately **not** `custentity_project_remaining_hours`, which is hand-maintained and drifts — project 268 carried **−626h against a 0h budget**.
+
+Verified August 2026 across every project with a live allocation: where the NetSuite field is kept current the two agree **exactly** (delta 0.0 on 9 of 12), so this mostly changes nothing and corrects the stale ones.
+
+- **A null budget stays null.** "No budget set" and "nothing left" must not render the same, so the derivation is skipped rather than treated as `0 − billable`.
+- **Non-billable projects now show their full budget as remaining, forever.** If a project's time is logged non-billable, `billableHours` is 0 and nothing is ever consumed — e.g. **413 Salt and Stone Phase 2** has 128.3h of actual time, all non-billable, so it reads 250.0h remaining rather than 121.8h. That follows from measuring billable spend; it is not a bug, but it means the column answers "how much billable budget is left", not "how much work is left". The greyed **B** chip in the Class column is the tell.
+- If the billable lookup fails the map is left empty, so remaining reads as the *full* budget — visibly wrong rather than subtly wrong, and not mistakable for real headroom.
+
 ### Class column (by-project table)
 
 Column order is **Project / Resource · Class · Orig. Budget · Rem. Budget · Allocated · Gap · weeks** — 6 non-week columns. `Class` holds the `ClassChips` B/U/P indicators (filled = flag set on the NetSuite project).

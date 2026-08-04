@@ -147,8 +147,16 @@ export interface NSAllocation {
   percentOfMax: number;     // percentOfTime from NS (e.g. 32.5 = 32.5% of 40h/wk)
   hoursPerDay: number;      // fallback if percentOfMax is 0
   companyName: string;            // from job.companyname
-  remainingHours: number | null;  // from job.custentity_project_remaining_hours
+  /**
+   * Remaining budget, DERIVED as budgetHours − billableHours — not read from
+   * job.custentity_project_remaining_hours, which is hand-maintained and drifts.
+   * Null when the project has no budget set, so "unknown" stays distinguishable
+   * from "nothing left".
+   */
+  remainingHours: number | null;
   budgetHours: number | null;     // from job.custentity_ceba_project_budget_hours
+  /** Billable actual time logged: timetype='A' AND isbillable='T'. */
+  billableHours: number;
   targetUtilization?: number;     // from employee.targetutilization (0–1 decimal, default 0.75)
   // Time classification — read straight off the NetSuite project (job) record.
   classifyAsUtilized?:   boolean;  // from job.isutilizedtime
