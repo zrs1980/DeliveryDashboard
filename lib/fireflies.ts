@@ -261,18 +261,8 @@ const PAGE_SIZE = 50;
 /** How many meetings the grid wants by default — the most recent N. */
 export const DEFAULT_MEETING_LIMIT = 100;
 
-/**
- * Days per backwards window, adaptive. Starts small so the newest window is
- * cheap, then widens through quiet stretches — a fixed 14 days spent all 16
- * requests covering only 224 of a requested 365 on a low-volume account.
- */
-const WINDOW_DAYS_MIN = 14;
-const WINDOW_DAYS_MAX = 120;
-
 /** Hard ceiling on GraphQL calls per load, so a wide range can't burn a day's rate limit. */
-const MAX_REQUESTS = 16;
-
-const DAY_MS = 86_400_000;
+const MAX_PAGES = 10;
 
 export interface FetchFirefliesResult {
   meetings:  FirefliesMeeting[];
@@ -285,12 +275,21 @@ export interface FetchFirefliesResult {
 /**
  * The most recent `limit` Fireflies transcripts within [fromISO, toISO].
  *
- * Walks BACKWARDS from toISO in fixed windows rather than paging the whole range
- * with `skip`. That older approach capped at 500 and assumed Fireflies returns
- * newest-first — it does not, so the cap discarded the newest meetings and the
- * grid quietly showed only old ones. Windowing makes the order Fireflies uses
- * internally irrelevant: each window is date-bounded, and we take the newest
- * window first, so we can stop as soon as we have enough.
+ * **Fireflies returns transcripts newest-first.** Measured against the live API
+ * (August 2026): `transcripts(limit: 10)` came back in strictly descending date
+ * order, and `skip` pages through that order correctly. So paging from `skip: 0`
+ * and stopping once we have `limit` gives exactly the newest N, in two requests.
+ *
+ * An earlier version of this function walked backwards in date windows on the
+ * theory that the order was oldest-first and the old 500-row cap was discarding
+ * the newest meetings. That theory was wrong — the ordering had simply never
+ * been checked, in either direction. The windowing worked but cost 4–6 requests
+ * to do what 2 do.
+ *
+ * The sort-then-slice below is the guard: if Fireflies ever changed this
+ * ordering, we would still return the newest of whatever was fetched rather than
+ * an arbitrary slice — though we could then miss newer ones entirely, so if this
+ * tab ever shows stale meetings again, re-check the ordering FIRST.
  *
  * `fromISO`/`toISO` are ISO 8601 instants — the caller converts local dates to
  * UTC, so there's no repeat of the Zoom GMT-vs-local range bug.
@@ -301,8 +300,6 @@ export async function fetchFirefliesMeetings(
   limit: number = DEFAULT_MEETING_LIMIT,
 ): Promise<FetchFirefliesResult> {
   const notes: string[] = [];
-  const fromMs = Date.parse(fromISO);
-  const toMs   = Date.parse(toISO);
 
   for (let t = 0; t < TIERS.length; t++) {
     const tier = TIERS[t];
@@ -315,48 +312,21 @@ export async function fetchFirefliesMeetings(
 
     try {
       const byId = new Map<string, FirefliesMeeting>();
-      let requests   = 0;
-      let windowEnd  = toMs;
-      let reachedEnd = false;   // walked all the way back to fromISO
+      let more = false;   // meetings exist beyond what we fetched
 
-      let windowDays = WINDOW_DAYS_MIN;
-
-      while (windowEnd > fromMs) {
-        if (byId.size >= limit || requests >= MAX_REQUESTS) break;
-
-        const windowStart = Math.max(fromMs, windowEnd - windowDays * DAY_MS);
-        const before      = byId.size;
-
-        // Page within the window. Order inside a window doesn't matter — the
-        // window itself bounds the dates, and everything is sorted at the end.
-        for (let page = 0; requests < MAX_REQUESTS; page++) {
-          requests++;
-          const data = await gql<{ transcripts?: Array<Record<string, unknown>> }>(query, {
-            fromDate: new Date(windowStart).toISOString(),
-            toDate:   new Date(windowEnd).toISOString(),
-            limit:    PAGE_SIZE,
-            skip:     page * PAGE_SIZE,
-          });
-          const rows = data.transcripts ?? [];
-          for (const r of rows) {
-            const m = normalizeMeeting(r);
-            if (m.id) byId.set(m.id, m);
-          }
-          if (rows.length < PAGE_SIZE) break;   // window exhausted
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const data = await gql<{ transcripts?: Array<Record<string, unknown>> }>(query, {
+          fromDate: fromISO, toDate: toISO, limit: PAGE_SIZE, skip: page * PAGE_SIZE,
+        });
+        const rows = data.transcripts ?? [];
+        for (const r of rows) {
+          const m = normalizeMeeting(r);
+          if (m.id) byId.set(m.id, m);
         }
 
-        if (windowStart <= fromMs) { reachedEnd = true; break; }
-
-        // Widen through thin stretches, snap back once a window fills up. The
-        // test is "did this window nearly fill a page", not "was it empty" —
-        // widening only on zero left a sparse account spending one request per
-        // fortnight to collect a meeting or two at a time.
-        const found = byId.size - before;
-        windowDays = found < PAGE_SIZE / 2
-          ? Math.min(windowDays * 2, WINDOW_DAYS_MAX)
-          : WINDOW_DAYS_MIN;
-
-        windowEnd = windowStart - 1;            // -1ms so windows can't overlap
+        if (rows.length < PAGE_SIZE) break;             // range exhausted
+        if (byId.size >= limit) { more = true; break; } // have enough; older ones remain
+        if (page === MAX_PAGES - 1) more = true;        // hit the request ceiling
       }
 
       if (t > 0) {
@@ -367,15 +337,10 @@ export async function fetchFirefliesMeetings(
       const sorted = [...byId.values()].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
       const meetings = sorted.slice(0, limit);
 
-      // Truncated means OLDER meetings exist that we didn't fetch — never that
-      // newer ones are missing, which is the failure this rewrite removes.
-      const truncated = !reachedEnd || sorted.length > limit;
+      // Truncated always means OLDER meetings were left unfetched, never newer.
+      const truncated = more || sorted.length > limit;
       if (truncated) {
-        notes.push(
-          sorted.length > limit
-            ? `Showing the ${meetings.length} most recent meetings; there are older ones in this range.`
-            : `Showing the ${meetings.length} most recent meetings. The search stopped before covering the whole range, so there may be older ones — narrow the dates to reach them.`,
-        );
+        notes.push(`Showing the ${meetings.length} most recent meetings; older ones in this range aren't loaded.`);
       }
 
       return { meetings, truncated, tier: tier.label, notes };
