@@ -524,6 +524,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       projectType: string;
       remainingHours: number | null;
       budgetHours: number | null;
+      consumedHours: number;
+      actualHours: number;
+      billableHours: number;
+      isFixedFee: boolean;
       rows: NSAllocation[];
     }>();
     for (const a of localAllocs) {
@@ -535,6 +539,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           projectType:    a.projectType ?? "Internal",
           remainingHours: a.remainingHours,
           budgetHours:    a.budgetHours,
+          consumedHours:  a.consumedHours ?? 0,
+          actualHours:    a.actualHours   ?? 0,
+          billableHours:  a.billableHours ?? 0,
+          isFixedFee:     a.isFixedFee    ?? false,
           rows:           [],
         });
       }
@@ -716,6 +724,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         weekEnd.setDate(weekEnd.getDate() + 6);
 
         const newId = await createAlloc(fmt(weekStart), fmt(weekEnd), newHrs);
+        const sibling = localAllocs.find(a => a.projectId === cell.projectId);
         const newAlloc: NSAllocation = {
           id:             newId,
           employeeId:     cell.employeeId,
@@ -731,10 +740,13 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           companyName:    cell.companyName ?? "",
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
-          // Adding an allocation logs no time, so the project's billable hours are
-          // unchanged — take them from a sibling row rather than defaulting to 0,
-          // so the new row can't disagree with the rest of its own project.
-          billableHours:  localAllocs.find(a => a.projectId === cell.projectId)?.billableHours ?? 0,
+          // Adding an allocation logs no time, so the project's hours and its
+          // fixed-fee status are unchanged — take them from a sibling row rather
+          // than defaulting, so the new row can't disagree with its own project.
+          billableHours:  sibling?.billableHours ?? 0,
+          actualHours:    sibling?.actualHours   ?? 0,
+          consumedHours:  sibling?.consumedHours ?? 0,
+          isFixedFee:     sibling?.isFixedFee    ?? false,
           classifyAsBillable:   cell.classifyAsBillable,
           classifyAsUtilized:   cell.classifyAsUtilized,
           classifyAsProductive: cell.classifyAsProductive,
@@ -1186,7 +1198,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 Class
               </th>
               <th style={{ ...thStyle, minWidth: 90 }} title="Budgeted hours on the NetSuite project (custentity_ceba_project_budget_hours)">Orig. Budget</th>
-              <th style={{ ...thStyle, minWidth: 90 }} title="Original budget minus billable time logged (timetype='A' and isbillable='T'). Calculated from time entries, not read from custentity_project_remaining_hours.">Rem. Budget</th>
+              <th style={{ ...thStyle, minWidth: 90 }} title="Original budget minus time logged, calculated from time entries rather than custentity_project_remaining_hours. Time & materials projects count billable time only (timetype='A', isbillable='T'); fixed-fee projects (FF) count ALL actual time, because their entries are logged non-billable by design.">Rem. Budget</th>
               <th style={{ ...thStyle, minWidth: 90 }}>Allocated</th>
               <th style={{ ...thStyle, minWidth: 80 }}>Gap</th>
               {weeks.map(w => (
@@ -1329,8 +1341,19 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     {/* Rem. Budget */}
                     <td style={{ padding: "8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
                       {proj.remainingHours != null ? (
-                        <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}>
+                        <span
+                          title={proj.isFixedFee
+                            ? `Fixed fee — all actual time counts against budget.
+${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h actual (of which ${proj.billableHours.toFixed(1)}h billable).`
+                            : `${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h billable time logged.`}
+                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid, cursor: "help" }}
+                        >
                           {proj.remainingHours.toFixed(1)}h
+                          {proj.isFixedFee && (
+                            <span style={{ marginLeft: 4, fontFamily: C.font, fontSize: 8.5, fontWeight: 700, padding: "1px 4px", borderRadius: 6, background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}`, verticalAlign: "middle" }}>
+                              FF
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span style={{ color: C.mid, fontSize: 11 }}>—</span>

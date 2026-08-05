@@ -161,6 +161,42 @@ export const MEETING_TYPES = [
 
 export type MeetingType = typeof MEETING_TYPES[number];
 
+// ─── Fixed-fee projects ───────────────────────────────────────────────────────
+//
+// On a fixed-fee engagement the client isn't billed per hour, so consultants log
+// their time as NON-billable in NetSuite. Remaining budget is otherwise derived
+// as `budget − billable hours`, which means nothing is ever consumed and the
+// project reads as fully unspent no matter how much work goes into it.
+// For these projects, ALL actual time (timetype='A') counts against budget.
+
+/**
+ * NetSuite job IDs treated as fixed fee. Explicit list, deliberately.
+ *
+ * 18403 = project 413, Salt and Stone "NS Implementation Phase 2".
+ *
+ * ── Why not drive this off `jobbillingtype`? ──
+ * That field exists and is populated across the account (FBI = Fixed Bid,
+ * Interval 99 · FBM = Fixed Bid, Milestone 37 · TM = Time & Materials 206, as of
+ * August 2026), so it looks like the natural source. Two problems today:
+ *
+ *  1. **It's wrong where it matters.** Every currently ACTIVE project reads
+ *     "TM", including 413, which is fixed fee commercially.
+ *  2. **Switching it on has side effects.** Project 268 (Managed Services
+ *     Agreement) carries FBI and has 910.3h of actual time against a 0h budget,
+ *     so it would swing from 0.0h remaining to −910.3h — a change nobody asked
+ *     for, on a project whose budget simply isn't recorded.
+ *
+ * The right end state is still the field: set `jobbillingtype` correctly in
+ * NetSuite, confirm what it does to 268, then switch this to
+ * `FIXED_FEE_BILLING_TYPES.has(jobBillingType)` and empty this list.
+ */
+export const FIXED_FEE_PROJECT_IDS = new Set([18403]);
+
+/** Does this project count all actual time against budget, rather than billable only? */
+export function isFixedFeeProject(projectId: number, _jobBillingType?: string | null): boolean {
+  return FIXED_FEE_PROJECT_IDS.has(projectId);
+}
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {

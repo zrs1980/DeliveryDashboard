@@ -148,15 +148,25 @@ export interface NSAllocation {
   hoursPerDay: number;      // fallback if percentOfMax is 0
   companyName: string;            // from job.companyname
   /**
-   * Remaining budget, DERIVED as budgetHours − billableHours — not read from
+   * Remaining budget, DERIVED as budgetHours − consumedHours — not read from
    * job.custentity_project_remaining_hours, which is hand-maintained and drifts.
    * Null when the project has no budget set, so "unknown" stays distinguishable
    * from "nothing left".
    */
   remainingHours: number | null;
   budgetHours: number | null;     // from job.custentity_ceba_project_budget_hours
-  /** Billable actual time logged: timetype='A' AND isbillable='T'. */
+  /** Billable actual time: timetype='A' AND isbillable='T'. */
   billableHours: number;
+  /** All actual time: timetype='A', billable or not. */
+  actualHours: number;
+  /** What was actually subtracted from budget — actualHours if fixed fee, else billableHours. */
+  consumedHours: number;
+  /**
+   * Fixed fee, so time is logged non-billable by design and ALL actual time
+   * counts against budget. From job.jobbillingtype, or the override list in
+   * lib/constants.ts where that field isn't maintained.
+   */
+  isFixedFee: boolean;
   targetUtilization?: number;     // from employee.targetutilization (0–1 decimal, default 0.75)
   // Time classification — read straight off the NetSuite project (job) record.
   classifyAsUtilized?:   boolean;  // from job.isutilizedtime

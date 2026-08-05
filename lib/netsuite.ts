@@ -387,6 +387,26 @@ export async function fetchBillableHours(projectIds: number[]) {
   `, projectIds);
 }
 
+/**
+ * Project-level ACTUAL hours: all worked time regardless of billable flag.
+ *
+ * The counterpart to fetchBillableHours, for fixed-fee projects where time is
+ * logged non-billable by design and billable-only sums would report nothing
+ * consumed. Still timetype='A' — allocated ('B') and planned ('P') time is not
+ * work done.
+ */
+export async function fetchActualHours(projectIds: number[]) {
+  if (projectIds.length === 0) return [];
+  const placeholders = projectIds.map(() => "?").join(", ");
+  return runSuiteQL<{ project_id: string; actual_hours: string }>(`
+    SELECT tb.customer AS project_id, SUM(tb.hours) AS actual_hours
+    FROM timebill tb
+    WHERE tb.customer IN (${placeholders})
+      AND tb.timetype = 'A'
+    GROUP BY tb.customer
+  `, projectIds);
+}
+
 // NOTE: pt.parent is selected so callers can tell real phase rows (top-level,
 // parent IS NULL) from the individual task rows nested beneath them. Title
 // matching alone is not enough — isPhaseRow() matches loosely on words like
