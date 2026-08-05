@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { fetchFirefliesMeetings, firefliesConfigured, FirefliesError } from "@/lib/fireflies";
+import { fetchFirefliesMeetings, firefliesConfigured, FirefliesError, DEFAULT_MEETING_LIMIT } from "@/lib/fireflies";
 
 export const revalidate = 0;
 export const maxDuration = 60;
 
-const DEFAULT_FROM = "2026-07-01";
+/**
+ * How far back to look when the caller gives no `from`. This is a search bound,
+ * not a display window: the fetch walks backwards from `to` and stops as soon as
+ * it has `limit` meetings, so a wide default costs nothing on a busy account and
+ * simply reaches further on a quiet one.
+ *
+ * It replaces a hardcoded "2026-07-01", which silently became a longer and
+ * longer range as time passed.
+ */
+const DEFAULT_LOOKBACK_DAYS = 365;
 
 /**
- * GET /api/fireflies/meetings?from=YYYY-MM-DD&to=YYYY-MM-DD&tzOffset=<minutes>
+ * GET /api/fireflies/meetings?from=YYYY-MM-DD&to=YYYY-MM-DD&tzOffset=<minutes>&limit=<n>
+ *
+ * Returns the most recent `limit` meetings (default 100) within the range.
  *
  * Fireflies takes ISO 8601 instants, so local dates are converted here using the
  * browser's offset — the same lesson as the Zoom range bug, applied up front rather
@@ -26,8 +37,12 @@ export async function GET(req: NextRequest) {
   }
 
   const sp       = req.nextUrl.searchParams;
-  const fromDate = sp.get("from") || DEFAULT_FROM;
-  const toDate   = sp.get("to")   || new Date().toISOString().slice(0, 10);
+  const toDate   = sp.get("to") || new Date().toISOString().slice(0, 10);
+  const fromDate = sp.get("from")
+    || new Date(Date.parse(`${toDate}T00:00:00Z`) - DEFAULT_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
+
+  const rawLimit = Number(sp.get("limit") ?? DEFAULT_MEETING_LIMIT);
+  const limit    = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 500) : DEFAULT_MEETING_LIMIT;
 
   const rawOffset = Number(sp.get("tzOffset") ?? "0");
   const tzOffset  = Number.isFinite(rawOffset) && Math.abs(rawOffset) <= 900 ? rawOffset : 0;
@@ -47,6 +62,7 @@ export async function GET(req: NextRequest) {
     const { meetings, truncated, tier, notes } = await fetchFirefliesMeetings(
       new Date(startMs).toISOString(),
       new Date(endMs).toISOString(),
+      limit,
     );
 
     const totalMinutes = meetings.reduce((s, m) => s + (m.durationMinutes || 0), 0);

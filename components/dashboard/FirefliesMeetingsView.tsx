@@ -27,7 +27,23 @@ interface Totals {
   avgMinutes: number; withSummary: number; withExternal: number;
 }
 
-const DEFAULT_FROM = "2026-07-01";
+/** How many meetings the grid asks for by default — the most recent N. */
+const MEETING_LIMIT = 100;
+
+/**
+ * Search bound for the default load, not a display window. The server walks
+ * backwards from `to` and stops once it has MEETING_LIMIT meetings, so this only
+ * decides how far back it is willing to look on a quiet account.
+ *
+ * Replaces a hardcoded "2026-07-01" that quietly widened as time passed.
+ */
+const DEFAULT_LOOKBACK_DAYS = 365;
+
+const isoDaysAgo = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 const todayISO = () => {
   const d = new Date();
@@ -104,7 +120,7 @@ function guessMeetingType(title: string): MeetingType | "" {
 type SortKey = "start" | "duration" | "attendees" | "organiser" | "title";
 
 export function FirefliesMeetingsView() {
-  const [from, setFrom]     = useState(DEFAULT_FROM);
+  const [from, setFrom]     = useState(() => isoDaysAgo(DEFAULT_LOOKBACK_DAYS));
   const [to, setTo]         = useState(todayISO);
   const [meetings, setM]    = useState<Meeting[]>([]);
   const [organisers, setOrg] = useState<Organiser[]>([]);
@@ -157,7 +173,7 @@ export function FirefliesMeetingsView() {
     setLoad(true); setError(null); setNS(false);
     try {
       const tzOffset = new Date().getTimezoneOffset();
-      const res  = await fetch(`/api/fireflies/meetings?from=${from}&to=${to}&tzOffset=${tzOffset}`);
+      const res  = await fetch(`/api/fireflies/meetings?from=${from}&to=${to}&tzOffset=${tzOffset}&limit=${MEETING_LIMIT}`);
       const data = await res.json();
       if (!res.ok) { setNS(!!data.needsSetup); throw new Error(data.error ?? "Failed to load"); }
       setM(data.meetings ?? []);
