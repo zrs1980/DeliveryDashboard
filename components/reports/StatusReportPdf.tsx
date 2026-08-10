@@ -99,15 +99,6 @@ const s = StyleSheet.create({
   chip:     { paddingVertical: 2.5, paddingHorizontal: 7, borderRadius: 5, borderWidth: 0.8, alignSelf: "flex-start" },
   chipText: { fontSize: 8, fontWeight: 700, letterSpacing: 0.4 },
 
-  // ── Metric tiles ──
-  tileRow:  { flexDirection: "row", marginTop: 12 },
-  tile: {
-    flex: 1, backgroundColor: D.card, borderWidth: 1, borderColor: D.cardLine,
-    borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12,
-  },
-  tileVal:   { fontSize: 18, fontWeight: 700, color: D.textOn },
-  tileLabel: { fontSize: 8, color: D.textDim, letterSpacing: 0.6, marginTop: 2 },
-
   // ── Footer ──
   footer: {
     position: "absolute", bottom: 14, left: PAD, right: PAD,
@@ -298,18 +289,15 @@ function PhaseStrip({ report }: { report: StatusReport }) {
   );
 }
 
+/**
+ * NOTE: the metrics tile strip (tasks complete / done / closed this week / hours
+ * vs budget / hours remaining / schedule index) was removed from this slide in
+ * August 2026 at the PM's request. `recap.metrics` is still derived and still
+ * hard-preserved by applyPatch — the phase tracker and the "since last week"
+ * delta line both read from it — it is simply no longer rendered here.
+ */
 function RecapSlide({ report }: { report: StatusReport }) {
   const r = report.recap;
-  const m = r.metrics;
-
-  const tiles = [
-    { v: `${Math.round(m.pctComplete * 100)}%`, l: "TASKS COMPLETE" },
-    { v: `${m.tasksDone}/${m.tasksTotal}`,      l: "TASKS DONE" },
-    { v: String(m.tasksClosedThisWeek),         l: "CLOSED THIS WEEK" },
-    { v: fmtHrs(m.hoursLogged),                 l: `OF ${fmtHrs(m.hoursBudget)} BUDGET` },
-    { v: fmtHrs(m.hoursRemaining),              l: "HOURS REMAINING" },
-    { v: m.spi.toFixed(2),                      l: "SCHEDULE INDEX" },
-  ];
 
   return (
     <Page size={PAGE} style={s.page} wrap={false}>
@@ -347,15 +335,6 @@ function RecapSlide({ report }: { report: StatusReport }) {
           <Text style={s.cardTitle}>ACCOMPLISHMENTS THIS WEEK</Text>
           <Bullets items={r.accomplishments} max={5} />
         </View>
-      </View>
-
-      <View style={s.tileRow}>
-        {tiles.map((t, i) => (
-          <View key={t.l} style={[s.tile, { marginRight: i < tiles.length - 1 ? 8 : 0 }]}>
-            <Text style={s.tileVal}>{t.v}</Text>
-            <Text style={s.tileLabel}>{t.l}</Text>
-          </View>
-        ))}
       </View>
 
       <Footer report={report} page={2} />

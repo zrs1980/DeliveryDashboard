@@ -1274,6 +1274,7 @@ Neither NetSuite nor ClickUp keeps a prior value, so the deck's **"Orig. Due Dat
 
 ### Gotchas
 
+- **The Quick Recap metrics tile strip was removed (August 2026)** — tasks complete / tasks done / closed this week / hours vs budget / hours remaining / schedule index. Removed at the PM's request, not by accident; don't reinstate it without asking. `recap.metrics` is still derived and still hard-preserved by `applyPatch()`, because the phase tracker and the "since last week" delta line read from it — only the rendering went. The `tileRow` / `tile` / `tileVal` / `tileLabel` styles went with it; the Budget slide's similar-looking header figures use their own inline styles and are unaffected.
 - **Claude cannot change numbers.** `applyPatch()` hard-preserves `budget.rows`, `recap.metrics`, `recap.phaseTracker` and `recap.delta`. The model may describe hours but never restate them, or the deck would stop reconciling with NetSuite. Keep this guarantee if you extend the patch schema.
 - **Every AI value is re-validated** in `applyPatch()` — enums coerced, ids minted, unknown fields dropped. A malformed response degrades to a no-op instead of corrupting the report.
 - **`@react-pdf/renderer` must never SSR.** Always reach the PDF through `next/dynamic(..., { ssr: false })`; `usePDF` breaks during server rendering.
