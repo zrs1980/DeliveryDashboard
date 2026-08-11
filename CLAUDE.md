@@ -630,13 +630,25 @@ Column order is **Project / Resource · Class · Orig. Budget · Rem. Budget · 
 
 > Adding or removing a column here means updating **six** places: the `<thead>`, the group-header `colSpan` (`weeks.length + 6`), the sub-group-header `colSpan`, the project row, the five empty cells on nested resource rows, and the group-total row. They will not fail to compile if they disagree — the table just renders misaligned.
 
+### Resource Allocation Note (`NSAllocation.resourceNote`)
+
+The PM's allocation commentary lives as a **User Note on the NetSuite project** — the job record's Communication → User Notes subtab — with the title **"Resource Allocation Note"**. `/api/resources` reads it from the SuiteQL `entitynote` table and `NoteChip` renders it beside the project name in both the by-employee and by-project tables.
+
+It matters most on **419 Placeholder Project for Capacity Planning**, which holds ramp-up hours for deals that aren't sold yet. All 24 of its allocations share one meaningless project name, so the note (`"Yaffe/Phoenix/A-line"`) is the only thing saying which prospects the hours are being held for. Elsewhere it carries things like `"On hold"`.
+
+- **Filter on the title — always.** `entitynote` is a general-purpose notes table: alongside the 4 "Resource Allocation Note" rows it holds client email threads, budget-approval requests and internal action items. Two of those on project 17311 are verbatim customer correspondence about budget overruns. An unfiltered read would publish them onto the resource tab.
+- **The note is project-level, not per-allocation**, so every allocation row of a project carries the same value and `resourceNoteOf()` takes the first non-empty one. It is deliberately **not** rendered on the nested per-resource rows — repeating it there would imply it says something about that consultant.
+- **It is NOT `resourceallocation.notes`.** That column exists in SuiteQL and looks right (it's the "Comments" column in the Lists → Resource Allocations grid), but it is NULL on all 499 allocation records in the account and `systemnote` shows it was never written on any of 419's allocations. It cost a full round of investigation; don't repeat it.
+- **`job` has no comments field either** — verified on 18414, where the REST record returns `comments: null` and SuiteQL exposes no such column.
+- **Don't reach for `EVENT.SMESSAGE`.** Resource allocations are backed by the event/activity table (`recordtypeid -20`), so their `systemnote` history is full of `EVENT.*` fields and the account does hold `SMESSAGE` values — but every one belongs to a calendar meeting, not an allocation.
+
 ### Gotchas
 
 - **Never derive Billable / Utilized / Productive from `projectType` or `jobtype` anywhere in this view.** The grouping uses `projectType`, but that is a *display* grouping only — never a classification. The old jobtype heuristic disagreed with NetSuite on 14 of 21 allocated projects.
 - **Add new groupings via `projectGroupOf`, never by comparing `projectType` inline.** The old code had three independent `TYPE_ORDER`/`TYPE_STYLE` copies plus two `t === "Implementation"` special cases, which is how the billable target and the 30h floor drifted apart.
 - **The per-group billable target is gated on `classifyAsBillable`, not on the group being "Implementation".** It sums `targetUtil × 0.87 × 40` over each unique employee allocated to a *billable-flagged* project that week, so it appears for any group containing billable work.
 - **Compare billable hours to the billable target, not total allocated hours.** The group summary row shows total hours as its headline figure but RAGs on `grpWeekBillable / grpWeekTargets`; using the total would count non-billable work toward a billable target in any mixed group.
-- **`CellEdit` must carry the three flags.** Inline cell creation builds an optimistic `NSAllocation` by hand, and omitting them leaves the new row `undefined` — excluded from every `=== true` filter, so a freshly added allocation reads as 0% Bill/Util/Prod until refresh. The edit/split paths spread `...orig` and are fine.
+- **`CellEdit` must carry the three flags.** Inline cell creation builds an optimistic `NSAllocation` by hand, and omitting them leaves the new row `undefined` — excluded from every `=== true` filter, so a freshly added allocation reads as 0% Bill/Util/Prod until refresh. The edit/split paths spread `...orig` and are fine. The same hand-built row takes `resourceNote` from a sibling allocation on the project — nulling it would drop 419's note off the table until the next refresh.
 - Project rows in the by-project view carry **B / U / P** chips (filled = flag set) so the classification is visible next to the hours; hover for the full NetSuite-sourced breakdown.
 
 ---

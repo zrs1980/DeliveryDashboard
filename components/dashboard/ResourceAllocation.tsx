@@ -224,6 +224,43 @@ function projectTypeShort(projectType: string | null | undefined): string {
   return t.length <= 8 ? t : t.slice(0, 8) + "…";
 }
 
+/**
+ * The project's "Resource Allocation Note" — identical on every allocation row of a
+ * project, so the first row that carries one is representative.
+ */
+function resourceNoteOf(allocs: Array<{ resourceNote?: string | null }>): string | null {
+  for (const a of allocs) {
+    const n = (a.resourceNote ?? "").trim();
+    if (n) return n;
+  }
+  return null;
+}
+
+/**
+ * The PM's allocation note, shown beside a project row.
+ *
+ * Deliberately neutral grey rather than a RAG colour — this is a label the PM wrote,
+ * not a health signal. Renders nothing when the project has no note, so rows on the
+ * projects nobody annotates are unchanged.
+ */
+function NoteChip({ note }: { note: string | null }) {
+  if (!note) return null;
+  return (
+    <span
+      title={`NetSuite project User Note — "Resource Allocation Note": ${note}`}
+      style={{
+        marginLeft: 8, display: "inline-block", verticalAlign: "middle",
+        padding: "0 6px", borderRadius: 3,
+        fontSize: 10, fontWeight: 600, lineHeight: "16px",
+        background: C.alt, color: C.textMid, border: `1px solid ${C.border}`,
+        maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}
+    >
+      ✎ {note}
+    </span>
+  );
+}
+
 /** Group an array by its project group, preserving input order within each band. */
 function groupByProjectGroup<T>(items: T[], typeOf: (x: T) => string | null | undefined) {
   const out: Partial<Record<ProjectGroup, T[]>> = {};
@@ -738,6 +775,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           percentOfMax:   (newHrs / 40) * 100,
           hoursPerDay:    0,
           companyName:    cell.companyName ?? "",
+          // The note is a property of the project, so take it from a sibling row rather
+          // than nulling it — otherwise adding an allocation to project 419 would drop
+          // its note off the row until the next refresh.
+          resourceNote:   sibling?.resourceNote ?? null,
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
           // Adding an allocation logs no time, so the project's hours and its
@@ -1069,7 +1110,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             const tint = projectTypeTint(type);
                             return (
                             <tr key={`${emp.name}-${t}-${allocs[0].projectId}`} style={{ background: rowBgSub }}>
-                              <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 300, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
+                              <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 440, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
                                 <span style={{ color: C.mid, marginRight: 6 }}>└</span>
                                 <span
                                   style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}`, marginRight: 6 }}
@@ -1082,6 +1123,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                 </span>
                                 {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
                                 {name}
+                                <NoteChip note={resourceNoteOf(allocs)} />
                               </td>
                               {weeks.map((w, wi) => {
                                 const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
@@ -1320,6 +1362,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                         <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{proj.companyName} —</span>
                       )}
                       {proj.name}
+                      {/* On the capacity-planning placeholder this is the only thing saying
+                          which prospects the held hours are for. */}
+                      <NoteChip note={resourceNoteOf(proj.rows)} />
                     </td>
 
                     {/* Classification — Billable / Utilized / Productive */}
@@ -1414,7 +1459,10 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                           <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", ...stickyLeft, background: subBg }}>
                             <span style={{ color: C.mid, marginRight: 6 }}>└</span>
                             <span style={{ fontWeight: 600 }}>{emp.name}</span>
-                            {empSaving && <span style={{ marginLeft: 8, fontSize: 10, color: C.blue }}>saving…</span>}
+                            {/* No note chip here — the note belongs to the project, not the
+                                resource, and repeating it on every nested row would imply
+                                it says something about this consultant specifically. */}
+                            {empSaving &&<span style={{ marginLeft: 8, fontSize: 10, color: C.blue }}>saving…</span>}
                             {empError  && <span style={{ marginLeft: 8, fontSize: 10, color: C.red }}>{cellError!.msg}</span>}
                           </td>
 

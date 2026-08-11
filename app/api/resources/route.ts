@@ -97,6 +97,46 @@ export async function GET() {
       // leave empty
     }
 
+    // The PM's allocation commentary, kept as a User Note on the NetSuite project
+    // (Communication → User Notes) rather than on the allocation records themselves.
+    //
+    // ONLY notes titled "Resource Allocation Note" are read. The same table holds
+    // client email threads, budget-approval requests and internal action items — none
+    // of which belong on this tab, and some of which are customer correspondence. An
+    // unfiltered read would publish them straight onto the dashboard.
+    //
+    // Non-fatal: on failure the notes are simply absent, which loses context but never
+    // shows the wrong note against a project.
+    const RESOURCE_NOTE_TITLE = "Resource Allocation Note";
+    const noteByProject: Record<string, string> = {};
+    if (allocProjectIds.length > 0) {
+      try {
+        const noteRows = await runSuiteQL<{ entity: string; note: string | null; title: string | null }>(`
+          SELECT entity, title, note, notedate
+          FROM entitynote
+          WHERE entity IN (${allocProjectIds.join(",")})
+            AND UPPER(TRIM(title)) = '${RESOURCE_NOTE_TITLE.toUpperCase()}'
+          ORDER BY notedate DESC, id DESC
+        `);
+        if (Array.isArray(noteRows)) {
+          // A project normally has exactly one. If a PM adds more, join them newest-first
+          // rather than silently picking one and hiding the rest.
+          const seen: Record<string, Set<string>> = {};
+          for (const n of noteRows as any[]) {
+            const body = (n.note ?? "").trim();
+            if (!body) continue;
+            const key = String(n.entity);
+            (seen[key] ??= new Set());
+            if (seen[key].has(body.toLowerCase())) continue;
+            seen[key].add(body.toLowerCase());
+            noteByProject[key] = noteByProject[key] ? `${noteByProject[key]} · ${body}` : body;
+          }
+        }
+      } catch {
+        // leave empty
+      }
+    }
+
     // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
     const clientMap: Record<string, string> = {};
@@ -184,6 +224,8 @@ export async function GET() {
         projectName:    r.project_name || "—",
         projectType,
         companyName:    r.entity_id ? (clientMap[String(r.entity_id)] || "") : "",
+        // Project-level, so every allocation row of a project carries the same value.
+        resourceNote:   noteByProject[String(r.project_id)] ?? null,
         startDate:      r.startdate,
         endDate:        r.enddate,
         allocationUnit: r.allocationunit ?? "H",

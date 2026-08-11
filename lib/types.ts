@@ -148,6 +148,19 @@ export interface NSAllocation {
   hoursPerDay: number;      // fallback if percentOfMax is 0
   companyName: string;            // from job.companyname
   /**
+   * The PM's allocation commentary for the PROJECT — the User Note on the NetSuite
+   * job (Communication → User Notes) whose title is exactly "Resource Allocation Note".
+   *
+   * Project-level, not per-allocation, so it is identical across every allocation row
+   * of a project. On the capacity-planning placeholder (419) it is what names the
+   * prospects the held hours are for ("Yaffe/Phoenix/A-line"); elsewhere it carries
+   * things like "On hold".
+   *
+   * NOT `resourceallocation.notes` — that field is empty on all 499 allocation records
+   * in the account and is not where PMs write this.
+   */
+  resourceNote: string | null;
+  /**
    * Remaining budget, DERIVED as budgetHours − consumedHours — not read from
    * job.custentity_project_remaining_hours, which is hand-maintained and drifts.
    * Null when the project has no budget set, so "unknown" stays distinguishable
