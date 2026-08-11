@@ -138,15 +138,57 @@ function estimatedFutureHours(a: NSAllocation, today: Date): number {
   return total;
 }
 
+// ─── Allocation bands ─────────────────────────────────────────────────────────
+// Three bands, no middle ground: a consultant is either short of work, in the sweet
+// spot, or over-committed.
+//
+//   under-allocated   < 70%
+//   optimal           70–80%
+//   over-allocated    > 80%
+//
+// This replaces a five-band cell scale (>100 Over / 80–100 High / 70–79 Optimal /
+// 50–69 Med / <50 Low) whose KPI cards then used a THIRD set of cut-offs (≥80 High /
+// 20–79 Normal / <20 Light). A consultant at 60% read "Normal" green on the card and
+// "Med" amber in the grid — two answers to the same question on one screen. One
+// function now drives the cards, the legend and every cell.
+
+type AllocationBand = "under" | "optimal" | "over";
+
+const ALLOC_OPTIMAL_MIN = 70;
+const ALLOC_OPTIMAL_MAX = 80;
+
+/**
+ * Band a weekly allocation percentage.
+ *
+ * Rounds first, deliberately. The grid prints whole percents, and 28h of a 40-hour
+ * week evaluates to 69.99999999999999 in floating point — banding the raw value would
+ * paint a cell reading "70%" as under-allocated. What is shown is what is coloured.
+ */
+function allocationBand(pct: number): AllocationBand {
+  const p = Math.round(pct);
+  if (p > ALLOC_OPTIMAL_MAX) return "over";
+  if (p >= ALLOC_OPTIMAL_MIN) return "optimal";
+  return "under";
+}
+
+/** Colour and label for each band — the only place either is defined. */
+const BAND_STYLE: Record<AllocationBand, { color: string; bg: string; bd: string; label: string }> = {
+  over:    { color: C.red,    bg: C.redBg,    bd: C.redBd,    label: `Over-allocated (>${ALLOC_OPTIMAL_MAX}%)`  },
+  optimal: { color: C.green,  bg: C.greenBg,  bd: C.greenBd,  label: `Optimal (${ALLOC_OPTIMAL_MIN}–${ALLOC_OPTIMAL_MAX}%)` },
+  under:   { color: C.yellow, bg: C.yellowBg, bd: C.yellowBd, label: `Under-allocated (<${ALLOC_OPTIMAL_MIN}%)` },
+};
+
+const BAND_ORDER: AllocationBand[] = ["over", "optimal", "under"];
+
 // ─── Cell colour helpers ──────────────────────────────────────────────────────
 
 function pctCellStyle(pct: number): React.CSSProperties {
+  // 0% means nothing is allocated at all, and is left blank so the dense grid stays
+  // scannable rather than painting every empty cell amber. The KPI cards still count
+  // it as under-allocated — a consultant with no work is exactly that.
   if (pct === 0) return { background: "transparent", color: C.mid };
-  if (pct > 100) return { background: C.redBg,    color: C.red,    fontWeight: 700, border: `1px solid ${C.redBd}` };
-  if (pct >= 80)  return { background: C.orangeBg, color: C.orange, fontWeight: 700, border: `1px solid ${C.orangeBd}` };
-  if (pct >= 70)  return { background: C.greenBg,  color: C.green,  fontWeight: 600, border: `1px solid ${C.greenBd}` };
-  if (pct >= 50)  return { background: C.yellowBg, color: C.yellow, fontWeight: 600, border: `1px solid ${C.yellowBd}` };
-  return              { background: C.redBg,    color: C.red,    fontWeight: 700, border: `1px solid ${C.redBd}` };
+  const s = BAND_STYLE[allocationBand(pct)];
+  return { background: s.bg, color: s.color, fontWeight: 700, border: `1px solid ${s.bd}` };
 }
 
 function gapStyle(gap: number): React.CSSProperties {
@@ -612,15 +654,13 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
   // KPIs (current week)
   const kpis = useMemo(() => {
-    let over = 0, high = 0, normal = 0, light = 0;
+    // Counted through allocationBand() rather than with their own thresholds, so a
+    // card can never disagree with the cell colours below it.
+    const counts: Record<AllocationBand, number> = { over: 0, optimal: 0, under: 0 };
     for (const emp of byEmployee) {
-      const pct = totalPctForWeek(emp.rows, today);
-      if (pct > 100)      over++;
-      else if (pct >= 80) high++;
-      else if (pct >= 20) normal++;
-      else                light++;
+      counts[allocationBand(totalPctForWeek(emp.rows, today))]++;
     }
-    return { total: byEmployee.length, over, high, normal, light };
+    return { total: byEmployee.length, ...counts };
   }, [byEmployee, today]);
 
   const forecastData = useMemo(() => {
@@ -965,11 +1005,21 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       {/* KPI bar */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         {[
-          { label: "Total Resources", value: kpis.total,  color: C.blue,   bg: C.blueBg,   bd: C.blueBd   },
-          { label: "Over-allocated",  value: kpis.over,   color: kpis.over  > 0 ? C.red    : C.textSub, bg: kpis.over  > 0 ? C.redBg    : C.alt, bd: kpis.over  > 0 ? C.redBd    : C.border },
-          { label: "High (≥80%)",    value: kpis.high,   color: kpis.high  > 0 ? C.orange  : C.textSub, bg: kpis.high  > 0 ? C.orangeBg : C.alt, bd: kpis.high  > 0 ? C.orangeBd : C.border },
-          { label: "Normal (20–79%)", value: kpis.normal, color: C.green,   bg: C.greenBg,  bd: C.greenBd  },
-          { label: "Light (<20%)",    value: kpis.light,  color: C.textSub, bg: C.alt,      bd: C.border   },
+          { label: "Total Resources", value: kpis.total, color: C.blue, bg: C.blueBg, bd: C.blueBd },
+          // One card per band, labelled and coloured from BAND_STYLE. A band with a
+          // count of zero greys out — including Optimal, which should read as "nobody
+          // is in the sweet spot" rather than as a healthy green nought.
+          ...BAND_ORDER.map(b => {
+            const s = BAND_STYLE[b];
+            const n = kpis[b];
+            return {
+              label: s.label,
+              value: n,
+              color: n > 0 ? s.color : C.textSub,
+              bg:    n > 0 ? s.bg    : C.alt,
+              bd:    n > 0 ? s.bd    : C.border,
+            };
+          }),
         ].map(k => (
           <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.bd}`, borderRadius: 8, padding: "12px 16px", boxShadow: C.sh, flex: "1 1 0", minWidth: 120 }}>
             <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: k.color, lineHeight: 1 }}>{k.value}</div>
@@ -981,15 +1031,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       {/* Legend */}
       <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: C.textSub, fontWeight: 600 }}>Allocation %:</span>
-        {[
-          { label: ">100% Over",     bg: C.redBg,    color: C.red    },
-          { label: "80–100% High",  bg: C.orangeBg, color: C.orange },
-          { label: "70–79% Optimal", bg: C.greenBg,  color: C.green  },
-          { label: "50–69% Med",    bg: C.yellowBg, color: C.yellow },
-          { label: "<50% Low",      bg: C.redBg,    color: C.red    },
-        ].map(l => (
-          <span key={l.label} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: l.bg, color: l.color }}>
-            {l.label}
+        {BAND_ORDER.map(b => (
+          <span key={b} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: BAND_STYLE[b].bg, color: BAND_STYLE[b].color }}>
+            {BAND_STYLE[b].label}
           </span>
         ))}
       </div>

@@ -541,6 +541,21 @@ Weekly allocation table showing hours per consultant per week, grouped by projec
 - Hours shown in monospace; 0h cells are empty/grey
 - Weeks pro-rate allocation hours across business days in the date range
 
+### Allocation bands — three, and only three
+
+`allocationBand()` in `ResourceAllocation.tsx` is the **single** definition of what an allocation percentage means. It drives the KPI cards, the legend and every coloured cell.
+
+| Band | Range | Colour |
+|---|---|---|
+| Over-allocated | > 80% | red |
+| Optimal | 70–80% | green |
+| Under-allocated | < 70% | amber |
+
+- **It rounds before banding.** The grid prints whole percents, and 28h of a 40-hour week evaluates to `69.99999999999999` — banding the raw float would colour a cell reading "70%" as under-allocated. What is shown is what is coloured.
+- **0% renders blank, not amber**, so the dense grid stays scannable — but the KPI cards still count it as under-allocated, because a consultant with no work is exactly that.
+- **Never add a threshold at a call site.** This replaced a five-band cell scale (`>100 Over / 80–100 High / 70–79 Optimal / 50–69 Med / <50 Low`) whose KPI cards used a *third* set of cut-offs (`≥80 High / 20–79 Normal / <20 Light`). A consultant at 60% read "Normal" green on the card and "Med" amber in the grid directly beneath it. Cards and legend are now generated from `BAND_STYLE`/`BAND_ORDER`, so they cannot drift again.
+- The Forecast tab's `ragFromGap` is a **different** scale (attainment against a utilization target, green/red only) and is deliberately not unified with this one — see "Forecast RAG".
+
 ### Week cell metrics
 
 Every cell in the by-resource grid shows four rows, each as a % of a 40h week:
