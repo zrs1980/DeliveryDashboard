@@ -261,6 +261,28 @@ function NoteChip({ note }: { note: string | null }) {
   );
 }
 
+/**
+ * The same note rendered as its own line beneath a project title, for the consultant
+ * table — where the project cell is nowrap/ellipsis-clipped at 440px and an inline
+ * chip on a long project name (e.g. "Placeholder Project for Capacity Planning") gets
+ * cut off entirely. On its own line it also wraps, so a long note stays readable.
+ */
+function NoteLine({ note, indent = 18 }: { note: string | null; indent?: number }) {
+  if (!note) return null;
+  return (
+    <div
+      title={`NetSuite project User Note — "Resource Allocation Note"`}
+      style={{
+        marginTop: 3, paddingLeft: indent,
+        fontSize: 10, lineHeight: 1.4, color: C.textSub,
+        whiteSpace: "normal", fontWeight: 500,
+      }}
+    >
+      ✎ {note}
+    </div>
+  );
+}
+
 /** Group an array by its project group, preserving input order within each band. */
 function groupByProjectGroup<T>(items: T[], typeOf: (x: T) => string | null | undefined) {
   const out: Partial<Record<ProjectGroup, T[]>> = {};
@@ -1110,20 +1132,24 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                             const tint = projectTypeTint(type);
                             return (
                             <tr key={`${emp.name}-${t}-${allocs[0].projectId}`} style={{ background: rowBgSub }}>
-                              <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 440, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
-                                <span style={{ color: C.mid, marginRight: 6 }}>└</span>
-                                <span
-                                  style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}`, marginRight: 6 }}
-                                  title={projectTypeLabel(type)}
-                                >
-                                  {projectTypeShort(type)}
-                                </span>
-                                <span style={{ marginRight: 7 }}>
-                                  <ClassChips {...chipsFor(allocs)} size={13} />
-                                </span>
-                                {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
-                                {name}
-                                <NoteChip note={resourceNoteOf(allocs)} />
+                              <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 440, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
+                                {/* Title line keeps the single-line clipping; the note sits
+                                    below it so a long project name can't push it out of view. */}
+                                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  <span style={{ color: C.mid, marginRight: 6 }}>└</span>
+                                  <span
+                                    style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}`, marginRight: 6 }}
+                                    title={projectTypeLabel(type)}
+                                  >
+                                    {projectTypeShort(type)}
+                                  </span>
+                                  <span style={{ marginRight: 7 }}>
+                                    <ClassChips {...chipsFor(allocs)} size={13} />
+                                  </span>
+                                  {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
+                                  {name}
+                                </div>
+                                <NoteLine note={resourceNoteOf(allocs)} />
                               </td>
                               {weeks.map((w, wi) => {
                                 const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
