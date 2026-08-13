@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { C } from "@/lib/constants";
+import { C, PTO_APPROVER_EMAILS } from "@/lib/constants";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { ProjectTable } from "@/components/dashboard/ProjectTable";
 import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
@@ -306,7 +306,15 @@ export default function DashboardPage() {
                     {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
                   </div>
               }
-              <span style={{ fontSize: 11, color: "#94A3B8", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {/* Hover shows the email the SESSION carries, which is what every
+                  email-based gate (e.g. PTO_APPROVER_EMAILS) compares against.
+                  Google's OIDC `email` claim is the account's PRIMARY address — signing
+                  in via a Workspace alias yields a different value than the user typed,
+                  so "my access is missing" is otherwise undiagnosable from the browser. */}
+              <span
+                title={session.user.email ?? undefined}
+                style={{ fontSize: 11, color: "#94A3B8", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
                 {session.user.name ?? session.user.email}
               </span>
               <button
@@ -392,7 +400,10 @@ export default function DashboardPage() {
         <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, padding: "6px 0" }}>
           {TABS.filter(t => {
             const email = session?.user?.email?.toLowerCase() ?? "";
-            if (t.id === "mgr-pto") return ["zabe@cebasolutions.com", "rodrigo@cebasolutions.com"].includes(email);
+            // Gate the tab on the SAME list the PTO APIs authorise against. A second
+            // hardcoded copy here meant adding an approver to PTO_APPROVER_EMAILS granted
+            // them the API but not the tab — access that looks broken rather than absent.
+            if (t.id === "mgr-pto") return PTO_APPROVER_EMAILS.includes(email);
             return true;
           }).map(t => {
             const isActive = tab === t.id;
