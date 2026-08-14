@@ -83,7 +83,11 @@ const LIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 async function cuGet(path: string) {
   const res = await fetch(`${BASE_URL}${path}`, { headers: headers() });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    // ClickUp puts a human-readable reason in the body; the bare status doesn't help.
+    const text = await res.text().catch(() => "");
+    throw new Error(`ClickUp ${res.status}: ${text.slice(0, 400)}`);
+  }
   return res.json();
 }
 
@@ -297,6 +301,134 @@ export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
   };
 }
 
+// ─── Statuses, status writes and comments ────────────────────────────────────
+//
+// Write paths behind the Task Command Center's inline status dropdown and its
+// comment box. Both go out under CLICKUP_API_TOKEN, which is a PERSONAL token
+// (ClickUp Settings → Apps) — see the attribution note on postTaskComment.
+
+async function cuPut(path: string, body: unknown) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`ClickUp ${res.status}: ${text.slice(0, 400)}`);
+  return text ? JSON.parse(text) : {};
+}
+
+export interface CUStatus {
+  status:     string;
+  color:      string;
+  orderindex: number;
+  /** "open" | "custom" | "closed" | "done" — ClickUp's own grouping. */
+  type:       string;
+}
+
+/**
+ * The statuses a task on this list can be moved to, in ClickUp's own order.
+ *
+ * Statuses are a property of the LIST, not the task: a task object carries only
+ * the one status it currently holds, so the set of valid targets cannot be
+ * derived from the tasks already loaded. Every list in the workspace can define
+ * its own, which is why this is keyed by list rather than fetched once.
+ */
+export async function fetchListStatuses(listId: string): Promise<CUStatus[]> {
+  const data = await cuGet(`/list/${listId}`);
+  return ((data.statuses ?? []) as CUStatus[])
+    .map(s => ({
+      status:     String(s.status ?? ""),
+      color:      String(s.color ?? ""),
+      orderindex: Number(s.orderindex ?? 0),
+      type:       String(s.type ?? "custom"),
+    }))
+    .filter(s => s.status)
+    .sort((a, b) => a.orderindex - b.orderindex);
+}
+
+/**
+ * Move a task to a new status.
+ *
+ * Returns the status ClickUp reports AFTER the write, which is not always the
+ * one requested — lists can carry automations that react to a status change.
+ * Callers should render what comes back rather than what they sent, so the grid
+ * cannot disagree with ClickUp. Note this still only reflects automations that
+ * run synchronously; a create-style deferred automation (see applyPhase) would
+ * land after the response and only show on the next refresh.
+ */
+export async function updateTaskStatus(taskId: string, status: string): Promise<string> {
+  const data = await cuPut(`/task/${taskId}`, { status });
+  return String(data?.status?.status ?? status);
+}
+
+export interface CUComment {
+  id:   string;
+  text: string;
+  user: string;
+  /**
+   * Unix ms as a STRING — verified against the live API (August 2026), same as
+   * `due_date` and every other ClickUp timestamp. Not a number, not ISO.
+   */
+  date: string | null;
+}
+
+/**
+ * Note there is no `resolved` field: GET /task/{id}/comment does not return one.
+ * Verified on real comments — the keys are id, comment, comment_text, user,
+ * assignee, group_assignee, reactions, date, reply_count. Don't add a resolved
+ * badge here expecting it to populate.
+ */
+function normalizeComment(c: {
+  id?: unknown; comment_text?: unknown; date?: unknown;
+  user?: { username?: unknown; email?: unknown };
+}): CUComment {
+  return {
+    id:   String(c?.id ?? ""),
+    text: String(c?.comment_text ?? ""),
+    user: String(c?.user?.username ?? c?.user?.email ?? "Unknown"),
+    date: c?.date == null ? null : String(c.date),
+  };
+}
+
+export async function fetchTaskComments(taskId: string): Promise<CUComment[]> {
+  const data = await cuGet(`/task/${taskId}/comment`);
+  return ((data.comments ?? []) as Parameters<typeof normalizeComment>[0][])
+    .map(normalizeComment)
+    .filter(c => c.id)
+    // Sorted explicitly oldest-first so the panel reads as a conversation.
+    // ClickUp's own ordering is documented as newest-first but every thread in
+    // this workspace holds a single comment, so it could not be confirmed —
+    // sorting outright means the panel is right either way. Undated comments
+    // sort last rather than jumping to the top on a NaN compare.
+    .sort((a, b) => {
+      const av = a.date == null ? Infinity : Number(a.date);
+      const bv = b.date == null ? Infinity : Number(b.date);
+      return (isNaN(av) ? Infinity : av) - (isNaN(bv) ? Infinity : bv);
+    });
+}
+
+/**
+ * Post a comment to a task.
+ *
+ * CLICKUP_API_TOKEN is a personal token, so EVERY comment posted from the
+ * dashboard appears in ClickUp under whoever generated that token — not the
+ * signed-in PM. `author` is therefore stamped into the comment body itself;
+ * without it the audit trail silently collapses to one person. Switching to
+ * per-user OAuth is the real fix, and would let this prefix go away.
+ */
+export async function postTaskComment(
+  taskId: string,
+  text: string,
+  author: string | null,
+): Promise<void> {
+  const body = author ? `**${author}** (via Delivery Dashboard)\n\n${text}` : text;
+  await cuPost(`/task/${taskId}/comment`, {
+    comment_text: body,
+    notify_all:   false,
+  });
+}
+
 // ─── Task classification helpers ─────────────────────────────────────────────
 
 export function isBlocked(task: CUTask): boolean {
@@ -331,6 +463,31 @@ export function computePct(tasks: CUTask[]): number {
   if (tasks.length === 0) return 0;
   const done = tasks.filter(isDone).length;
   return done / tasks.length;
+}
+
+// ─── Task-derived project fields ─────────────────────────────────────────────
+
+/**
+ * The four Project fields that are pure functions of its ClickUp task list.
+ *
+ * Shared between /api/projects and the client so that editing a task in place
+ * (the Task Command Center's inline status dropdown) reproduces exactly what a
+ * refetch would have returned. Derived in two places, they drift: a task moved
+ * out of "On Hold" in the grid stays counted in Portfolio's Blocked KPI, which
+ * reads `project.blocked` rather than re-testing the tasks.
+ */
+export function deriveTaskRollup(tasks: CUTask[]): {
+  blocked:       CUTask[];
+  clientPending: CUTask[];
+  milestones:    CUTask[];
+  pct:           number;
+} {
+  return {
+    blocked:       tasks.filter(isBlocked),
+    clientPending: tasks.filter(t => isClientPending(t) && !isDone(t)),
+    milestones:    tasks.filter(isMilestone),
+    pct:           computePct(tasks),
+  };
 }
 
 // ─── Bucket tasks by due date ─────────────────────────────────────────────────

@@ -1,21 +1,30 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
-import { isBlocked, isClientPending, isMilestone, isDone, taskBucket } from "@/lib/clickup";
+import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
 import { nsProjectUrl } from "@/lib/constants";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
+import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import type { Project, CUTask, ProjectNote } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabId = "overdue" | "this_week" | "next_week" | "upcoming" | "milestones" | "blocked" | "client";
 
+/**
+ * Accepts an updater as well as a plain array. The status dropdown writes twice
+ * for one edit — optimistically, then again with whatever ClickUp reports back —
+ * and a plain array built from the render-time `projects` would make the second
+ * write discard the first, along with any other edit made in between.
+ */
+type ProjectsUpdate = Project[] | ((prev: Project[]) => Project[]);
+
 interface Props {
   projects: Project[];
-  onProjectsChange: (updated: Project[]) => void;
+  onProjectsChange: (updated: ProjectsUpdate) => void;
   initialTab?: TabId;
 }
 
@@ -73,9 +82,28 @@ function firstName(username: string): string {
 
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
 
+/** Badge colours, falling back to neutral for a status STATUS_STYLES doesn't know. */
+function statusStyle(status: string) {
+  return STATUS_STYLES[status.toLowerCase()]
+    ?? { bg: C.alt, color: C.textMid, bd: C.border, label: statusLabel(status) };
+}
+
+/**
+ * Display form of a status name.
+ *
+ * ClickUp stores these lower-case ("in progress", "requires ns support") and
+ * these lists carry 19 of them, so the raw values make for an unreadable
+ * dropdown. STATUS_STYLES supplies a proper label for the seven it knows;
+ * everything else is title-cased rather than shown as ClickUp stores it.
+ */
+function statusLabel(status: string): string {
+  const known = STATUS_STYLES[status.toLowerCase()];
+  if (known) return known.label;
+  return status.replace(/\b[a-z]/g, ch => ch.toUpperCase());
+}
+
 function StatusBadge({ status }: { status: string }) {
-  const st  = status.toLowerCase();
-  const sty = STATUS_STYLES[st] ?? { bg: C.alt, color: C.textMid, bd: C.border, label: status };
+  const sty = statusStyle(status);
   return (
     <span style={{
       display: "inline-block",
@@ -90,6 +118,74 @@ function StatusBadge({ status }: { status: string }) {
     }}>
       {sty.label}
     </span>
+  );
+}
+
+// ─── StatusSelect — the badge, editable in place ─────────────────────────────
+
+/**
+ * Renders as the same coloured badge, but is a native <select> so the whole
+ * cell is the hit target and keyboard/screen-reader behaviour comes for free.
+ *
+ * Falls back to a read-only badge when the list's statuses haven't loaded (or
+ * failed to load): offering an empty dropdown would imply the task cannot be
+ * moved, when in fact we just don't know the options yet.
+ */
+function StatusSelect({
+  task,
+  statuses,
+  saving,
+  onChange,
+}: {
+  task:     CUTask;
+  statuses: CUStatus[] | undefined;
+  saving:   boolean;
+  onChange: (next: string) => void;
+}) {
+  const current = task.status.status;
+  const sty     = statusStyle(current);
+
+  if (!statuses || statuses.length === 0) {
+    return <StatusBadge status={current} />;
+  }
+
+  // ClickUp is case-insensitive about status names but echoes its own casing.
+  // Match case-insensitively so the select doesn't fall to a blank value when
+  // the task carries "In Review" and the list defines "in review".
+  const match = statuses.find(s => s.status.toLowerCase() === current.toLowerCase());
+
+  return (
+    <select
+      value={match?.status ?? ""}
+      disabled={saving}
+      onChange={e => { if (e.target.value) onChange(e.target.value); }}
+      title={saving ? "Saving…" : `${current} — change to update ClickUp`}
+      style={{
+        appearance:   "none",
+        WebkitAppearance: "none",
+        maxWidth:     "100%",
+        fontSize:     10,
+        fontWeight:   600,
+        fontFamily:   C.font,
+        borderRadius: 3,
+        padding:      "1px 5px",
+        background:   sty.bg,
+        color:        sty.color,
+        border:       `1px solid ${sty.bd}`,
+        cursor:       saving ? "wait" : "pointer",
+        opacity:      saving ? 0.55 : 1,
+        textOverflow: "ellipsis",
+        overflow:     "hidden",
+        whiteSpace:   "nowrap",
+      }}
+    >
+      {/* Only reachable if the task's status isn't among the list's — keeps the
+          real value visible instead of silently showing a blank control. */}
+      {!match && <option value="">{statusLabel(current)}</option>}
+      {statuses.map(s => (
+        <option key={s.status} value={s.status}>{statusLabel(s.status)}</option>
+      ))}
+    </select>
   );
 }
 
@@ -117,7 +213,7 @@ function TableHead() {
         <th style={{ ...th, width: 110 }}>Assignees</th>
         <th style={{ ...th, width: 80 }}>Due</th>
         <th style={{ ...th, width: 90 }}>Scheduled</th>
-        <th style={{ ...th, width: 100 }}>Links</th>
+        <th style={{ ...th, width: 140 }}>Links</th>
       </tr>
     </thead>
   );
@@ -130,11 +226,19 @@ function TaskTableRow({
   project,
   isAlt,
   scheduledAt,
+  statuses,
+  saving,
+  onStatusChange,
+  onOpenComments,
 }: {
   task: CUTask;
   project: Project;
   isAlt: boolean;
   scheduledAt?: string | null;
+  statuses: CUStatus[] | undefined;
+  saving: boolean;
+  onStatusChange: (task: CUTask, next: string) => void;
+  onOpenComments: (task: CUTask) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -170,7 +274,12 @@ function TaskTableRow({
     >
       {/* Status */}
       <td style={td}>
-        <StatusBadge status={task.status.status} />
+        <StatusSelect
+          task={task}
+          statuses={statuses}
+          saving={saving}
+          onChange={next => onStatusChange(task, next)}
+        />
       </td>
 
       {/* Task name */}
@@ -260,6 +369,24 @@ function TaskTableRow({
       {/* Links */}
       <td style={td}>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <button
+            onClick={() => onOpenComments(task)}
+            title="Read and post ClickUp comments"
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: C.font,
+              borderRadius: 4,
+              padding: "1px 5px",
+              background: C.alt,
+              color: C.textMid,
+              border: `1px solid ${C.border}`,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            💬
+          </button>
           <LinkBtn
             href={task.url}
             color={C.blue}
@@ -311,10 +438,18 @@ function TaskTable({
   rows,
   groupByProject,
   scheduledMap,
+  statusesByList,
+  savingTaskId,
+  onStatusChange,
+  onOpenComments,
 }: {
   rows: TaskRow[];
   groupByProject: boolean;
   scheduledMap: Map<string, string>;
+  statusesByList: Record<string, CUStatus[]>;
+  savingTaskId: string | null;
+  onStatusChange: (task: CUTask, next: string) => void;
+  onOpenComments: (task: CUTask) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -331,14 +466,26 @@ function TaskTable({
 
   let rowIndex = 0;
 
+  const renderRow = (task: CUTask, project: Project, alt: boolean) => (
+    <TaskTableRow
+      key={task.id}
+      task={task}
+      project={project}
+      isAlt={alt}
+      scheduledAt={scheduledMap.get(task.id)}
+      statuses={task.list?.id ? statusesByList[task.list.id] : undefined}
+      saving={savingTaskId === task.id}
+      onStatusChange={onStatusChange}
+      onOpenComments={onOpenComments}
+    />
+  );
+
   const buildRows = (): React.ReactNode[] => {
     if (!groupByProject) {
       return rows.map(({ task, project }) => {
         const alt = rowIndex % 2 === 1;
         rowIndex++;
-        return (
-          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} scheduledAt={scheduledMap.get(task.id)} />
-        );
+        return renderRow(task, project, alt);
       });
     }
 
@@ -362,9 +509,7 @@ function TaskTable({
       for (const { task, project } of projectRows) {
         const alt = rowIndex % 2 === 1;
         rowIndex++;
-        result.push(
-          <TaskTableRow key={task.id} task={task} project={project} isAlt={alt} scheduledAt={scheduledMap.get(task.id)} />
-        );
+        result.push(renderRow(task, project, alt));
       }
     }
     return result;
@@ -385,7 +530,8 @@ function TaskTable({
           <col style={{ width: 120 }} />
           <col style={{ width: 85 }} />
           <col style={{ width: 100 }} />
-          <col style={{ width: 110 }} />
+          {/* Links now carries the comments button alongside CU/NS. */}
+          <col style={{ width: 140 }} />
         </colgroup>
         <TableHead />
         <tbody>{buildRows()}</tbody>
@@ -416,12 +562,19 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
     [projects],
   );
   const [selectedResource, setSelectedResource] = useState<string>("");
+  const [selectedStatus, setSelectedStatus]   = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
   const [myWork, setMyWork]                   = useState<boolean>(false);
   const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
   // Map of task_id → scheduled_at ISO string
   const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
   const [slackModalOpen, setSlackModalOpen]   = useState(false);
+
+  // ── ClickUp write state ──
+  const [statusesByList, setStatusesByList] = useState<Record<string, CUStatus[]>>({});
+  const [savingTaskId,   setSavingTaskId]   = useState<string | null>(null);
+  const [actionError,    setActionError]    = useState<string | null>(null);
+  const [commentTask,    setCommentTask]    = useState<CUTask | null>(null);
 
   useEffect(() => {
     fetch("/api/calendar/scheduled")
@@ -436,6 +589,82 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
       .catch(() => {});
   }, [session]);
 
+  // ── Status options per ClickUp list ──
+  // Statuses belong to the LIST, not the task, so the inline dropdown needs one
+  // lookup per distinct list on screen. Batched into a single request: as
+  // separate calls this is a dozen round trips every time the tab opens.
+  const listIdsKey = useMemo(
+    () => Array.from(new Set(
+      projects.flatMap(p => p.tasks.map(t => t.list?.id).filter((id): id is string => !!id)),
+    )).sort().join(","),
+    [projects],
+  );
+
+  useEffect(() => {
+    if (!listIdsKey) return;
+    let cancelled = false;
+    fetch(`/api/clickup/statuses?listIds=${encodeURIComponent(listIdsKey)}`)
+      .then(r => r.json())
+      .then((d: { statuses?: Record<string, CUStatus[]> }) => {
+        // Silent on failure by design: without statuses the dropdown degrades to
+        // the read-only badge it has always been, which is not worth a banner.
+        if (!cancelled && d.statuses) setStatusesByList(d.statuses);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [listIdsKey]);
+
+  /**
+   * Write one task's status into the in-memory Project graph.
+   *
+   * Re-derives blocked / clientPending / milestones / pct from the updated task
+   * list via the same helper /api/projects uses, so a task moved out of "On Hold"
+   * here also leaves Portfolio's Blocked KPI — those are stored arrays, not live
+   * predicates, and would otherwise stay stale until the next Refresh Data.
+   */
+  const applyStatus = useCallback((taskId: string, status: string) => {
+    onProjectsChange(prev => prev.map(p => {
+      if (!p.tasks.some(t => t.id === taskId)) return p;
+      const tasks = p.tasks.map(t =>
+        t.id === taskId ? { ...t, status: { ...t.status, status } } : t,
+      );
+      return { ...p, tasks, ...deriveTaskRollup(tasks) };
+    }));
+  }, [onProjectsChange]);
+
+  const changeStatus = useCallback(async (task: CUTask, next: string) => {
+    const previous = task.status.status;
+    // Case-insensitive: lists spell the same status differently from the task
+    // ("Closed" vs "closed"), and an exact compare would fire a pointless write
+    // when the PM reselects the status the task is already in.
+    if (next.toLowerCase() === previous.toLowerCase()) return;
+
+    setSavingTaskId(task.id);
+    setActionError(null);
+    applyStatus(task.id, next);   // optimistic — the row re-buckets immediately
+
+    try {
+      const res = await fetch("/api/clickup/task-status", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ taskId: task.id, status: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+
+      // Render what ClickUp reports, not what we asked for — a list automation
+      // can land the task somewhere else entirely.
+      if (data.status && data.status !== next) applyStatus(task.id, data.status);
+    } catch (e) {
+      applyStatus(task.id, previous);
+      setActionError(
+        `Could not move "${task.name}" to ${next}: ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+    } finally {
+      setSavingTaskId(null);
+    }
+  }, [applyStatus]);
+
   const visibleProjects = selectedProject
     ? projects.filter(p => p.id === selectedProject)
     : projects;
@@ -445,6 +674,10 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const allRows: TaskRow[] = visibleProjects.flatMap(p =>
     p.tasks
       .filter(t => !selectedResource || t.assignees.some(a => a.username === selectedResource))
+      // Case-insensitive: the same status is spelled differently across lists
+      // ("In Review" / "in review"), and an exact match would silently split one
+      // status into two half-empty filter entries.
+      .filter(t => !selectedStatus || t.status.status.toLowerCase() === selectedStatus)
       .filter(t => !myWork || !sessionName || t.assignees.some(a =>
         a.username.toLowerCase() === sessionName.toLowerCase()
       ))
@@ -459,6 +692,27 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const allResources = Array.from(new Set(
     projects.flatMap(p => p.tasks.flatMap(t => t.assignees.map(a => a.username)))
   )).sort();
+
+  /**
+   * Statuses actually present on the loaded tasks, keyed lower-case with the
+   * first-seen spelling kept for display.
+   *
+   * Deliberately built from the tasks rather than from `statusesByList`: a list
+   * can define a dozen statuses nothing currently sits in, and offering those
+   * fills the filter with options that can only ever return zero rows.
+   */
+  const statusOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const p of projects) {
+      for (const t of p.tasks) {
+        const key = t.status.status.toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, t.status.status);
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([key, raw]) => ({ key, label: statusLabel(raw) }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [projects]);
 
   // Precompute counts for each tab
   const tabCounts: Record<TabId, number> = {
@@ -525,6 +779,20 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             <option value="">All</option>
             {allResources.map(r => (
               <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <label style={labelStyle}>Status</label>
+          <select
+            value={selectedStatus}
+            onChange={e => setSelectedStatus(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All</option>
+            {statusOptions.map(s => (
+              <option key={s.key} value={s.key}>{s.label}</option>
             ))}
           </select>
         </div>
@@ -629,6 +897,30 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
         })}
       </div>
 
+      {/* ── Status write error ── */}
+      {/* Sits above the table because the row it refers to has already reverted
+          to its old status — without this the click just appears to do nothing. */}
+      {actionError && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 10,
+          background: C.redBg,
+          border: `1px solid ${C.redBd}`,
+          borderTop: "none",
+          padding: "9px 12px",
+          fontSize: 12,
+          color: C.red,
+        }}>
+          <span style={{ flex: 1 }}>⚠ {actionError}</span>
+          <button
+            onClick={() => setActionError(null)}
+            style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ── Table ── */}
       <div style={{
         background: C.surface,
@@ -638,8 +930,26 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
         overflow: "hidden",
         boxShadow: C.sh,
       }}>
-        <TaskTable rows={activeRows} groupByProject={groupByProject} scheduledMap={scheduledMap} />
+        <TaskTable
+          rows={activeRows}
+          groupByProject={groupByProject}
+          scheduledMap={scheduledMap}
+          statusesByList={statusesByList}
+          savingTaskId={savingTaskId}
+          onStatusChange={changeStatus}
+          onOpenComments={setCommentTask}
+        />
       </div>
+
+      {/* ── ClickUp comments ── */}
+      {commentTask && (
+        <TaskCommentsModal
+          taskId={commentTask.id}
+          taskName={commentTask.name}
+          taskUrl={commentTask.url}
+          onClose={() => setCommentTask(null)}
+        />
+      )}
 
       {/* ── Post to Slack modal ── */}
       {slackModalOpen && (

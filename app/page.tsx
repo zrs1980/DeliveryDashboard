@@ -498,7 +498,14 @@ export default function DashboardPage() {
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <TaskCommandCenter
               projects={projects}
-              onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
+              // Accepts the updater form as well as a plain array: the inline
+              // ClickUp status dropdown writes twice per edit (optimistic, then
+              // whatever ClickUp reports back), and resolving both against the
+              // render-time array would make the second discard the first.
+              onProjectsChange={updated => setData(d => ({
+                ...d,
+                projects: typeof updated === "function" ? updated(d.projects) : updated,
+              }))}
               initialTab={taskSubTab}
             />
           </div>

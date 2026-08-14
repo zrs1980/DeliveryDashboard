@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
-import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, isBlocked, isClientPending, isMilestone, isDone, computePct } from "@/lib/clickup";
+import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
 import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
 import type { Project, ProjectNote } from "@/lib/types";
@@ -102,7 +102,8 @@ export async function GET() {
           console.error(`[ClickUp] project ${p.id} (${p.companyname}):`, clickupError);
         }
 
-        const pct       = computePct(tasks);
+        const rollup    = deriveTaskRollup(tasks);
+        const pct       = rollup.pct;
         const totalH    = actual + remaining;
         const burnRate  = totalH > 0 ? actual / totalH : 0;
         const spi       = burnRate > 0.01 ? Math.min(pct / burnRate, 2) : 1;
@@ -164,9 +165,9 @@ export async function GET() {
           clickupUrl:    p.clickup_url ?? null,
           clickupListId,
           tasks,
-          blocked:       tasks.filter(isBlocked),
-          clientPending: tasks.filter(t => isClientPending(t) && !isDone(t)),
-          milestones:    tasks.filter(isMilestone),
+          blocked:       rollup.blocked,
+          clientPending: rollup.clientPending,
+          milestones:    rollup.milestones,
           timebillWarning,
           notes: parseNotes(p.user_notes),
           clickupError,
@@ -186,7 +187,8 @@ export async function GET() {
         } catch (e) {
           clickupError = e instanceof Error ? e.message : String(e);
         }
-        const pct = computePct(tasks);
+        const rollup = deriveTaskRollup(tasks);
+        const pct    = rollup.pct;
         return {
           id:            -(idx + 1),
           entityid:      "INTERNAL",
@@ -212,9 +214,9 @@ export async function GET() {
           clickupUrl:    `https://app.clickup.com/42022327/v/l/li/${listId}`,
           clickupListId: listId,
           tasks,
-          blocked:       tasks.filter(isBlocked),
-          clientPending: tasks.filter(t => isClientPending(t) && !isDone(t)),
-          milestones:    tasks.filter(isMilestone),
+          blocked:       rollup.blocked,
+          clientPending: rollup.clientPending,
+          milestones:    rollup.milestones,
           timebillWarning: false,
           notes:         [],
           clickupError,
