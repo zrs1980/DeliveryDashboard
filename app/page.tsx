@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { C, PTO_APPROVER_EMAILS } from "@/lib/constants";
+import { startOfToday } from "@/lib/clickup";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { ProjectTable } from "@/components/dashboard/ProjectTable";
 import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
@@ -235,9 +236,12 @@ export default function DashboardPage() {
   const { projects, phases, cases, allocations, consultantRoster, updatedAt } = data;
 
   const totalOverdue = projects.reduce((s, p) => s + p.tasks.filter(t => {
+    // Counts "supplied" as finished as well, which isOverdueTask deliberately
+    // does not — hence the local rule rather than the shared helper. The date
+    // test still has to be startOfToday(), not Date.now(): see startOfToday.
     const st = t.status.status.toLowerCase();
     const done = st === "done" || st === "complete" || st === "supplied";
-    return !done && !!t.due_date && parseInt(t.due_date) < Date.now();
+    return !done && !!t.due_date && parseInt(t.due_date) < startOfToday();
   }).length, 0);
   const totalBlocked = projects.reduce((s, p) => s + p.blocked.length, 0);
 

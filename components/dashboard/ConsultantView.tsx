@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { C, STATUS_STYLES, nsProjectUrl, EMPLOYEES } from "@/lib/constants";
-import { isBlocked, isClientPending, isMilestone, isDone, taskBucket } from "@/lib/clickup";
+import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, isOverdueTask } from "@/lib/clickup";
 import { fmtH, fmtD, fmtPct } from "@/lib/health";
 import { HealthBadge } from "@/components/health/HealthBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -84,7 +84,7 @@ function CasePriorityBadge({ priority }: { priority: string }) {
 }
 
 function PriorityFlag({ task }: { task: CUTask }) {
-  const overdue = task.due_date && !isDone(task) && parseInt(task.due_date) < Date.now();
+  const overdue = isOverdueTask(task);
   const blocked = isBlocked(task);
   if (overdue) return <span title="Overdue" style={{ fontSize: 13 }}>🔴</span>;
   if (blocked)  return <span title="Blocked" style={{ fontSize: 13 }}>⚠️</span>;
@@ -154,7 +154,7 @@ function TaskTable({
         </thead>
         <tbody>
           {rows.map(({ task, project }, i) => {
-            const overdue = !!task.due_date && !isDone(task) && parseInt(task.due_date) < Date.now();
+            const overdue = isOverdueTask(task);
             const rowBg = overdue && !muted
               ? C.redBg
               : i % 2 === 0 ? C.surface : C.alt;
@@ -376,10 +376,8 @@ export function ConsultantView({ projects, cases }: Props) {
         return openFilteredTasks;
 
       case "high_priority":
-        return openFilteredTasks.filter(({ task }) => {
-          const overdue = !!task.due_date && parseInt(task.due_date) < NOW;
-          return overdue || isBlocked(task) || isClientPending(task);
-        });
+        return openFilteredTasks.filter(({ task }) =>
+          isOverdueTask(task) || isBlocked(task) || isClientPending(task));
 
       case "due_this_week":
         return openFilteredTasks.filter(({ task }) => taskBucket(task) === "this_week");
@@ -428,9 +426,7 @@ export function ConsultantView({ projects, cases }: Props) {
 
   // ── Alert counts ────────────────────────────────────────────────────────────
 
-  const overdueCount = openFilteredTasks.filter(({ task }) =>
-    !!task.due_date && parseInt(task.due_date) < NOW
-  ).length;
+  const overdueCount = openFilteredTasks.filter(({ task }) => isOverdueTask(task)).length;
   const blockedCount = openFilteredTasks.filter(({ task }) => isBlocked(task)).length;
   const showAlert    = overdueCount > 0 || blockedCount > 0;
 
@@ -925,9 +921,7 @@ export function ConsultantView({ projects, cases }: Props) {
               }}>
                 {myProjects.map(p => {
                   const openTasks     = projectOpenTasks(p);
-                  const overdueOnProj = openTasks.filter(t =>
-                    t.due_date && parseInt(t.due_date) < NOW
-                  ).length;
+                  const overdueOnProj = openTasks.filter(isOverdueTask).length;
                   const color = hColor(p.health);
 
                   return (

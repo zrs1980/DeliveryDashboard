@@ -452,9 +452,31 @@ export function isDone(task: CUTask): boolean {
   return st === "done" || st === "complete";
 }
 
+/**
+ * Local midnight this morning — the line between "overdue" and "due today".
+ *
+ * Overdue is a comparison of DATES, never of instants. ClickUp stores a due date
+ * with a time attached, and for a date-only due date that time is an arbitrary
+ * fixed hour rather than end of day: every task due 14 Aug 2026 on the Certified
+ * Waste list carries 04:00 local. Testing `due < Date.now()` therefore flipped
+ * every task due today into Overdue from 04:00 onwards, and the whole tab reads
+ * in whole days ("This Week", "14 Aug"), so an hours-precise cutoff was never
+ * the intended meaning.
+ */
+export function startOfToday(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Due before today and not finished. Use this everywhere rather than comparing
+ * `due_date` inline — the instant-vs-day mistake above was independently
+ * repeated in eight call sites across the Tasks tab, My Work and AI insights.
+ */
 export function isOverdueTask(task: CUTask): boolean {
   if (!task.due_date || isDone(task)) return false;
-  return parseInt(task.due_date) < Date.now();
+  return parseInt(task.due_date) < startOfToday();
 }
 
 // ─── Compute % complete from task list ───────────────────────────────────────
@@ -497,7 +519,6 @@ export type Bucket = "overdue" | "this_week" | "next_week" | "upcoming" | "no_da
 export function taskBucket(task: CUTask): Bucket {
   if (!task.due_date) return "no_date";
   const due  = parseInt(task.due_date);
-  const now  = Date.now();
   const week = 7 * 86400000;
 
   // Mon of current week
@@ -507,8 +528,10 @@ export function taskBucket(task: CUTask): Bucket {
   mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
   const monMs = mon.getTime();
 
-  if (due < now && !isDone(task)) return "overdue";
-  if (due < monMs + week)         return "this_week";
-  if (due < monMs + 2 * week)     return "next_week";
+  // Against midnight, NOT Date.now() — a task due today belongs to This Week all
+  // day, not from whatever hour ClickUp stamped on its due date. See startOfToday.
+  if (isOverdueTask(task))    return "overdue";
+  if (due < monMs + week)     return "this_week";
+  if (due < monMs + 2 * week) return "next_week";
   return "upcoming";
 }

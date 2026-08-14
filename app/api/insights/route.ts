@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Project } from "@/lib/types";
 import { fmtH, fmtPct, fmtD } from "@/lib/health";
-import { isDone } from "@/lib/clickup";
+import { isDone, isOverdueTask } from "@/lib/clickup";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       const myTasks = projects.flatMap(p =>
         p.tasks.filter(t => !isDone(t) && t.assignees.some(a => a.username === consultant))
       );
-      const overdue  = myTasks.filter(t => t.due_date && parseInt(t.due_date) < Date.now()).length;
+      const overdue  = myTasks.filter(isOverdueTask).length;
       const blocked  = myTasks.filter(t => t.status.status.toLowerCase() === "blocked" || t.status.status.toLowerCase() === "on hold").length;
       const thisWeek = myTasks.filter(t => {
         if (!t.due_date) return false;
