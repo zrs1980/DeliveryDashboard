@@ -13,10 +13,23 @@ interface PeriodMetrics {
   billable: number;
   utilized: number;
   productive: number;
+  /** Hours booked to a leave project (PTO / sick / holiday) inside the period. */
+  leave: number;
+  /** Capacity before leave — business days x 8h. */
+  grossAvailable: number;
+  /** grossAvailable - leave. The denominator behind every pct on this object. */
+  availableHours: number;
   billablePct: number;
   utilizedPct: number;
   productivePct: number;
 }
+
+/** Zeroed metrics for an employee with no rows in the selected period. */
+const EMPTY_METRICS: PeriodMetrics = {
+  total: 0, billable: 0, utilized: 0, productive: 0,
+  leave: 0, grossAvailable: 0, availableHours: 0,
+  billablePct: 0, utilizedPct: 0, productivePct: 0,
+};
 
 interface WeekPoint extends PeriodMetrics { weekStart: string; }
 
@@ -224,8 +237,16 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
     { total: 0, billable: 0, utilized: 0, productive: 0 },
   );
   const tt = teamTotals.total;
-  // Capacity uses all team members so new consultants (no hours yet) are counted
-  const teamAvailableHours = (periodAvailableHours[resolvedPeriod] ?? 0) * employees.length;
+
+  // Capacity is summed PER EMPLOYEE rather than (period capacity x headcount),
+  // because each consultant's leave comes off their own capacity — one person's
+  // week of PTO must not be spread across the team. Still iterates `employees`,
+  // not `active`, so a new consultant with no hours yet is counted as capacity.
+  const teamLeaveHours = employees.reduce((s, e) => s + (e.periods[resolvedPeriod]?.leave ?? 0), 0);
+  const teamGrossHours = employees.reduce(
+    (s, e) => s + (e.periods[resolvedPeriod]?.grossAvailable ?? periodAvailableHours[resolvedPeriod] ?? 0), 0);
+  const teamAvailableHours = employees.reduce(
+    (s, e) => s + (e.periods[resolvedPeriod]?.availableHours ?? periodAvailableHours[resolvedPeriod] ?? 0), 0);
   const teamDenom = teamAvailableHours > 0 ? teamAvailableHours : tt;
   const teamBillablePct   = teamDenom > 0 ? teamTotals.billable   / teamDenom : 0;
   const teamUtilizedPct   = teamDenom > 0 ? teamTotals.utilized   / teamDenom : 0;
@@ -294,6 +315,17 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
             <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Total Hours</div>
             <div style={{ fontSize: 28, fontWeight: 800, fontFamily: C.mono, color: C.blue, lineHeight: 1.1 }}>{fmtH(tt)}</div>
             <div style={{ fontSize: 11, color: C.blue, opacity: 0.65, marginTop: 4 }}>{active.length} active consultants</div>
+            {/* The denominator, spelled out. Percentages here are measured against
+                available capacity, not against hours logged — without this the
+                figures cannot be reproduced from anything else on screen. */}
+            <div
+              style={{ fontSize: 10.5, color: C.blue, opacity: 0.75, marginTop: 6, fontFamily: C.mono }}
+              title="Utilization is measured against available capacity (business days × 8h), less any PTO, sick or public holiday booked in the period."
+            >
+              {teamLeaveHours > 0
+                ? `${fmtH(teamGrossHours)} capacity − ${fmtH(teamLeaveHours)} leave = ${fmtH(teamAvailableHours)} available`
+                : `${fmtH(teamAvailableHours)} available capacity`}
+            </div>
           </div>
 
           {/* Billable / Utilized / Productive — bar widgets */}
@@ -358,7 +390,10 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                   ...emps.map((emp) => {
                     const i = rowIdx++;
 
-                const p          = emp.periods[resolvedPeriod] ?? { total: 0, billable: 0, utilized: 0, productive: 0, billablePct: 0, utilizedPct: 0, productivePct: 0 };
+                const p          = emp.periods[resolvedPeriod] ?? EMPTY_METRICS;
+                // This consultant's own capacity after their own leave — never the
+                // team-wide figure, or someone else's PTO would move their target.
+                const empAvail   = p.availableHours || periodAvailableHours[resolvedPeriod] || p.total;
                 const utilTgt    = emp.targetUtilization ?? 0.75;
                 const billTgt    = utilTgt * BILL_RATIO;
                 const isExpanded = expandedEmp === emp.employeeId;
@@ -418,7 +453,7 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                       </div>
                                       <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 22, color: g.color, lineHeight: 1 }}>{fmtH(g.hours)}</div>
                                       {(() => {
-                                        const gap = (periodAvailableHours[resolvedPeriod] ?? p.total) * g.target - g.hours;
+                                        const gap = empAvail * g.target - g.hours;
                                         return gap > 0
                                           ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                           : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over target</div>;
@@ -429,6 +464,18 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                     </div>
                                   </div>
                                 ))}
+                              </div>
+                            )}
+
+                            {/* This consultant's denominator, spelled out. Leave is
+                                shown as a deduction rather than silently applied —
+                                a percentage nobody can reproduce is a percentage
+                                nobody trusts. */}
+                            {p.total > 0 && empAvail > 0 && (
+                              <div style={{ fontSize: 11, fontFamily: C.mono, color: C.textSub, marginTop: -12, marginBottom: 18 }}>
+                                {p.leave > 0
+                                  ? <>Measured against <strong style={{ color: C.textMid }}>{fmtH(empAvail)}</strong> available — {fmtH(p.grossAvailable)} capacity less {fmtH(p.leave)} PTO/sick/holiday</>
+                                  : <>Measured against <strong style={{ color: C.textMid }}>{fmtH(empAvail)}</strong> available capacity</>}
                               </div>
                             )}
 
@@ -561,9 +608,11 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
                                             {g.label} <span style={{ fontWeight: 400, opacity: 0.65 }}>target {fmtPct(g.target)}</span>
                                           </div>
                                           <div style={{ fontFamily: C.mono, fontWeight: 800, fontSize: 16, color: g.color }}>{fmtH(g.hours)}</div>
-                                          <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of total</div>
+                                          {/* "of available", not "of total" — the denominator is
+                                              capacity less leave, not hours logged. */}
+                                          <div style={{ fontSize: 10, color: g.color, opacity: 0.8 }}>{fmtPct(g.pct)} of {fmtH(empAvail)} available</div>
                                           {(() => {
-                                            const gap = (periodAvailableHours[resolvedPeriod] ?? p.total) * g.target - g.hours;
+                                            const gap = empAvail * g.target - g.hours;
                                             return gap > 0
                                               ? <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.red,   marginTop: 3 }}>Need {fmtH(gap)} more</div>
                                               : <div style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 600, color: C.green, marginTop: 3 }}>+{fmtH(Math.abs(gap))} over</div>;

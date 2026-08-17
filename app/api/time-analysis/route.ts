@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSuiteQL, runSuiteQLAll, getActiveJobResources } from "@/lib/netsuite";
+import { LEAVE_PROJECT_IDS } from "@/lib/constants";
 
 export const revalidate = 0;
 
@@ -53,6 +54,8 @@ interface DayTotals {
   billable: number;
   utilized: number;
   productive: number;
+  /** Hours booked to a LEAVE_PROJECT_IDS project — absence, deducted from capacity. */
+  leave: number;
 }
 
 const HOURS_PER_DAY = 8;
@@ -69,8 +72,13 @@ function countBusinessDays(from: Date, to: Date): number {
   return count;
 }
 
-function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date, availableHours?: number) {
-  let total = 0, billable = 0, utilized = 0, productive = 0;
+/**
+ * @param grossAvailable Capacity before leave — business days x 8h. Omit to fall
+ *   back to measuring against hours actually logged (used by the weekly trend,
+ *   which has no capacity concept).
+ */
+function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date, grossAvailable?: number) {
+  let total = 0, billable = 0, utilized = 0, productive = 0, leave = 0;
   for (const [dateStr, v] of byDate) {
     const d = parseNSDate(dateStr);
     if (!d || d < from || d > to) continue;
@@ -78,13 +86,29 @@ function sumPeriod(byDate: Map<string, DayTotals>, from: Date, to: Date, availab
     billable   += v.billable;
     utilized   += v.utilized;
     productive += v.productive;
+    leave      += v.leave;
   }
-  const denom = availableHours ?? total;
+
+  // Leave is absence, so it comes OFF capacity: a consultant who was out sick on
+  // Monday had 32 available hours that week, not 40. Clamped at zero because
+  // nothing stops someone booking more leave than the period holds (a backdated
+  // correction, or leave logged against a period that has barely started), and a
+  // negative denominator would flip every percentage on the row.
+  const available = grossAvailable === undefined
+    ? undefined
+    : Math.max(0, grossAvailable - leave);
+
+  const denom = available ?? total;
   return {
     total:         Math.round(total * 100) / 100,
     billable:      Math.round(billable * 100) / 100,
     utilized:      Math.round(utilized * 100) / 100,
     productive:    Math.round(productive * 100) / 100,
+    leave:         Math.round(leave * 100) / 100,
+    // Gross capacity and what's left of it after leave — returned so the UI can
+    // show the deduction rather than presenting a denominator nobody can derive.
+    grossAvailable: grossAvailable === undefined ? 0 : Math.round(grossAvailable * 100) / 100,
+    availableHours: available === undefined ? 0 : Math.round(available * 100) / 100,
     billablePct:   denom > 0 ? billable   / denom : 0,
     utilizedPct:   denom > 0 ? utilized   / denom : 0,
     productivePct: denom > 0 ? productive / denom : 0,
@@ -249,13 +273,17 @@ export async function GET(req: NextRequest) {
           const b = parseFloat(r.billable_hours)   || 0;
           const u = parseFloat(r.utilized_hours)   || 0;
           const p = parseFloat(r.productive_hours) || 0;
+          // Leave still counts as logged time (it happened, and it shows in Total
+          // Hours) — it is only removed from the capacity these are measured against.
+          const l = r.project_id && LEAVE_PROJECT_IDS.has(String(r.project_id)) ? t : 0;
           if (existing) {
             existing.total      += t;
             existing.billable   += b;
             existing.utilized   += u;
             existing.productive += p;
+            existing.leave      += l;
           } else {
-            byDate.set(r.trandate, { total: t, billable: b, utilized: u, productive: p });
+            byDate.set(r.trandate, { total: t, billable: b, utilized: u, productive: p, leave: l });
           }
         }
 

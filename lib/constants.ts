@@ -96,6 +96,41 @@ export const HIRE_DATES: Record<string, string> = {
   "zabe@cebasolutions.com": "2025-10-01",
 };
 
+/**
+ * NetSuite project (`job`) internal IDs that represent ABSENCE, not work.
+ *
+ * Time logged against these is subtracted from a consultant's available hours
+ * before utilization is computed — a day off is not a day they failed to
+ * utilize. Without this, taking leave silently lowers your utilization: Sam
+ * Balido's 8h of `CEBA - Sick` in Aug 2026 read as 68.5% instead of 75.3%, and
+ * Jason Tutanes' 16h read as 61.4% instead of 75.0%.
+ *
+ * Only genuine absence belongs here. Internal Meetings, Admin, Business
+ * Development and Training/Certification are all real work that happens to be
+ * non-utilized — they SHOULD count against capacity, since measuring how much
+ * of the working day reached client-utilized work is the point of the metric.
+ *
+ * Verified against the account (August 2026). To find new ones:
+ *   SELECT id, entityid, companyname FROM job
+ *   WHERE LOWER(companyname) LIKE '%sick%' OR LIKE '%pto%' OR LIKE '%holiday%'
+ *      OR LIKE '%vacation%' OR LIKE '%leave%' OR LIKE '%bereav%'
+ *
+ * Kept as explicit IDs rather than a name match: the account holds a project
+ * literally named "CEBA - Business Development" that a `%leave%`-style pattern
+ * would never catch and a looser one would wrongly swallow, and a name match
+ * would silently re-classify any project a PM renames.
+ */
+export const LEAVE_PROJECT_IDS = new Set<string>([
+  "10252",  // 117 — CEBA - PTO
+  "10253",  // 118 — CEBA - Sick
+  "10254",  // 119 — CEBA - Public Holiday
+  "11841",  // 166 — CEBA Leave - Bereavement
+  "15855",  // 244 — CEBA - Leave - Parental Leave
+  "17432",  // 371 — Loop - Sick
+  "17433",  // 372 — Loop - Public Holiday
+  "17434",  // 373 — Loop - PTO
+]);
+
 /** Emails that can view all PTO requests and approve/reject them */
 export const PTO_APPROVER_EMAILS = [
   "zabe@cebasolutions.com",
