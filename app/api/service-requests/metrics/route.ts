@@ -3,6 +3,37 @@ import { runSuiteQL } from "@/lib/netsuite";
 
 const QUOTA = 3;
 
+/**
+ * Opportunity status labels are free-form and inconsistently prefixed in this
+ * account — "0 - Closed Lost", "1- Nurturing", "1 - -On Hold", "85 - Pending SOW
+ * Approval", but plain "Closed Won". Strip any leading number-dash and all
+ * punctuation so a comparison survives that.
+ */
+function normalizeStatus(label: string): string {
+  return label.toLowerCase().replace(/^\s*\d+\s*-\s*/, "").replace(/[^a-z]/g, "");
+}
+
+/**
+ * Statuses that do NOT count toward a consultant's SR quota.
+ *
+ * CLOSED WON IS DELIBERATELY ABSENT. The quota counts service requests a
+ * consultant IDENTIFIED; winning the deal is the success case, so excluding it
+ * meant the best possible outcome silently deleted the credit. Seven closed-won
+ * SRs were being hidden across 2026 — Jason Tutanes read 6 YTD instead of 11,
+ * Sam Balido 3 instead of 5.
+ *
+ * The route previously carried TWO exclusions that were not the same rule:
+ * `entitystatus <> 14` in the SQL and a "closed won" label test in JS. 14 is
+ * Closed LOST in this account, not Closed Won, so the pair dropped both — almost
+ * certainly not what was intended, since the label test reads as a more reliable
+ * restatement of the numeric one.
+ */
+const QUOTA_EXCLUDED_STATUSES = new Set(["closedlost"]);
+
+function isQuotaExcluded(label: string): boolean {
+  return QUOTA_EXCLUDED_STATUSES.has(normalizeStatus(label));
+}
+
 function parseMonthKey(dateStr: string): string | null {
   if (!dateStr) return null;
   const mdy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -50,13 +81,13 @@ export async function GET() {
       FROM transaction t
       WHERE t.type = 'Opprtnty'
       AND t.custbody_sr_indentified_by IS NOT NULL
-      AND t.entitystatus <> 14
       ORDER BY t.tranDate DESC
     `);
 
-    // Filter by label — numeric entitystatus IDs vary per account; text is reliable
+    // Filter by label, not by numeric id — the ids are account-specific and the
+    // two filters that used to sit here disagreed about what they excluded.
     const filteredRows = rows.filter(
-      (r: any) => (r.entitystatus_label ?? "").toLowerCase() !== "closed won"
+      (r: any) => !isQuotaExcluded(r.entitystatus_label ?? ""),
     );
 
     // Resolve customer names
