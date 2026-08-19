@@ -299,9 +299,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { employeeId, projectId, startDate, endDate, weeklyHours } = await req.json() as {
+    const { employeeId, projectId, startDate, endDate, weeklyHours, taskId } = await req.json() as {
       employeeId:  number;
       projectId:   number;
+      taskId?:     string | null;
       startDate:   string;   // YYYY-MM-DD
       endDate:     string;   // YYYY-MM-DD
       weeklyHours: number;
@@ -316,6 +317,11 @@ export async function POST(req: NextRequest) {
       endDate,
       allocationUnit:     { id: "P" },
       allocationAmount:   pct,
+      // Carry the task through when the row being edited is a task row. Without
+      // this, adding hours to a per-task line on 419 would create an UNTASKED
+      // allocation, so the hours would appear on the project baseline row instead
+      // of the row that was clicked.
+      ...(taskId ? { projectTask: { id: String(taskId) } } : {}),
     });
 
     return NextResponse.json({ id: newId, success: true });

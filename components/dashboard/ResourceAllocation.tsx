@@ -20,6 +20,15 @@ interface CellEdit {
   remainingHours: number | null;
   budgetHours:   number | null;
   weekMs:        number;
+  /**
+   * The project task of the row being edited, if it is a task row.
+   *
+   * Part of the edit IDENTITY, not just payload: one employee can hold two rows
+   * on the same project under different tasks, and without this both rows match
+   * the same editingCell and open an input simultaneously.
+   */
+  taskId:        string | null;
+  taskName:      string | null;
   // Carried through so an optimistically-created allocation classifies correctly
   // before the next refresh. Without these the new row reads as undefined and is
   // excluded from every Billable/Utilized/Productive figure.
@@ -807,7 +816,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
     savingRef.current = true;
     const cell    = editingCell;
-    const saveKey = cell.allocationId ?? `${cell.employeeId}-${cell.projectId}-${cell.weekMs}`;
+    const saveKey = cell.allocationId ?? `${cell.employeeId}-${cell.projectId}-${cell.taskId ?? ""}-${cell.weekMs}`;
     setEditingCell(null);
     setSavingId(saveKey);
 
@@ -818,7 +827,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       const res = await fetch("/api/resources", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ employeeId: cell.employeeId, projectId: cell.projectId, startDate, endDate, weeklyHours: weeklyHrs }),
+        body:    JSON.stringify({ employeeId: cell.employeeId, projectId: cell.projectId, startDate, endDate, weeklyHours: weeklyHrs, taskId: cell.taskId }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -866,11 +875,11 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           // than nulling it — otherwise adding an allocation to project 419 would drop
           // its note off the row until the next refresh.
           resourceNote:   sibling?.resourceNote ?? null,
-          // Inline creation cannot pick a task, so a new allocation is untasked and
-          // lands on the project baseline row. Set explicitly rather than omitted:
-          // left undefined it would neither match a task group nor the untasked one.
-          taskId:         null,
-          taskName:       null,
+          // Inherited from the row that was clicked, and sent to NetSuite with the
+          // create. Set explicitly rather than omitted: left undefined the new row
+          // would match neither a task group nor the untasked one.
+          taskId:         cell.taskId,
+          taskName:       cell.taskName,
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
           // Adding an allocation logs no time, so the project's hours and its
@@ -1554,13 +1563,23 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
 
                   {/* Resource sub-rows — one row per employee, hours summed across all their allocations */}
                   {isExp && (() => {
-                    // Group allocations by employee
-                    const empMap = new Map<number, { name: string; allocs: NSAllocation[] }>();
+                    // Grouped by employee AND task, so hours are broken out per task
+                    // rather than merged. On 419 each unsold deal is a task, and one
+                    // consultant can hold hours against several — merged they would be
+                    // one figure attributable to no prospect. Allocations with no task
+                    // (almost all of them) collapse to one row per employee as before.
+                    const empMap = new Map<string, { name: string; employeeId: number; taskId: string | null; taskName: string | null; allocs: NSAllocation[] }>();
                     for (const a of proj.rows) {
-                      if (!empMap.has(a.employeeId)) empMap.set(a.employeeId, { name: a.employeeName, allocs: [] });
-                      empMap.get(a.employeeId)!.allocs.push(a);
+                      const key = `${a.employeeId}::${a.taskId ?? ""}`;
+                      if (!empMap.has(key)) empMap.set(key, { name: a.employeeName, employeeId: a.employeeId, taskId: a.taskId ?? null, taskName: a.taskName ?? null, allocs: [] });
+                      empMap.get(key)!.allocs.push(a);
                     }
-                    const employees = Array.from(empMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+                    // Each consultant kept together, their untasked line first, then
+                    // their tasks alphabetically.
+                    const employees = Array.from(empMap.values()).sort((x, y) =>
+                      x.name.localeCompare(y.name)
+                      || (x.taskName ? 1 : 0) - (y.taskName ? 1 : 0)
+                      || (x.taskName ?? "").localeCompare(y.taskName ?? ""));
 
                     return employees.map((emp, ei) => {
                       const isLast   = ei === employees.length - 1;
@@ -1569,11 +1588,12 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                       const empError  = emp.allocs.find(a => cellError?.id === a.id);
 
                       return (
-                        <tr key={`${proj.projectId}-${emp.name}`} style={{ background: subBg }}>
+                        <tr key={`${proj.projectId}-${emp.employeeId}-${emp.taskId ?? ""}`} style={{ background: subBg }}>
                           {/* Resource name */}
                           <td style={{ padding: "7px 14px 7px 32px", fontSize: 11, color: C.textMid, borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`, whiteSpace: "nowrap", ...stickyLeft, background: subBg }}>
                             <span style={{ color: C.mid, marginRight: 6 }}>└</span>
                             <span style={{ fontWeight: 600 }}>{emp.name}</span>
+                            <TaskChip name={emp.taskName} />
                             {/* No note chip here — the note belongs to the project, not the
                                 resource, and repeating it on every nested row would imply
                                 it says something about this consultant specifically. */}
@@ -1597,13 +1617,18 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                             const isEditingThis =
                               editingCell !== null &&
                               editingCell.weekMs     === wMs &&
-                              editingCell.employeeId === emp.allocs[0].employeeId &&
-                              editingCell.projectId  === proj.projectId;
+                              editingCell.employeeId === emp.employeeId &&
+                              editingCell.projectId  === proj.projectId &&
+                              // Same employee, same project, different task = a different
+                              // row. Without this both rows open an input at once.
+                              (editingCell.taskId ?? "") === (emp.taskId ?? "");
 
                             const cellContext: CellEdit = {
                               allocationId:   coveringAlloc?.id ?? null,
-                              employeeId:     emp.allocs[0].employeeId,
+                              employeeId:     emp.employeeId,
                               employeeName:   emp.name,
+                              taskId:         emp.taskId,
+                              taskName:       emp.taskName,
                               projectId:      proj.projectId,
                               projectName:    proj.name,
                               projectType:    proj.projectType ?? "Internal",
