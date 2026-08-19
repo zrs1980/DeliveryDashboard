@@ -285,6 +285,31 @@ function resourceNoteOf(allocs: Array<{ resourceNote?: string | null }>): string
  * not a health signal. Renders nothing when the project has no note, so rows on the
  * projects nobody annotates are unchanged.
  */
+/**
+ * The project TASK an allocation is booked against.
+ *
+ * Reads as part of the title rather than as separate metadata, because on 419
+ * the task IS the identity of the row — "Placeholder Project for Capacity
+ * Planning" says nothing, "Placeholder Project ▸ Yaffe" says everything. Renders
+ * nothing when absent, which is the case for almost every allocation.
+ */
+function TaskChip({ name }: { name: string | null }) {
+  if (!name?.trim()) return null;
+  return (
+    <span
+      title={`Allocated against the "${name}" task`}
+      style={{
+        display: "inline-block", marginLeft: 6, padding: "0 6px",
+        borderRadius: 3, fontSize: 9.5, fontWeight: 700,
+        background: C.purpleBg, color: C.purple, border: `1px solid ${C.purpleBd}`,
+        verticalAlign: "middle",
+      }}
+    >
+      ▸ {name}
+    </span>
+  );
+}
+
 function NoteChip({ note }: { note: string | null }) {
   if (!note) return null;
   return (
@@ -841,6 +866,11 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           // than nulling it — otherwise adding an allocation to project 419 would drop
           // its note off the row until the next refresh.
           resourceNote:   sibling?.resourceNote ?? null,
+          // Inline creation cannot pick a task, so a new allocation is untasked and
+          // lands on the project baseline row. Set explicitly rather than omitted:
+          // left undefined it would neither match a task group nor the untasked one.
+          taskId:         null,
+          taskName:       null,
           remainingHours: cell.remainingHours,
           budgetHours:    cell.budgetHours,
           // Adding an allocation logs no time, so the project's hours and its
@@ -1158,10 +1188,18 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                           </td>
                         </tr>,
                         ...(() => {
-                          const byProj = new Map<number, { allocs: NSAllocation[]; name: string; companyName: string; type: string }>();
+                          // Keyed by project AND task, so a project holding several
+                          // streams of work gets a row per stream rather than one
+                          // merged line. This is the whole point on 419, where each
+                          // unsold deal is a task: merged, its prospects would share
+                          // one set of weekly hours and none would be attributable.
+                          // Allocations with no task (almost all of them) collapse to
+                          // a single key per project exactly as before.
+                          const byProj = new Map<string, { allocs: NSAllocation[]; name: string; companyName: string; type: string; taskName: string | null; projectId: number }>();
                           for (const a of grouped[t]!) {
-                            if (!byProj.has(a.projectId)) byProj.set(a.projectId, { allocs: [], name: a.projectName, companyName: a.companyName ?? "", type: a.projectType });
-                            byProj.get(a.projectId)!.allocs.push(a);
+                            const key = `${a.projectId}::${a.taskId ?? ""}`;
+                            if (!byProj.has(key)) byProj.set(key, { allocs: [], name: a.projectName, companyName: a.companyName ?? "", type: a.projectType, taskName: a.taskName ?? null, projectId: a.projectId });
+                            byProj.get(key)!.allocs.push(a);
                           }
                           const chipsFor = (allocs: NSAllocation[]) => ({
                             billable:   allocs.some(a => a.classifyAsBillable   === true),
@@ -1171,11 +1209,17 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                           // Sorted by sub-type so projects of the same NetSuite type sit together
                           // inside the band, without adding another level of header rows here.
                           return Array.from(byProj.values())
-                            .sort((x, y) => compareProjectTypes(projectTypeLabel(x.type), projectTypeLabel(y.type)) || x.name.localeCompare(y.name))
-                            .map(({ allocs, name, companyName, type }) => {
+                            .sort((x, y) =>
+                              compareProjectTypes(projectTypeLabel(x.type), projectTypeLabel(y.type))
+                              || x.name.localeCompare(y.name)
+                              // Untasked row first, then tasks alphabetically, so a
+                              // project reads as its baseline followed by its streams.
+                              || (x.taskName ? 1 : 0) - (y.taskName ? 1 : 0)
+                              || (x.taskName ?? "").localeCompare(y.taskName ?? ""))
+                            .map(({ allocs, name, companyName, type, taskName, projectId }) => {
                             const tint = projectTypeTint(type);
                             return (
-                            <tr key={`${emp.name}-${t}-${allocs[0].projectId}`} style={{ background: rowBgSub }}>
+                            <tr key={`${emp.name}-${t}-${allocs[0].projectId}-${allocs[0].taskId ?? ""}`} style={{ background: rowBgSub }}>
                               <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 440, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
                                 {/* Title line keeps the single-line clipping; the note sits
                                     below it so a long project name can't push it out of view. */}
@@ -1192,6 +1236,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                   </span>
                                   {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
                                   {name}
+                                  <TaskChip name={taskName} />
                                 </div>
                                 <NoteLine note={resourceNoteOf(allocs)} />
                               </td>

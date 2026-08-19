@@ -27,6 +27,8 @@ export async function GET() {
       allocationunit: string;
       percentoftime: string;
       numberhours: string;
+      task_id: string | null;
+      task_name: string | null;
     }>(`
       SELECT
         ra.id,
@@ -46,7 +48,9 @@ export async function GET() {
         ra.endDate,
         ra.allocationUnit,
         ra.percentOfTime,
-        ra.numberHours
+        ra.numberHours,
+        ra.projectTask                                 AS task_id,
+        BUILTIN.DF(ra.projectTask)                     AS task_name
       FROM resourceallocation ra
       LEFT JOIN job j ON j.id = ra.project
       WHERE ra.endDate >= SYSDATE
@@ -137,6 +141,21 @@ export async function GET() {
       }
     }
 
+    // ── Project task per allocation ──────────────────────────────────────────
+    // resourceallocation.projectTask is how ONE project can hold several distinct
+    // streams of work without a NetSuite project per stream. It is what makes 419
+    // "Placeholder Project for Capacity Planning" usable: each unsold deal is a
+    // TASK on 419 (e.g. "Yaffe"), and hours held for it are allocated against
+    // that task rather than to a project the deal has not yet justified creating.
+    //
+    // BUILTIN.DF resolves the task TITLE here, unlike on ra.allocationResource
+    // where it returns the employee number and forces a separate lookup — so the
+    // name comes back on the main query with no second round trip. Verified
+    // August 2026: 703787 -> "Yaffe", 626085 -> "Notion Build Out".
+    //
+    // Sparse by design — 3 of 521 allocations carry one, so almost every row
+    // resolves to null and renders exactly as it did before.
+
     // Look up client company names for all unique customer IDs
     const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean))] as string[];
     const clientMap: Record<string, string> = {};
@@ -226,6 +245,8 @@ export async function GET() {
         companyName:    r.entity_id ? (clientMap[String(r.entity_id)] || "") : "",
         // Project-level, so every allocation row of a project carries the same value.
         resourceNote:   noteByProject[String(r.project_id)] ?? null,
+        taskId:         r.task_id ? String(r.task_id) : null,
+        taskName:       (r.task_name ?? "").trim() || null,
         startDate:      r.startdate,
         endDate:        r.enddate,
         allocationUnit: r.allocationunit ?? "H",

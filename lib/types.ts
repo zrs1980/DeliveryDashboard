@@ -161,6 +161,21 @@ export interface NSAllocation {
    */
   resourceNote: string | null;
   /**
+   * The NetSuite project TASK this allocation is booked against
+   * (resourceallocation.projectTask), if any.
+   *
+   * Per-allocation, unlike [resourceNote] which is project-level. This is what
+   * lets one project carry several independent streams of work: on 419
+   * "Placeholder Project for Capacity Planning" each unsold deal is a task
+   * (e.g. "Yaffe"), so hours can be held per prospect without inventing a
+   * NetSuite project for a deal that has not closed.
+   *
+   * Sparse — 3 of 521 allocations carried one in August 2026. Null is the
+   * normal case and must render as an ordinary project row.
+   */
+  taskId: string | null;
+  taskName: string | null;
+  /**
    * Remaining budget, DERIVED as budgetHours − consumedHours — not read from
    * job.custentity_project_remaining_hours, which is hand-maintained and drifts.
    * Null when the project has no budget set, so "unknown" stays distinguishable
