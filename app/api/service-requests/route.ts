@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
 import { EMPLOYEES } from "@/lib/constants";
 
+// Always hit NetSuite. Every other data route in this app declares this; without
+// it a CDN can serve a response cached before a metric definition changed.
+export const revalidate = 0;
+
 // custbody_ceba_sales_pipeline raw list ID → display label
 const IDENTIFIED_BY: Record<string, string> = {
   "1": "Active",

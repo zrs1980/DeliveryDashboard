@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
 
+// Always hit NetSuite. Every other data route in this app declares this; without
+// it a CDN can serve a response cached before a metric definition changed.
+export const revalidate = 0;
+
 const QUOTA = 3;
 
 /**
