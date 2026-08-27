@@ -74,50 +74,7 @@ interface DataState {
 }
 
 type SRSubTab   = "pipeline" | "dashboard";
-type SRPipelineTab = "active" | "nurturing" | "raw";
-
-function SRRawDebug() {
-  const [rows, setRows]     = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const res = await fetch("/api/debug/sr-raw");
-      const data = await res.json();
-      setRows(data.rows ?? []);
-    } catch (e: any) {
-      setError(e.message);
-    } finally { setLoading(false); }
-  }, []);
-
-  useState(() => { load(); });
-
-  if (loading) return <div style={{ padding: 24, color: C.textSub }}>Loading…</div>;
-  if (error)   return <div style={{ padding: 24, color: C.red }}>⚠ {error}</div>;
-  if (!rows.length) return <div style={{ padding: 24, color: C.textSub }}>No rows returned.</div>;
-
-  const cols = ["id", "tranid", "title", "custbody_ceba_sales_pipeline", "custbody_sr_indentified_by"];
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <div style={{ fontSize: 12, color: C.textSub, marginBottom: 8 }}>{rows.length} rows</div>
-      <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: C.mono, width: "100%" }}>
-        <thead>
-          <tr>{cols.map(c => <th key={c} style={{ padding: "6px 10px", background: C.alt, border: `1px solid ${C.border}`, textAlign: "left", whiteSpace: "nowrap", color: C.textMid, fontWeight: 700 }}>{c}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((r: any, i: number) => (
-            <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : C.alt }}>
-              {cols.map(c => <td key={c} style={{ padding: "5px 10px", border: `1px solid ${C.border}`, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r[c] == null ? C.textSub : C.text }}>{r[c] == null ? "—" : String(r[c])}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <pre style={{ marginTop: 16, background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, fontSize: 11, fontFamily: C.mono, overflow: "auto", maxHeight: 300 }}>{JSON.stringify(rows[0], null, 2)}</pre>
-    </div>
-  );
-}
+type SRPipelineTab = "active" | "nurturing";
 
 function SubTabBar<T extends string>({ tabs, active, onChange }: {
   tabs: Array<{ id: T; label: string }>;
@@ -153,7 +110,6 @@ function ServiceRequestsShell() {
   const PIPELINE_TABS: Array<{ id: SRPipelineTab; label: string }> = [
     { id: "active",    label: "Active"    },
     { id: "nurturing", label: "Nurturing" },
-    { id: "raw",       label: "🔍 Raw Data" },
   ];
 
   return (
@@ -168,7 +124,7 @@ function ServiceRequestsShell() {
             <SubTabBar tabs={PIPELINE_TABS} active={pipelineTab} onChange={setPipelineTab} />
           </div>
           <div style={{ padding: "24px 28px" }}>
-            {pipelineTab === "raw" ? <SRRawDebug /> : <ServiceRequestsView filter={pipelineTab === "active" ? "Active" : "Nurturing"} />}
+            <ServiceRequestsView filter={pipelineTab === "active" ? "Active" : "Nurturing"} />
           </div>
         </>
       )}
