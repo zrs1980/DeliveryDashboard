@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { calcHealthScore } from "@/lib/health";
-import { EMPLOYEES, PMS, nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
+import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
+import { getPmRoster } from "@/lib/roster";
 import type { Project, ProjectNote } from "@/lib/types";
 
 export const revalidate = 0; // always fresh
@@ -33,10 +34,13 @@ export async function GET() {
     const rawProjects = await fetchActiveProjects();
     const projectIds  = rawProjects.map(p => parseInt(p.id));
 
-    // Fetch timebill hours (per employee) + billable hours (per project) in parallel
-    const [timebillRows, billableRows] = await Promise.all([
+    // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
+    // The PM roster comes along: PM attribution is "the PM with the most hours on
+    // the project", so it needs to know who counts as a PM.
+    const [timebillRows, billableRows, pmRoster] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
+      getPmRoster({ includeInactive: true }),
     ]);
 
     // Build timebill map: projectId → total hours logged
@@ -126,9 +130,9 @@ export async function GET() {
 
         // Find PM from timebill rows (employee with most hours who is a PM)
         const pmEntry = timebillRows
-          .filter(r => parseInt(r.project_id) === id && PMS[parseInt(r.employee)])
+          .filter(r => parseInt(r.project_id) === id && pmRoster.byId[parseInt(r.employee)])
           .sort((a, b) => parseFloat(b.total_hours) - parseFloat(a.total_hours))[0];
-        const pm = pmEntry ? PMS[parseInt(pmEntry.employee)] : "—";
+        const pm = pmEntry ? pmRoster.byId[parseInt(pmEntry.employee)].name : "—";
 
         // Timebill integrity warning. timebillByProject is actual time only
         // (timetype='A') — allocated time is a forecast, not work done, and

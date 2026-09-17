@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { C } from "@/lib/constants";
-import { EMPLOYEES } from "@/lib/constants";
+import { useStaff } from "@/lib/use-staff";
 import type { NSCustomer } from "@/app/api/customers/route";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 import type { MSAProject } from "@/app/api/msa/route";
@@ -72,6 +72,7 @@ function HealthcheckModal({ customer, existing, onClose, onSaved }: ModalProps) 
   const cq = currentQuarter();
   const [quarter, setQuarter]           = useState(existing?.quarter ?? cq);
   const [date, setDate]                 = useState(existing?.scheduled_date ?? "");
+  const consultants = useStaff("consultants");
   const [consultantId, setConsultantId] = useState<string>(String(existing?.consultant_ns_id ?? ""));
   const [topics, setTopics]             = useState(existing?.topics ?? "");
   const [notes, setNotes]               = useState(existing?.notes ?? "");
@@ -87,7 +88,7 @@ function HealthcheckModal({ customer, existing, onClose, onSaved }: ModalProps) 
         quarter,
         scheduled_date:   date || null,
         consultant_ns_id: consultantId ? parseInt(consultantId) : null,
-        consultant_name:  consultantId ? EMPLOYEES[parseInt(consultantId)] ?? null : null,
+        consultant_name:  consultantId ? consultants.find(c => c.id === parseInt(consultantId))?.name ?? null : null,
         topics:  topics || null,
         notes:   notes  || null,
       };
@@ -153,8 +154,8 @@ function HealthcheckModal({ customer, existing, onClose, onSaved }: ModalProps) 
           <label style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 5 }}>Consultant</label>
           <select value={consultantId} onChange={e => setConsultantId(e.target.value)} style={inp}>
             <option value="">— Unassigned —</option>
-            {Object.entries(EMPLOYEES).map(([id, name]) => (
-              <option key={id} value={id}>{name}</option>
+            {consultants.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>

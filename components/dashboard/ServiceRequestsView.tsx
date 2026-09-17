@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { C } from "@/lib/constants";
+import { useStaff, type StaffOption } from "@/lib/use-staff";
 import type { ServiceRequest } from "@/app/api/service-requests/route";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -49,7 +50,9 @@ type Tone    = "professional" | "formal" | "friendly" | "urgent";
 
 interface NsEmployee { id: number; name: string; }
 
-// Slack handle map — add real Slack user IDs here if known
+// Slack handle overrides, for the few people whose handle is not their email
+// local part. Everyone else resolves from the roster, so a new hire needs no
+// entry here — see docs/onboarding-consultant.md.
 const SLACK_HANDLES: Record<string, string> = {
   "Shai Aradais":     "@Shai",
   "Alecia Gilmore":   "@Alecia",
@@ -74,8 +77,13 @@ function Avatar({ name, size = 24 }: { name: string | null; size?: number }) {
 }
 
 // ── Slack templates ───────────────────────────────────────────────────────────
-const buildSlackTemplates = (r: ServiceRequest) => {
-  const handle = r.assignedTo ? (SLACK_HANDLES[r.assignedTo] ?? `@${r.assignedTo.split(" ")[0]}`) : "@team";
+const buildSlackTemplates = (r: ServiceRequest, staff: StaffOption[] = []) => {
+  // Override → email local part (what their Slack account is actually named) →
+  // first name, which is the guess of last resort.
+  const email  = staff.find(s => s.name === r.assignedTo)?.email ?? "";
+  const handle = r.assignedTo
+    ? (SLACK_HANDLES[r.assignedTo] ?? (email ? `@${email.split("@")[0]}` : `@${r.assignedTo.split(" ")[0]}`))
+    : "@team";
   return [
     {
       id:    "checkin",
@@ -125,7 +133,8 @@ function parseSalesNotes(raw: string | null): SalesNoteEntry[] {
 
 // ── Slack modal ───────────────────────────────────────────────────────────────
 function SlackModal({ opp, onClose, author, onNoteSaved }: { opp: ServiceRequest; onClose: () => void; author: string; onNoteSaved?: (salesNotes: string) => void }) {
-  const templates    = buildSlackTemplates(opp);
+  const staff        = useStaff();
+  const templates    = buildSlackTemplates(opp, staff);
   const defaultTpl   = isOverdue(opp.expectedCloseDate) ? "urgent" : !opp.assignedTo ? "assign" : "checkin";
   const [tplId, setTplId]       = useState(defaultTpl);
   const [channel, setChannel]   = useState("#service-request");

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { C, STATUS_STYLES, EMPLOYEES } from "@/lib/constants";
+import { C, STATUS_STYLES } from "@/lib/constants";
+import { useStaff } from "@/lib/use-staff";
 import type { Project } from "@/lib/types";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -93,8 +94,6 @@ const PRIORITIES = [
   { value: "normal", label: "⚪ Normal" },
   { value: "low",    label: "🔵 Low" },
 ];
-
-const EMPLOYEE_LIST = Object.entries(EMPLOYEES).map(([id, name]) => ({ id: parseInt(id), name }));
 
 function taskStatusStyle(s: string) {
   return TASK_STATUSES.find(x => x.value === s) ?? TASK_STATUSES[0];
@@ -228,6 +227,7 @@ function TaskDetailPanel({
   onUpdated: (t: PMTask) => void;
   onDeleted: () => void;
 }) {
+  const staff                     = useStaff();
   const [form, setForm]           = useState<Partial<PMTask>>({ ...task });
   const [subtasks, setSubtasks]   = useState<PMTask[]>([]);
   const [timeEntries, setTE]      = useState<PMTimeEntry[]>([]);
@@ -250,7 +250,7 @@ function TaskDetailPanel({
   async function save() {
     setSaving(true);
     try {
-      const empName = EMPLOYEE_LIST.find(e => e.id === form.assignee_ns_id)?.name ?? form.assignee_name ?? null;
+      const empName = staff.find(e => e.id === form.assignee_ns_id)?.name ?? form.assignee_name ?? null;
       const res = await fetch(`/api/pm/tasks/${task.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -355,7 +355,7 @@ function TaskDetailPanel({
           Assignee
           <select value={String(form.assignee_ns_id ?? "")} onChange={e => setForm(f => ({ ...f, assignee_ns_id: e.target.value ? parseInt(e.target.value) : null }))} style={fieldInput}>
             <option value="">Unassigned</option>
-            {EMPLOYEE_LIST.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {staff.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </label>
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSuiteQL, runSuiteQLAll } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { getConsultantRoster } from "@/lib/roster";
 
 export const revalidate = 0;
 
@@ -108,8 +108,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const employeeIds = Object.keys(EMPLOYEES).map(Number);
-  const empList = employeeIds.join(", ");
+  // Live consultant roster (custentity10 IN 1,2) rather than a hardcoded five —
+  // a new hire is covered here the moment their NetSuite category is set.
+  const roster      = await getConsultantRoster();
+  const employeeIds = roster.members.map(m => m.id);
+  const empList     = employeeIds.join(", ");
+  if (employeeIds.length === 0) {
+    return NextResponse.json({ employees: [], rosterFallback: roster.fallback, updatedAt: new Date().toISOString() });
+  }
   const now = new Date();
 
   const [timebillRows, jobRows, allocRows] = await Promise.all([
@@ -192,7 +198,6 @@ export async function GET() {
   }
 
   const employees = employeeIds
-    .filter(id => EMPLOYEES[id])
     .map(empId => {
       const empRows = rowsByEmployee[String(empId)] ?? [];
       const empAllocs = allocsByEmployee[String(empId)] ?? [];
@@ -304,7 +309,7 @@ export async function GET() {
 
       return {
         employeeId:   empId,
-        employeeName: EMPLOYEES[empId],
+        employeeName: roster.byId[empId]?.name ?? `Employee #${empId}`,
         periods,
         _total: totalAcrossAllPeriods,
       };
@@ -312,5 +317,5 @@ export async function GET() {
     .filter(e => e._total > 0)
     .map(({ _total: _t, ...e }) => e);
 
-  return NextResponse.json({ employees, updatedAt: new Date().toISOString() });
+  return NextResponse.json({ employees, rosterFallback: roster.fallback, updatedAt: new Date().toISOString() });
 }

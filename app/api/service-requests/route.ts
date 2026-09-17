@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { getStaffRoster } from "@/lib/roster";
 
 // Always hit NetSuite. Every other data route in this app declares this; without
 // it a CDN can serve a response cached before a metric definition changed.
@@ -143,6 +143,9 @@ export async function GET(req: Request) {
       }
     }
 
+    // Assignee names resolve against the live roster; custbody10 holds the NS employee id.
+    const roster = await getStaffRoster();
+
     const requests: ServiceRequest[] = filteredOpps.map((r: any) => {
       const prob      = parseFloat(r.probability ?? "0");
       const projected = parseFloat(r.projectedtotal ?? "0");
@@ -162,7 +165,7 @@ export async function GET(req: Request) {
         createdDate:       r.trandate ?? "",
         lastActivityDate:  r.lastmodifieddate ?? null,
         daysOpen:          parseInt(r.daysopen ?? "0"),
-        assignedTo:        assignedToId ? (EMPLOYEES[assignedToId] ?? null) : null,
+        assignedTo:        assignedToId ? (roster.byId[assignedToId]?.name ?? null) : null,
         assignedToId:      assignedToId,
         statusLabel:       r.entitystatus_label ?? null,
         memo:              r.memo ?? null,

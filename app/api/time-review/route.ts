@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSuiteQLAll } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { getConsultantRoster } from "@/lib/roster";
 
 export const revalidate = 0;
 
@@ -73,7 +73,13 @@ export async function GET(req: NextRequest) {
     [from, to] = periodRanges[period] ?? periodRanges.thisMonth;
   }
 
-  const empList = Object.keys(EMPLOYEES).join(", ");
+  const roster  = await getConsultantRoster();
+  const empList = roster.members.map(m => m.id).join(", ");
+  // An empty roster renders as "IN ()", a SuiteQL syntax error rather than an empty
+  // result — answer directly instead of issuing it.
+  if (!empList) {
+    return NextResponse.json({ employees: [], rosterFallback: roster.fallback, updatedAt: new Date().toISOString() });
+  }
 
   try {
     // Look up Cases Resource Allocation Project and all MSA projects in parallel
@@ -132,11 +138,11 @@ export async function GET(req: NextRequest) {
 
     for (const row of rows) {
       const empId = parseInt(row.employee);
-      if (!EMPLOYEES[empId]) continue;
+      if (!roster.byId[empId]) continue;
 
       const key = String(empId);
       if (!byEmployee[key]) {
-        byEmployee[key] = { employeeId: empId, employeeName: EMPLOYEES[empId], totalHours: 0, billableHours: 0, entries: [] };
+        byEmployee[key] = { employeeId: empId, employeeName: roster.byId[empId].name, totalHours: 0, billableHours: 0, entries: [] };
       }
 
       const hours   = parseFloat(row.hours) || 0;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchListTasks } from "@/lib/clickup";
-import { EMPLOYEES } from "@/lib/constants";
+import { getStaffRoster } from "@/lib/roster";
 
 export const revalidate = 0;
 
@@ -75,11 +75,11 @@ export async function POST(req: NextRequest) {
     phaseMap.set(p.phase_number, data.id);
   }
 
-  // Reverse employee lookup: ClickUp display name → NS ID
+  // Reverse employee lookup: ClickUp display name → NS ID. Exact (lowercased)
+  // match only, so a ClickUp profile name must equal the NetSuite full name.
+  const staff = await getStaffRoster();
   const empByName = new Map<string, number>();
-  for (const [nsId, name] of Object.entries(EMPLOYEES)) {
-    empByName.set(name.toLowerCase(), parseInt(nsId));
-  }
+  for (const m of staff.members) empByName.set(m.name.toLowerCase(), m.id);
 
   const defaultPhaseId = phaseMap.get(1)!;
   const taskIdMap = new Map<string, string>(); // clickup id → supabase uuid

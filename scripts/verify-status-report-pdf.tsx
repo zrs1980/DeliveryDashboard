@@ -144,11 +144,15 @@ const baselines: Baselines = {
   milestones: { t9: { date: toISODate(new Date(monday.getTime() + 5 * dayMs)), label: "Data Migration Kick-Off" } },
 };
 
+// Fixed roster: this script renders a PDF from canned data and must not depend
+// on a live NetSuite read.
+const ROSTER = ["Shai Aradais", "Sam Balido", "Jason Tutanes"];
+
 function build(p: Project, phases: PhaseRow[], withPrev: boolean): StatusReport {
-  const base = deriveStatusReport({ project: p, nsPhases: phases, baselines, prevReport: null, weekEnding, preparedBy: "Shai Aradais" });
+  const base = deriveStatusReport({ project: p, nsPhases: phases, baselines, prevReport: null, weekEnding, preparedBy: "Shai Aradais", roster: ROSTER });
   if (!withPrev) return base;
   return deriveStatusReport({
-    project: p, nsPhases: phases, baselines, weekEnding, preparedBy: "Shai Aradais",
+    project: p, nsPhases: phases, baselines, weekEnding, preparedBy: "Shai Aradais", roster: ROSTER,
     prevReport: {
       ...base,
       meta:  { ...base.meta, weekEnding: toISODate(new Date(monday.getTime() - 3 * dayMs)) },

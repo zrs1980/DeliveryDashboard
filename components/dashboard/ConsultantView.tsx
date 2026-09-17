@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, STATUS_STYLES, nsProjectUrl, EMPLOYEES } from "@/lib/constants";
+import { C, STATUS_STYLES, nsProjectUrl } from "@/lib/constants";
+import { useStaff } from "@/lib/use-staff";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, isOverdueTask } from "@/lib/clickup";
 import { fmtH, fmtD, fmtPct } from "@/lib/health";
 import { HealthBadge } from "@/components/health/HealthBadge";
@@ -306,6 +307,7 @@ export function ConsultantView({ projects, cases }: Props) {
   const [insightText,   setInsightText]   = useState<string>("");
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError,  setInsightError]  = useState<string>("");
+  const staff = useStaff();
   const [healthchecks,  setHealthchecks]  = useState<Healthcheck[]>([]);
 
   // Fetch scheduled health checks once on mount
@@ -322,7 +324,7 @@ export function ConsultantView({ projects, cases }: Props) {
   function resolveConsultantName(clickupUsername: string): string | null {
     const userParts = clickupUsername.toLowerCase()
       .replace(/[._\-]/g, " ").split(/\s+/).filter(Boolean);
-    for (const name of Object.values(EMPLOYEES)) {
+    for (const { name } of staff) {
       const nameParts = name.toLowerCase().split(" ");
       if (userParts.every(u => nameParts.some(n => n.startsWith(u) || u.startsWith(n)))) {
         return name;

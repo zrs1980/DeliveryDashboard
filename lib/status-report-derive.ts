@@ -4,7 +4,7 @@
 // into a fully pre-populated StatusReport draft. Everything here is derived and
 // overridable — the PM edits in the wizard and Claude can rewrite the prose.
 
-import { EMPLOYEES, PMS } from "./constants";
+
 import { isBlocked, isClientPending, isDone } from "./clickup";
 import { canonicalPhase, isPhaseRow } from "./health";
 import type { CUTask, Project } from "./types";
@@ -25,8 +25,10 @@ export interface Baselines {
 export const EMPTY_BASELINES: Baselines = { milestones: {}, phases: {} };
 
 // ─── Loop Services roster matching ────────────────────────────────────────────
-
-const ROSTER = [...new Set([...Object.values(EMPLOYEES), ...Object.values(PMS)])];
+//
+// The roster is passed in rather than imported: it is live NetSuite data now
+// (lib/roster.ts), and this module stays pure so it can be unit-tested without a
+// NetSuite round trip.
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
 
@@ -35,10 +37,10 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
  * ClickUp usernames are inconsistent (full name, first name, or email local-part),
  * so match on normalised full name, then on a first+last-initial pattern.
  */
-function isLoopPerson(username: string): boolean {
+function isLoopPerson(username: string, roster: string[]): boolean {
   const u = norm(username);
   if (!u) return false;
-  return ROSTER.some(name => {
+  return roster.some(name => {
     const n = norm(name);
     if (n === u || n.includes(u) || u.includes(n)) return true;
     const [first, last] = name.toLowerCase().split(/\s+/);
@@ -406,10 +408,12 @@ export interface DeriveInput {
   prevReport:  StatusReport | null;
   weekEnding:  string;   // ISO date (Friday)
   preparedBy:  string;
+  /** Loop-side full names, for classifying ClickUp assignees. From lib/roster. */
+  roster:      string[];
 }
 
 export function deriveStatusReport({
-  project, nsPhases, baselines, prevReport, weekEnding, preparedBy,
+  project, nsPhases, baselines, prevReport, weekEnding, preparedBy, roster,
 }: DeriveInput): StatusReport {
   const weekEnd     = new Date(weekEnding + "T00:00:00");
   const weekStart   = mondayOf(weekEnd);
@@ -469,7 +473,7 @@ export function deriveStatusReport({
   const isCustomerSide = (t: CUTask) =>
     isClientPending(t) ||
     t.tags.some(g => /client|customer/i.test(g.name)) ||
-    (t.assignees.length > 0 && !t.assignees.some(a => isLoopPerson(a.username)));
+    (t.assignees.length > 0 && !t.assignees.some(a => isLoopPerson(a.username, roster)));
 
   const byDue = (a: Deliverable, b: Deliverable) =>
     (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999");

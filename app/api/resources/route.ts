@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSuiteQL, postRecord, getActiveJobResources, fetchBillableHours, fetchActualHours } from "@/lib/netsuite";
-import { EMPLOYEES, isFixedFeeProject } from "@/lib/constants";
+import { isFixedFeeProject } from "@/lib/constants";
+import { getStaffRoster, getConsultantRoster, nameMap } from "@/lib/roster";
 import type { NSAllocation } from "@/lib/types";
 
 export const revalidate = 0;
@@ -174,27 +175,15 @@ export async function GET() {
       }
     }
 
-    // Build consultant roster first — used both for Forecast team targets and to resolve employee names
-    const consultantRoster: Array<{ employeeId: number; name: string; targetUtilization: number }> = [];
-    const empNameMap: Record<number, string> = { ...EMPLOYEES };
-    try {
-      const rosterRows = await runSuiteQL<{ id: string; firstname: string; lastname: string; targetutilization: string | null }>(
-        `SELECT id, firstname, lastname, targetutilization FROM employee WHERE isinactive = 'F' AND custentity10 IN (1, 2) ORDER BY lastname, firstname`
-      );
-      if (Array.isArray(rosterRows)) {
-        for (const r of rosterRows as any[]) {
-          const name = `${r.firstname ?? ""} ${r.lastname ?? ""}`.trim();
-          if (!name) continue;
-          const empId = parseInt(r.id);
-          empNameMap[empId] = name;
-          const raw = r.targetutilization !== null && r.targetutilization !== "" ? parseFloat(r.targetutilization) : NaN;
-          const tgt = !isNaN(raw) ? (raw > 1 ? raw / 100 : raw) : 0.75;
-          consultantRoster.push({ employeeId: empId, name, targetUtilization: tgt });
-        }
-      }
-    } catch {
-      // Non-fatal — falls back to EMPLOYEES constant for name lookup
-    }
+    // Roster: the consultant list drives Forecast team targets, and the full staff
+    // list resolves allocation names — an allocation can name someone outside
+    // custentity10 IN (1,2). Both read one cached query in lib/roster.
+    const staff       = await getStaffRoster();   // includes departed, for name resolution
+    const consultants = await getConsultantRoster();
+    const empNameMap: Record<number, string> = nameMap(staff);
+    const consultantRoster = consultants.members.map(m => ({
+      employeeId: m.id, name: m.name, targetUtilization: m.targetUtilization,
+    }));
 
     // Look up names for any allocation employees still not resolved (non-consultant staff, vendors, etc.)
     const unknownEmpIds = [...new Set(

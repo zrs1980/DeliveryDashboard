@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchProjectPhases } from "@/lib/netsuite";
 import { deriveStatusReport, EMPTY_BASELINES, type Baselines } from "@/lib/status-report-derive";
+import { getStaffRoster } from "@/lib/roster";
 import type { StatusReport } from "@/lib/status-report";
 import type { Project } from "@/lib/types";
 
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
       prevReport,
       weekEnding,
       preparedBy: session.user.name ?? session.user.email ?? "Loop Services",
+      roster: (await getStaffRoster()).members.map(m => m.name),
     });
 
     // Capture baselines for anything we haven't seen before. ignoreDuplicates keeps

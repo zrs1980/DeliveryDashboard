@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, PMS } from "@/lib/constants";
+import { C } from "@/lib/constants";
+import { useStaff } from "@/lib/use-staff";
 import type { Project } from "@/lib/types";
 import { ProjectManagementView } from "./ProjectManagementView";
 import { StatusReportWizard } from "./StatusReportWizard";
@@ -67,7 +68,8 @@ function CreateProjectModal({
     setShowClientDrop(false);
   }
 
-  const pmList = Object.values(PMS);
+  // NetSuite employee type "Project Manager", or anyone in the PMO category.
+  const pmList = useStaff("pms").map(p => p.name);
 
   async function create() {
     if (!name.trim() || !clientName.trim()) { setError("Project name and client name are required."); return; }

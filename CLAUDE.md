@@ -243,6 +243,7 @@ Render the response by splitting on newlines: bullet lines (starting with `-`, `
 
 | Field ID | Label | Type | Notes |
 |---|---|---|---|
+| `custentity10` | CEBA Employee Category | List | On the `employee` record. **The field that decides who counts as a consultant**: `1` Consulting · `2` PMO · `3` Managed Services · `4` Sales and Marketing · `5` Back Office · `6` Management · `7` Product. `1` and `2` drive Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard and every assignee picker. Blank or wrong is the single most common reason a new hire is invisible — see `docs/onboarding-consultant.md`. |
 | `custentity20` | ClickUp URL | Text | Full URL of the linked ClickUp space/list. Parse to extract the List or Space ID for API calls. |
 | `custentity_ceba_project_budget_hours` | Budget Hours | Number | **Primary source for total budgeted hours.** Always use this field — do NOT derive budget hours from `projectbudget` or the standard `enddate` field. |
 | `custentity_project_remaining_hours` | Remaining Hours | Number | Hours remaining on the project (manually maintained by PM). **Can be severely out of date** — always cross-check against timebill actuals and flag discrepancies in the UI. |
@@ -866,23 +867,24 @@ vercel.json                    → Vercel deployment config (framework detection
 - **Loop ERP** (founded 2024) is a separate NetSuite SDN product company targeting the circular economy. Some projects may be Loop-related; tag them accordingly.
 - PMs should be able to filter to their own projects by default when auth is added.
 
-### Known Employee IDs (NetSuite internal IDs)
-```typescript
-const EMPLOYEES = {
-  11944: "Shai Aradais",       // also a PM
-  15622: "Alecia Gilmore",     // also a PM
-  15735: "Sam Balido",
-  15849: "Jason Tutanes",
-  17191: "Piero Loza Palma",
-  18376: "Carlos Roman",
-};
+### The staff roster is live — do not hardcode people
 
-const PMS = {
-  11944: "Shai Aradais",
-  15622: "Alecia Gilmore",
-  4812:  "Kathy Bacero",
-};
-```
+`lib/roster.ts` is the single source of who works here, read from NetSuite and cached 5 minutes:
+
+- `getStaffRoster()` — **everyone, including departed staff.** Use it to RESOLVE a name on an
+  existing record (a case assignee, a service request owner, a PM on last year's project).
+- `getActiveStaff()` / `getConsultantRoster()` (`custentity10 IN (1,2)`) / `getPmRoster()` —
+  current staff. Use these for anything a user PICKS from.
+- Client components use the `useStaff()` hook (`lib/use-staff.ts`) against `GET /api/staff`.
+
+`FALLBACK_EMPLOYEES` / `FALLBACK_PMS` in `lib/constants.ts` are the outage net only. A response
+carrying `rosterFallback: true` was built from them and its names are not trustworthy.
+
+This replaced hardcoded `EMPLOYEES`/`PMS` maps that eleven features read. They drifted badly —
+Rodrigo Gerona was never added, Alecia Gilmore stayed months after leaving, Kathy Bacero was in one
+map and not the other — and every hire needed a code change and a deploy. **Adding a person to a
+list in `lib/` is now a bug, not a task**: setting `custentity10` in NetSuite is the whole job.
+Onboarding checklist: `docs/onboarding-consultant.md`.
 
 ### Active Projects (March 2026 — verified against live NS data)
 | NS ID | NS # | Client | Project Name | Type | Go-Live Date | Budget Hrs | Remaining Hrs |

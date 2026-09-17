@@ -1,4 +1,13 @@
-export const EMPLOYEES: Record<number, string> = {
+// ─── Fallback roster ──────────────────────────────────────────────────────────
+//
+// NOT the source of truth. Staff come from NetSuite via lib/roster.ts; these two
+// maps are the outage net, used only when that query throws, and a response built
+// from them is flagged `rosterFallback: true` so a three-year-stale dropdown does
+// not look identical to a correct one.
+//
+// Do not add new hires here — setting custentity10 on the NetSuite employee record
+// is all that is required. See docs/onboarding-consultant.md.
+export const FALLBACK_EMPLOYEES: Record<number, string> = {
   11944: "Shai Aradais",
   15622: "Alecia Gilmore",
   15735: "Sam Balido",
@@ -6,7 +15,7 @@ export const EMPLOYEES: Record<number, string> = {
   17191: "Piero Loza Palma",
 };
 
-export const PMS: Record<number, string> = {
+export const FALLBACK_PMS: Record<number, string> = {
   11944: "Shai Aradais",
   15622: "Alecia Gilmore",
   4812:  "Kathy Bacero",

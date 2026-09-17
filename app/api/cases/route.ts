@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
-import { EMPLOYEES } from "@/lib/constants";
+import { getStaffRoster, nameFor } from "@/lib/roster";
 
 export const revalidate = 0;
 
 export async function GET() {
   try {
     // JOIN customer table for company name (BUILTIN.DF on company/assigned returns raw IDs in SuiteQL).
-    // assigned_id is the raw employee FK — mapped server-side via EMPLOYEES constant.
+    // assigned_id is the raw employee FK — mapped server-side via the live roster.
     const rows = await runSuiteQL<{
       id: string;
       casenumber: string;
@@ -62,10 +62,12 @@ export async function GET() {
       // supportcasemessage unavailable — continue without last notes
     }
 
+    // Cases can be assigned to anyone, not only consultants, so this is the full roster.
+    const roster = await getStaffRoster();
+
     const cases = rows.map(r => {
-      // Resolve assigned employee name: EMPLOYEES map → raw ID fallback
       const empId    = parseInt(r.assigned_id);
-      const assigned = EMPLOYEES[empId] ?? (r.assigned_id ? `Employee #${r.assigned_id}` : "Unassigned");
+      const assigned = r.assigned_id ? nameFor(roster, empId) : "Unassigned";
 
       return {
         id:           r.id,
