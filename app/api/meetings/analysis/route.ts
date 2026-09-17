@@ -4,7 +4,16 @@ import { auth } from "@/auth";
 import { fetchFirefliesTranscript, firefliesConfigured } from "@/lib/fireflies";
 
 export const revalidate = 0;
-export const maxDuration = 60;
+
+// A long call is the whole budget. Measured on a 2h19m meeting: ~36k input
+// tokens in, ~3.2k out, 77s wall-clock — past the old 60s ceiling, so Vercel
+// killed the function and answered with its own plain-text error page. The
+// wizard then died inside `res.json()` on "Unexpected token 'A'", which named
+// neither the meeting nor the timeout. 300s is the Pro-plan ceiling.
+export const maxDuration = 300;
+
+/** Stop the model with enough of the budget left to answer in JSON. */
+const MODEL_BUDGET_MS = (300 - 25) * 1000;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -158,13 +167,35 @@ Base everything on what was actually said. Do not invent owners, dates, or decis
 
 ${context}`;
 
-    const message = await client.messages.create({
+    // Streamed, because a two-hour transcript generates for well over a minute
+    // and a non-streaming request has to hold an idle connection for all of it.
+    const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 8000,
       tools: [ANALYSIS_TOOL],
       tool_choice: { type: "tool", name: "record_meeting_analysis" },
       messages: [{ role: "user", content: prompt }],
     });
+
+    let timedOut = false;
+    const deadline = setTimeout(() => { timedOut = true; stream.abort(); }, MODEL_BUDGET_MS);
+
+    let message: Anthropic.Message;
+    try {
+      message = await stream.finalMessage();
+    } catch (e) {
+      // Answer in JSON ourselves rather than letting Vercel's text page reach
+      // the browser — the wizard can only show what it can parse.
+      if (timedOut) {
+        return NextResponse.json(
+          { error: `The analysis ran past ${MODEL_BUDGET_MS / 1000}s and was stopped. This meeting's transcript (${transcriptLines} lines) is unusually long — try again, or process a shorter meeting first.` },
+          { status: 504 },
+        );
+      }
+      throw e;
+    } finally {
+      clearTimeout(deadline);
+    }
 
     const toolUse = message.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",

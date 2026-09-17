@@ -46,6 +46,14 @@ export interface WizardFiledDoc {
   created_at: string; created_by: string | null;
 }
 
+/** What /api/meetings/analysis returns. `error` is set on a handled failure. */
+interface AnalysisResponse {
+  actionItems?: { id: string; name: string; description: string; owner: string }[];
+  keyDetails?:  string;
+  note?:        string | null;
+  error?:       string;
+}
+
 interface ActionItem {
   id: string; name: string; description: string; owner: string; selected: boolean;
 }
@@ -139,7 +147,20 @@ export function ProcessMeetingWizard({
           projectLabel: project.label,
         }),
       });
-      const data = await res.json();
+      // A platform-level failure — function timeout, cold-start crash — answers
+      // with a plain-text page, not JSON. Parsing that blind is what produced
+      // the unreadable `Unexpected token 'A', "An error o"...` this used to show.
+      const raw = await res.text();
+      let data: AnalysisResponse;
+      try {
+        data = JSON.parse(raw) as AnalysisResponse;
+      } catch {
+        throw new Error(
+          res.status === 504 || res.status === 500
+            ? `The server gave up on this meeting (HTTP ${res.status}). Long meetings can run past the time limit — try again.`
+            : `The server returned something unreadable (HTTP ${res.status}): ${raw.slice(0, 120)}`,
+        );
+      }
       if (!res.ok) throw new Error(data.error ?? "Could not analyse the meeting");
 
       setItems((data.actionItems ?? []).map((a: { id: string; name: string; description: string; owner: string }) => ({
@@ -349,7 +370,11 @@ export function ProcessMeetingWizard({
                   <div style={{ fontSize: 14, fontWeight: 600, color: C.textMid }}>
                     {analysing ? "Reading the transcript and drafting action items…" : "Preparing…"}
                   </div>
-                  <div style={{ fontSize: 12, color: C.textSub, marginTop: 6 }}>This usually takes 10–30 seconds.</div>
+                  <div style={{ fontSize: 12, color: C.textSub, marginTop: 6 }}>
+                    {meeting.durationMinutes > 75
+                      ? "A meeting this long takes 1–2 minutes to read."
+                      : "This usually takes 10–30 seconds."}
+                  </div>
                 </>
               )}
             </div>
