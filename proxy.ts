@@ -11,9 +11,13 @@ export default auth(function proxy(req: NextRequest & { auth?: { user?: unknown 
 
   const isLoginPage = pathname.startsWith("/login");
   const isAuthRoute = pathname.startsWith("/api/auth");
+  // Vercel Cron arrives with no session. Redirecting it to /login would make the
+  // nightly job return an HTML 200 forever, which reads as a healthy run. The
+  // route authenticates itself on CRON_SECRET instead — see lib/cs-permissions.
+  const isCronRoute = pathname.startsWith("/api/cs/cron");
 
-  // Always allow the login page and NextAuth internal routes
-  if (isLoginPage || isAuthRoute) return NextResponse.next();
+  // Always allow the login page, NextAuth internal routes and the cron endpoints
+  if (isLoginPage || isAuthRoute || isCronRoute) return NextResponse.next();
 
   // Redirect unauthenticated requests to the login page
   if (!req.auth?.user) {

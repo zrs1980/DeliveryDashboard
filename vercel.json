@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/cs/cron/health", "schedule": "0 7 * * *" }
+  ],
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
