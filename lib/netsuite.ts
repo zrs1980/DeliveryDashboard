@@ -469,7 +469,7 @@ export async function fetchAllPhases() {
   `);
 }
 
-export interface JobResource { name: string; employeeType: string; department: string; targetUtilization: number; }
+export interface JobResource { name: string; employeeType: string; department: string; targetUtilization: number; hireDate: string | null; }
 
 /** Returns all active employees: { id → { name, employeeType, department, targetUtilization } }
  *  targetUtilization comes from the NS employee record (0-1 decimal). Defaults to 0.75 if unset. */
@@ -477,9 +477,9 @@ export async function getActiveJobResources(): Promise<Record<number, JobResourc
   const rows = await runSuiteQLAll<{
     id: string; firstname: string; lastname: string;
     employee_type: string; department: string | null;
-    targetutilization: string | null;
+    targetutilization: string | null; hiredate: string | null;
   }>(
-    `SELECT id, firstname, lastname, BUILTIN.DF(employeetype) AS employee_type, BUILTIN.DF(custentity10) AS department, targetutilization FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
+    `SELECT id, firstname, lastname, BUILTIN.DF(employeetype) AS employee_type, BUILTIN.DF(custentity10) AS department, targetutilization, hiredate FROM employee WHERE isinactive = 'F' ORDER BY lastname, firstname`
   );
   const map: Record<number, JobResource> = {};
   for (const r of rows) {
@@ -488,7 +488,7 @@ export async function getActiveJobResources(): Promise<Record<number, JobResourc
     const raw = r.targetutilization !== null && r.targetutilization !== "" ? parseFloat(r.targetutilization) : NaN;
     // NS stores as 0-1 decimal (e.g. 0.75). Normalise if stored as 0-100.
     const targetUtilization = !isNaN(raw) ? (raw > 1 ? raw / 100 : raw) : 0.75;
-    map[parseInt(r.id)] = { name, employeeType: r.employee_type ?? "", department: r.department ?? "", targetUtilization };
+    map[parseInt(r.id)] = { name, employeeType: r.employee_type ?? "", department: r.department ?? "", targetUtilization, hireDate: r.hiredate ?? null };
   }
   return map;
 }

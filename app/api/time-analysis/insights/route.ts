@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { UTILIZATION_POLICY } from "@/lib/constants";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -15,6 +16,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as {
       employeeName: string;
       periodLabel: string;
+      /** The consultant's NetSuite targetutilization (0-1). Defaults to 0.75. */
+      targetUtilization?: number;
       metrics: {
         total: number;
         billable: number; billablePct: number;
@@ -32,6 +35,14 @@ export async function POST(req: NextRequest) {
     };
 
     const { employeeName, periodLabel, metrics, projectBreakdown } = body;
+
+    // Same targets the Delivery Time tab shows: the consultant's own NetSuite
+    // utilization target, and the two policy ratios on top of it. Hardcoding
+    // them here meant the model reasoned against 65/75/85 while the screen the
+    // user was looking at said something else.
+    const utilTarget = body.targetUtilization ?? 0.75;
+    const billTarget = utilTarget * UTILIZATION_POLICY.billableRatio;
+    const prodTarget = UTILIZATION_POLICY.productiveTarget;
 
     const nonBillable   = metrics.total - metrics.billable;
     const nonUtilized   = metrics.total - metrics.utilized;
@@ -58,9 +69,9 @@ Period: ${periodLabel}
 
 Hours summary:
 - Total logged: ${fmtH(metrics.total)}
-- Billable: ${fmtH(metrics.billable)} (${fmtPct(metrics.billablePct)}) — target 65% — ${gap(metrics.billablePct, 0.65)}
-- Utilized: ${fmtH(metrics.utilized)} (${fmtPct(metrics.utilizedPct)}) — target 75% — ${gap(metrics.utilizedPct, 0.75)}
-- Productive: ${fmtH(metrics.productive)} (${fmtPct(metrics.productivePct)}) — target 85% — ${gap(metrics.productivePct, 0.85)}
+- Billable: ${fmtH(metrics.billable)} (${fmtPct(metrics.billablePct)}) — target ${fmtPct(billTarget)} — ${gap(metrics.billablePct, billTarget)}
+- Utilized: ${fmtH(metrics.utilized)} (${fmtPct(metrics.utilizedPct)}) — target ${fmtPct(utilTarget)} — ${gap(metrics.utilizedPct, utilTarget)}
+- Productive: ${fmtH(metrics.productive)} (${fmtPct(metrics.productivePct)}) — target ${fmtPct(prodTarget)} — ${gap(metrics.productivePct, prodTarget)}
 - Non-billable hours: ${fmtH(nonBillable)} | Non-utilized: ${fmtH(nonUtilized)} | Non-productive: ${fmtH(nonProductive)}
 
 Project / activity breakdown (last 3 months):

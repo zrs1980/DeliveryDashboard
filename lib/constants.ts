@@ -1,3 +1,20 @@
+/**
+ * Utilization targets that are COMPANY POLICY rather than per-person data.
+ *
+ * The per-person utilization target is `targetutilization` on the NetSuite
+ * employee record and is read live — these two are the ratios applied on top of
+ * it, and NetSuite has no field for either (checked: no productive/billable
+ * target custom field exists on `employee`). Change them here and the Delivery
+ * Time tiles, the per-consultant bars and the AI insights prompt all move
+ * together; they used to be three separate copies that had already drifted.
+ */
+export const UTILIZATION_POLICY = {
+  /** Billable target = this x the employee's own utilization target. */
+  billableRatio:   0.87,
+  /** Productive target, flat across the team. */
+  productiveTarget: 0.85,
+} as const;
+
 // ─── Fallback roster ──────────────────────────────────────────────────────────
 //
 // NOT the source of truth. Staff come from NetSuite via lib/roster.ts; these two

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { C } from "@/lib/constants";
+import { C, UTILIZATION_POLICY } from "@/lib/constants";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
@@ -78,8 +78,10 @@ const PERIOD_ALIAS: Partial<Record<PeriodKey, PeriodKey>> = {
   mtd: "thisMonth",
   qtd: "thisQuarter",
 };
-const PROD_TARGET = 0.85;
-const BILL_RATIO  = 0.87;  // billable target = BILL_RATIO × per-employee utilization target
+// Company policy, single-sourced in lib/constants.ts — the per-person half of
+// the target comes from NetSuite (employee.targetutilization).
+const PROD_TARGET = UTILIZATION_POLICY.productiveTarget;
+const BILL_RATIO  = UTILIZATION_POLICY.billableRatio;
 
 function fmtH(n: number) { return `${n.toFixed(2)}h`; }
 function fmtPct(n: number) { return `${Math.round(n * 100)}%`; }

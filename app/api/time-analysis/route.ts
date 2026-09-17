@@ -60,6 +60,16 @@ interface DayTotals {
 
 const HOURS_PER_DAY = 8;
 
+/** NetSuite hands dates back as YYYY-MM-DD or MM/DD/YYYY depending on the field. */
+function parseNsDate(s: string | null): Date | null {
+  if (!s) return null;
+  if (/^d{4}-d{2}-d{2}/.test(s)) return new Date(s.slice(0, 10) + "T00:00:00");
+  const p = s.split("/");
+  if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[0]) - 1, parseInt(p[1]));
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function countBusinessDays(from: Date, to: Date): number {
   let count = 0;
   const d = new Date(from); d.setHours(0, 0, 0, 0);
@@ -231,24 +241,49 @@ export async function GET(req: NextRequest) {
     const lastDayThisQuarter = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59, 999);
     const thisFriday         = new Date(thisMonday); thisFriday.setDate(thisMonday.getDate() + 4);
 
-    const periodAvailableHours: Record<string, number> = {
-      today:       HOURS_PER_DAY,
-      yesterday:   HOURS_PER_DAY,
-      // Full-period denominators (used for This Week / Month / Quarter)
-      thisWeek:    countBusinessDays(thisMonday,          thisFriday)         * HOURS_PER_DAY,
-      lastWeek:    countBusinessDays(lastMonday,          lastSunday)         * HOURS_PER_DAY,
-      thisMonth:   countBusinessDays(firstOfMonth,        lastDayThisMonth)   * HOURS_PER_DAY,
-      lastMonth:   countBusinessDays(firstOfLastMonth,    lastDayLastMonth)   * HOURS_PER_DAY,
-      thisQuarter: countBusinessDays(firstOfThisQuarter,  lastDayThisQuarter) * HOURS_PER_DAY,
-      lastQuarter: countBusinessDays(firstOfLastQuarter,  lastDayLastQuarter) * HOURS_PER_DAY,
-      // To-date denominators (only elapsed business days — used for WTD / MTD / QTD)
-      wtd:         countBusinessDays(thisMonday,          todayStart)         * HOURS_PER_DAY,
-      mtd:         countBusinessDays(firstOfMonth,        todayStart)         * HOURS_PER_DAY,
-      qtd:         countBusinessDays(firstOfThisQuarter,  todayStart)         * HOURS_PER_DAY,
+    // The window each period's capacity is measured over: full-period for This
+    // Week/Month/Quarter, elapsed-only for WTD/MTD/QTD.
+    const capacityWindows: Record<string, [Date, Date]> = {
+      today:       [todayStart,         todayStart],
+      yesterday:   [yesterdayStart,     yesterdayStart],
+      thisWeek:    [thisMonday,         thisFriday],
+      lastWeek:    [lastMonday,         lastSunday],
+      thisMonth:   [firstOfMonth,       lastDayThisMonth],
+      lastMonth:   [firstOfLastMonth,   lastDayLastMonth],
+      thisQuarter: [firstOfThisQuarter, lastDayThisQuarter],
+      lastQuarter: [firstOfLastQuarter, lastDayLastQuarter],
+      wtd:         [thisMonday,         todayStart],
+      mtd:         [firstOfMonth,       todayStart],
+      qtd:         [firstOfThisQuarter, todayStart],
+      ...(customFrom && customTo ? { custom: [customFrom, customTo] as [Date, Date] } : {}),
     };
-    if (customFrom && customTo) {
-      periodAvailableHours["custom"] = countBusinessDays(customFrom, customTo) * HOURS_PER_DAY;
-    }
+
+    const hoursFor = (hire: Date | null): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const [k, [wFrom, wTo]] of Object.entries(capacityWindows)) {
+        // Nobody has capacity before their first day. Without this clip, someone
+        // hired mid-month carries a full month of capacity they were never here
+        // for, and the whole team's utilization reads low until they cycle out
+        // of the period.
+        const start = hire && hire > wFrom ? hire : wFrom;
+        out[k] = start > wTo ? 0 : countBusinessDays(start, wTo) * HOURS_PER_DAY;
+      }
+      return out;
+    };
+
+    /** Unclipped capacity — the shape the client falls back to. */
+    const periodAvailableHours = hoursFor(null);
+
+    // Memoised per distinct hire date rather than recomputed per employee.
+    const availByHire = new Map<string, Record<string, number>>();
+    const availableFor = (hireRaw: string | null): Record<string, number> => {
+      const hire = parseNsDate(hireRaw);
+      if (!hire) return periodAvailableHours;
+      const key = hire.toISOString().slice(0, 10);
+      let hit = availByHire.get(key);
+      if (!hit) { hit = hoursFor(hire); availByHire.set(key, hit); }
+      return hit;
+    };
 
     const weeks: Date[] = [];
     for (let i = 11; i >= 0; i--) {
@@ -367,25 +402,28 @@ export async function GET(req: NextRequest) {
           })
         );
 
+        const avail = availableFor(EMPLOYEES[empId]?.hireDate ?? null);
+
         return {
           employeeId:        empId,
           employeeName:      EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
           employeeType:      EMPLOYEES[empId]?.employeeType ?? "",
           targetUtilization: EMPLOYEES[empId]?.targetUtilization ?? 0.75,
+          hireDate:          EMPLOYEES[empId]?.hireDate ?? null,
           periods: {
-            today:       sumPeriod(byDate, todayStart,         today,                periodAvailableHours.today),
-            yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd,         periodAvailableHours.yesterday),
-            thisWeek:    sumPeriod(byDate, thisMonday,         today,                periodAvailableHours.thisWeek),
-            lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday,           periodAvailableHours.lastWeek),
-            thisMonth:   sumPeriod(byDate, firstOfMonth,       today,                periodAvailableHours.thisMonth),
-            lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth,     periodAvailableHours.lastMonth),
-            thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today,                periodAvailableHours.thisQuarter),
-            lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter,   periodAvailableHours.lastQuarter),
+            today:       sumPeriod(byDate, todayStart,         today,                avail.today),
+            yesterday:   sumPeriod(byDate, yesterdayStart,     yesterdayEnd,         avail.yesterday),
+            thisWeek:    sumPeriod(byDate, thisMonday,         today,                avail.thisWeek),
+            lastWeek:    sumPeriod(byDate, lastMonday,         lastSunday,           avail.lastWeek),
+            thisMonth:   sumPeriod(byDate, firstOfMonth,       today,                avail.thisMonth),
+            lastMonth:   sumPeriod(byDate, firstOfLastMonth,   lastDayLastMonth,     avail.lastMonth),
+            thisQuarter: sumPeriod(byDate, firstOfThisQuarter, today,                avail.thisQuarter),
+            lastQuarter: sumPeriod(byDate, firstOfLastQuarter, lastDayLastQuarter,   avail.lastQuarter),
             // To-date: same date range but denominator = elapsed business days only
-            wtd:         sumPeriod(byDate, thisMonday,         today,                periodAvailableHours.wtd),
-            mtd:         sumPeriod(byDate, firstOfMonth,       today,                periodAvailableHours.mtd),
-            qtd:         sumPeriod(byDate, firstOfThisQuarter, today,                periodAvailableHours.qtd),
-            ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo, periodAvailableHours.custom) } : {}),
+            wtd:         sumPeriod(byDate, thisMonday,         today,                avail.wtd),
+            mtd:         sumPeriod(byDate, firstOfMonth,       today,                avail.mtd),
+            qtd:         sumPeriod(byDate, firstOfThisQuarter, today,                avail.qtd),
+            ...(customFrom && customTo ? { custom: sumPeriod(byDate, customFrom, customTo, avail.custom) } : {}),
           },
           weeklyTrend,
           projectBreakdown,
