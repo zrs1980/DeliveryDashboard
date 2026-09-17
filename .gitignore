@@ -48,3 +48,6 @@ next-env.d.ts
 # status report render-check output
 status-report-check.pdf
 font-check.pdf
+
+# Spec archives — contents are extracted alongside as .md
+docs/*.zip
