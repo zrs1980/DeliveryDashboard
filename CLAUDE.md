@@ -1773,8 +1773,29 @@ built. Phase 1 (customer profile extraction) is next and has not started.
 /lib/cs-permissions.ts         → the cs_layer boundary. Server-only.
 /lib/cs-customers.ts           → customer identity: the list, the project index, rollups
 /app/api/cs/customers/route.ts → customer base with hours + silence. Gated on cs_layer.
+/app/api/cs/access/route.ts    → { csLayer: boolean } — lets the client hide the tab
 /app/api/cs/cron/health/route.ts → nightly job. Currently a Phase 0 stub that writes nothing.
+/components/dashboard/CustomerSuccessView.tsx → 💚 Customer Success tab
+/scripts/verify-cs-customers.ts → reconciliation check against live NetSuite
 ```
+
+### The Customer Success tab
+
+`💚 Customer Success` lists every customer with project count, hours in the last 90 days
+and days since anyone last logged time, quietest first. Self-loading, like the Meetings
+tabs — the header's Refresh Data button does not drive it.
+
+**Nothing in it is RAG-coloured, deliberately.** "Quiet for 200 days" is a fact; "at risk"
+is a judgment this view is not entitled to make while 40 of 55 accounts are quiet simply
+because their implementation finished. Colour arrives with scoring in Phase 2, and only
+once contracts can separate "delivered and done" from "going quiet". Per the design system,
+green/amber/red are only ever RAG status — using them decoratively here would be wrong
+twice over.
+
+**The tab is gated on `GET /api/cs/access`, not on a list in the client.** `cs_layer` cannot
+be checked in the browser: the allow-list is in `lib/cs-permissions.ts`, which is
+server-only precisely so it does not ship in a bundle the way `PTO_APPROVER_EMAILS` does.
+Hiding the tab is cosmetic — every `/api/cs/*` route enforces `requireCsLayer()` itself.
 
 ### Two non-negotiables from the spec
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { C, PTO_APPROVER_EMAILS } from "@/lib/constants";
 import { startOfToday } from "@/lib/clickup";
@@ -24,6 +24,7 @@ import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationVie
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
 import { ManagerPTOView } from "@/components/dashboard/ManagerPTOView";
+import CustomerSuccessView from "@/components/dashboard/CustomerSuccessView";
 import type { Project, ProjectPhase, NSAllocation, ConsultantRosterEntry } from "@/lib/types";
 
 interface NSCase {
@@ -40,7 +41,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto" | "meetings" | "fireflies";
+type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto" | "meetings" | "fireflies" | "cs";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -62,6 +63,9 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "customers",        label: "Customers",        icon: "🏢" },
   { id: "projectMgmt",      label: "PM",               icon: "📋" },
   { id: "mgr-pto",          label: "Manager PTO",      icon: "🗓️" },
+  // Visible only to cs_layer holders — gated on /api/cs/access, not on a
+  // hardcoded list here. See the filter below.
+  { id: "cs",               label: "Customer Success", icon: "💚" },
 ];
 
 interface DataState {
@@ -141,6 +145,20 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // cs_layer cannot be checked in the browser: the allow-list lives in
+  // lib/cs-permissions.ts, which is server-only precisely so it does not ship in
+  // a bundle the way PTO_APPROVER_EMAILS does. Ask the server instead. Defaults
+  // to false, so the tab never flashes visible before the answer arrives.
+  const [csLayer, setCsLayer] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/cs/access")
+      .then(r => r.ok ? r.json() : { csLayer: false })
+      .then(j => { if (!cancelled) setCsLayer(Boolean(j?.csLayer)); })
+      .catch(() => { /* no CS tab — the routes enforce it regardless */ });
+    return () => { cancelled = true; };
+  }, []);
   const [taskSubTab, setTaskSubTab] = useState<"overdue" | "blocked">("overdue");
   const [splitPct, setSplitPct] = useState(42); // % width for ConsultantView panel
   const [showCalendar, setShowCalendar] = useState(false);
@@ -364,6 +382,9 @@ export default function DashboardPage() {
             // hardcoded copy here meant adding an approver to PTO_APPROVER_EMAILS granted
             // them the API but not the tab — access that looks broken rather than absent.
             if (t.id === "mgr-pto") return PTO_APPROVER_EMAILS.includes(email);
+            // Cosmetic only — /api/cs/* enforces requireCsLayer() server-side, so
+            // hiding the tab keeps risk data out of sight, not out of reach.
+            if (t.id === "cs") return csLayer;
             return true;
           }).map(t => {
             const isActive = tab === t.id;
@@ -595,6 +616,14 @@ export default function DashboardPage() {
         {tab === "customers" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
             <CustomersView />
+          </div>
+        )}
+
+        {/* Customer Success — cs_layer only. Self-loading; independent of the
+            header's Refresh Data button, like the Meetings tabs. */}
+        {tab === "cs" && csLayer && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
+            <CustomerSuccessView />
           </div>
         )}
 
