@@ -67,6 +67,7 @@ function project(tasks: CUTask[], over: Partial<Project> = {}): Project {
     id: 18999, entityid: "413",
     projectName: "NS Implementation Phase 2",
     label: "Salt and Stone — NS Implementation Phase 2",
+    customerNsId: null,
     client: "Salt and Stone",
     projectType: "Implementation",
     pm: "Shai Aradais",

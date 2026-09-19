@@ -52,6 +52,12 @@ export interface Project {
   projectName: string;        // NetSuite job name e.g. "NetSuite Implementation"
   label: string;              // "Client — Project Name"
   client: string;
+  /**
+   * NetSuite `customer` internal id — the key the CS agent layer joins on.
+   * Null on the handful of jobs with no customer set. `client` above is the
+   * display name; this is the identity.
+   */
+  customerNsId: string | null;
   projectType: "Implementation" | "Service";
   pm: string;
   goliveDate: string | null;

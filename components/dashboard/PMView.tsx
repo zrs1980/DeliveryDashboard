@@ -787,6 +787,9 @@ function NativeOnlyProjectView({
     projectName,
     label:         `${clientName} — ${projectName}`,
     client:        clientName,
+    // Native pm_projects row, not a NetSuite job — clientName here is free text
+    // with no customer record behind it.
+    customerNsId:  null,
     projectType:   "Implementation",
     pm,
     goliveDate:    goLiveDate,

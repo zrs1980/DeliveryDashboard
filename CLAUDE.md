@@ -1754,3 +1754,121 @@ The wiki directory integrates with live NetSuite data in two ways:
 - Client-visible wiki pages
 - AI-generated SOP summaries (can be added later using existing Anthropic integration)
 
+
+---
+
+## Module: Customer Success Agent Layer
+
+An agent-assisted CS layer that monitors account health, generates customer-specific
+outreach and supports NetSuite / Loop ERP upsell. Full specification lives in `docs/` —
+`00-PROJECT-BRIEF.md` through `07-BUILD-SEQUENCE.md`; read `07` for phasing before building
+anything here.
+
+**Status: Phase 0 complete (Sep 2026).** Schema deployed, boundary enforced, identity layer
+built. Phase 1 (customer profile extraction) is next and has not started.
+
+```
+/docs/00-…07-*.md              → the specification (read 07 first)
+/supabase/cs-agent-schema.sql  → 10 tables, run by hand in the Supabase SQL editor
+/lib/cs-permissions.ts         → the cs_layer boundary. Server-only.
+/lib/cs-customers.ts           → customer identity: the list, the project index, rollups
+/app/api/cs/customers/route.ts → customer base with hours + silence. Gated on cs_layer.
+/app/api/cs/cron/health/route.ts → nightly job. Currently a Phase 0 stub that writes nothing.
+```
+
+### Two non-negotiables from the spec
+
+**Draft, never send.** Every outbound email is a draft awaiting human approval. This is a
+permanent feature, not a v1 safety measure. It happens to be enforced by the architecture:
+email sends through the *signed-in user's* Gmail token, so a cron job has no way to send
+even if someone wired one up. Don't "fix" that by adding a service sender.
+
+**Agent output never lands in system-of-record tables.** Health scores, flags, profiles and
+drafts are opinions — always attributed, always timestamped, always reviewable. The `cs_`
+prefix makes the seam visible at schema level.
+
+### `customer_ns_id` is the join key — and `lib/cs-customers.ts` is what produces it
+
+Everything joins on the NetSuite `customer` internal id, stored as **text, with no foreign
+key**: the customer master is NetSuite, there is no `customers` table in Postgres. Eleven
+tables already follow this (the five portal tables, `healthchecks`, and the `cs_*` tables).
+
+The dashboard otherwise deals only in *projects*, so resolving a customer needs care:
+
+| Trap | Reality |
+|---|---|
+| `job.companyname` | The **project** name in this account, not the client's. Never use it as a customer identifier |
+| `BUILTIN.DF(customer)` | The customer's display *label*, not its id. `fetchActiveProjects()` selects both — use `customer_ns_id` for identity, `customer_name` for display |
+| `timebill.customer` | A **job** id, not a customer id. Roll up `timebill.customer → job.id → job.customer` |
+| `supportcase.company` | `/api/cases` resolves this to `entity.altname` and drops the id. Add the id if a case ever needs to join to a customer |
+
+`lib/cs-customers.ts` owns all of it: `fetchCsCustomers()` (the canonical list),
+`fetchCustomerProjectIndex()` (job ↔ customer, both directions),
+`fetchCustomerHours(days)`, `fetchCustomerLastActivity()`, `customerOfProject()`.
+
+**The customer universe is `isinactive='F' AND entitystatus = 13`** — the same filter the
+Customers tab uses, defined once in `fetchCsCustomers()` and re-exported by
+`/api/customers`. Don't write that filter a second time anywhere. A customer with live work
+but a different NetSuite status will not be scored; revisit once contracts are loaded.
+
+### Setup (both steps are manual, and both are easy to forget)
+
+1. Paste `supabase/cs-agent-schema.sql` into the Supabase SQL editor. Safe to re-run — every
+   statement is `IF NOT EXISTS` / `OR REPLACE`. There is no migration runner in this repo.
+2. Set `CRON_SECRET` in Vercel (Production, Preview, Development) and **redeploy**. Vercel
+   sends it automatically as `Authorization: Bearer …` once the var exists.
+
+Verify both at once: `GET /api/cs/cron/health` with that bearer token returns
+`{"ok":true,"snapshotsExisting":N}`. A 500 naming the SQL file means the schema never ran;
+a 503 means `CRON_SECRET` is unset; a 307 means the deploy predates the `proxy.ts` exemption.
+
+### Gotchas
+
+- **`timetype = 'A'` is mandatory on every timebill query here.** Unfiltered, 17,017 of
+  32,308 rows are `'B'` (allocated) — a forward-dated forecast, not work done. The most
+  recent "activity" for the largest bucket sits **104 days in the future**, so a silent
+  account reads as busy: the exact state this module exists to detect. `/api/time-analysis`
+  and `/api/msa` apply no timetype filter — **do not copy their queries.** Follow
+  `fetchActualHours` in `lib/netsuite.ts`.
+- **Exclude `LEAVE_PROJECT_IDS` from customer rollups**, or a consultant's PTO reads as
+  customer engagement.
+- **Most customers are quiet, and that is mostly fine** — 40 of 55 had no actual hours in
+  90 days when measured 18 Sep 2026, because their implementation finished. The silence
+  rules in `03-HEALTH-SCORING.md` would flag nearly all of them on day one. Only a contract
+  distinguishes "delivered and done" from "going quiet", so **Phase 3 (contracts) must land
+  before Phase 2 (rules engine)**, inverting the order in `07-BUILD-SEQUENCE.md`. If
+  `/api/cs/customers` ever reports a *low* quiet count, the timetype filter has broken — it
+  is a canary, not just a statistic.
+- **⚠ The chosen universe covers barely half the accounts with delivery history.**
+  `entitystatus = 13` yields **55** customers, but **111** have logged actual time at some
+  point — so **60 customers with real history are never scored**. That is more than are
+  scored. The Customers-tab filter was chosen for consistency with the existing UI, but an
+  account going quiet outside it is invisible to the very module built to notice.
+  Re-examine when contracts land. `npx tsx --env-file=.env.local scripts/verify-cs-customers.ts`
+  prints the current numbers.
+- **SuiteQL returns dates as M/D/YYYY, which does not sort lexicographically.**
+  `"9/8/2026" > "10/1/2026"` as strings, so a JS string-max over raw NetSuite dates picks
+  September over October. `fetchCustomerLastActivity` normalises with
+  `TO_CHAR(MAX(trandate), 'YYYY-MM-DD')` so both the SQL max and any later comparison are
+  correct. This was a live bug — it made three customers read as quieter than they were.
+- **`cs_health_*` is not the `healthchecks` table.** `healthchecks` is quarterly call
+  *scheduling* and unrelated to scoring. Its DDL lives only in a comment block at
+  `app/api/healthchecks/route.ts:6-23` — there is no `.sql` file for it.
+- **`lib/cs-permissions.ts` must never be imported by a client component.** It carries a
+  runtime `window` guard for that reason. `lib/constants.ts` is client-imported, so
+  `PTO_APPROVER_EMAILS` already ships in browser bundles — survivable for leave approval,
+  not for "which customers we think are churning". Check with
+  `grep -r CS_LAYER .next/static` after a build; it must return nothing.
+- **Only `/api/cs/cron` is exempt from the login redirect in `proxy.ts`** — deliberately
+  narrow. Every other CS route needs a session *and* `requireCsLayer()`. A CS route that
+  307s to `/login` has been put under the cron path by mistake.
+- **The spec's three-role matrix is not implemented.** `01-DATA-MODEL.md` defines
+  Consultant / PM / CS-Owner tiers; `cs_layer` is a binary allow-list, because this app has
+  no role model at all (three hardcoded email lists in three files). Conscious deviation —
+  revisit when a second CS permission needs to exist.
+- **RLS is deliberately off on `cs_*`.** They are reached only through the service-role
+  client, which bypasses RLS, so it would be decorative. If a customer-facing surface is
+  ever built on them, add RLS first and follow `supabase/portal-schema.sql`.
+- **`cs_outreach_drafts.expires_at` and snapshot retention have columns but no enforcement.**
+  Draft expiry belongs with the queue in Phase 4; the snapshot prune belongs in the nightly
+  job once there is history to roll up.

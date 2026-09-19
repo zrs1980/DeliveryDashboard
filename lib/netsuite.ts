@@ -293,6 +293,7 @@ export async function fetchActiveProjects() {
     entityid: string;
     companyname: string;
     customer_name: string | null;
+    customer_ns_id: string | null;
     startdate: string | null;
     golive_date: string | null;
     entitystatus: string;
@@ -309,7 +310,11 @@ export async function fetchActiveProjects() {
       id,
       entityid,
       companyname,
+      -- customer_name is the display label; customer_ns_id is the raw id, and the
+      -- key everything in the CS layer joins on (see lib/cs-customers.ts). Note
+      -- companyname above is the PROJECT name in this account, not the client's.
       BUILTIN.DF(customer)                 AS customer_name,
+      customer                             AS customer_ns_id,
       startdate,
       custentity_project_golive_date       AS golive_date,
       entitystatus,

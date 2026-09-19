@@ -150,6 +150,7 @@ export async function GET() {
           projectName,
           label:         `${clientName} — ${projectName}`,
           client:        clientName,
+          customerNsId:  p.customer_ns_id ? String(p.customer_ns_id) : null,
           projectType:   parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
           goliveDate,
@@ -199,6 +200,9 @@ export async function GET() {
           projectName:   label,
           label,
           client:        "Loop Services Internal",
+          // Internal ClickUp lists have no NetSuite job, so no customer to join
+          // to. The CS layer never sees these.
+          customerNsId:  null,
           projectType:   "Service" as const,
           pm:            "—",
           goliveDate:    null,
