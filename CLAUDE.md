@@ -1867,6 +1867,25 @@ a 503 means `CRON_SECRET` is unset; a 307 means the deploy predates the `proxy.t
   account going quiet outside it is invisible to the very module built to notice.
   Re-examine when contracts land. `npx tsx --env-file=.env.local scripts/verify-cs-customers.ts`
   prints the current numbers.
+- **`supportcase.company` is often a JOB, not a customer — 596 of 1080 cases.** Joining it
+  straight to `customer` loses over half the ticket history. Yield Engineering reads as
+  having **zero** cases when it actually has 142, the most in the account, hung off its
+  Managed Services Agreement job. Roll up the same way as timebill: `case.company` may be
+  either a customer id or a job id, so query `IN (customerId, ...itsJobIds)`. The Cases tab
+  itself is fine — it resolves through `entity`, whose `altname` renders as
+  `"Customer : Job Name"`. It is the programmatic join that breaks.
+- **`supportcasemessage` is NOT queryable in SuiteQL** ("Invalid search type"), so threaded
+  replies are out of reach. `supportcase.incomingmessage` holds the opening message only —
+  enough for a pain point, not a resolution. The REST Record API is the fallback if replies
+  are ever needed.
+- **Case bodies are full Outlook HTML email and ~89% of the volume is disposable.** Yield
+  Engineering's 142 cases carry **3,033,670** raw characters; stripping markup and quoted
+  replies leaves 333k. Without that reduction a single customer's corpus does not fit a
+  model call. `stripHtml` / `stripQuotedReply` in `lib/cs-profile-corpus.ts`.
+- **Time-entry memos are the richest source of manual processes, and they repeat.** 3,732
+  memos on one account reduce to ~1,100 unique lines; "CU" and "Updates" appear hundreds of
+  times. `dedupeMemos` keeps the count, because a phrase written thirty times describes a
+  routine activity — which is exactly what a cross-sell case is made of.
 - **SuiteQL returns dates as M/D/YYYY, which does not sort lexicographically.**
   `"9/8/2026" > "10/1/2026"` as strings, so a JS string-max over raw NetSuite dates picks
   September over October. `fetchCustomerLastActivity` normalises with
