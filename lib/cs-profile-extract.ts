@@ -220,15 +220,27 @@ export function validateProfile(input: unknown): ExtractedProfile {
 /**
  * Capabilities listed as owned AND as not-bought.
  *
- * Seen on the first real run: Salt and Stone came back with Bill.com and Ramp in
- * `integrations` while `features_enquired_not_purchased` said neither was ever
- * implemented. Both readings were defensible from the sources — the tools are
- * discussed — but an email built on the owned list would have thanked them for
- * using software they never bought.
+ * Reproduced on both validation accounts, in the same direction every time:
+ * Salt and Stone returned Bill.com and Ramp as `integrations` while also saying
+ * neither was implemented; Oxide returned Benchmark and Salesforce as
+ * `integrations` while also recording that the Benchmark middleware decision and
+ * the Salesforce SOW were still unsigned. The model credits "discussed" as
+ * "owned".
  *
- * Reported rather than auto-corrected: which side is wrong depends on the
- * evidence, and quietly deleting from one list would hide the disagreement
- * instead of getting it resolved.
+ * The cause is structural rather than a model failure. `modules_owned` and
+ * `integrations` are bare strings — the only fields here that carry no
+ * evidence_refs, no confidence and no observed/inferred basis. So they are the
+ * one place with nowhere to record how a claim is known, and nothing to
+ * distinguish a system that was configured from one that was mentioned in a
+ * meeting.
+ *
+ * Hence resolveContradictions(): when a capability appears on both sides, the
+ * evidenced side wins and it is struck from the bare list. That is not a
+ * coin-toss — one side cites a case id or a project note, the other cannot cite
+ * anything by construction. The removal is always reported, never silent.
+ *
+ * The real fix is to give these two fields the same evidenced shape as the
+ * rest, which means migrating the columns from text[] to jsonb.
  */
 export function findContradictions(p: ExtractedProfile): string[] {
   const owned = [...p.modules_owned, ...p.integrations];
@@ -257,6 +269,30 @@ const GENERIC_TOKENS = new Set([
   "netsuite", "erp", "netsuite core erp", "integration", "module", "modules",
   "inventory management", "reporting", "suitescript", "oracle",
 ]);
+
+/**
+ * Strike contradicted capabilities from the bare owned lists.
+ *
+ * The evidenced side wins — see findContradictions above for why that is a rule
+ * rather than a guess. Returns the cleaned profile plus what was removed, so the
+ * correction shows up in the response instead of happening quietly.
+ */
+export function resolveContradictions(
+  p: ExtractedProfile,
+): { profile: ExtractedProfile; removed: string[] } {
+  const removed = findContradictions(p);
+  if (!removed.length) return { profile: p, removed };
+
+  const drop = new Set(removed);
+  return {
+    profile: {
+      ...p,
+      modules_owned: p.modules_owned.filter(m => !drop.has(m)),
+      integrations:  p.integrations.filter(i => !drop.has(i)),
+    },
+    removed,
+  };
+}
 
 /** How much of the model's output survived validation — surfaced so silent drops are visible. */
 export function extractionDrops(raw: unknown, clean: ExtractedProfile): Record<string, number> {

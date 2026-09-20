@@ -17,7 +17,7 @@ import { runSuiteQLAll } from "../lib/netsuite";
 import { gatherCustomerCorpus } from "../lib/cs-profile-corpus";
 import {
   PROFILE_MODEL, PROFILE_TOOL, profileMessages, validateProfile, extractionDrops,
-  findContradictions, type EvidencedItem,
+  resolveContradictions, type EvidencedItem,
 } from "../lib/cs-profile-extract";
 
 const show = (label: string, items: EvidencedItem[]) => {
@@ -59,8 +59,9 @@ async function main() {
   const toolUse = message.content.find(b => b.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") { console.error("No tool_use block returned."); process.exit(1); }
 
-  const profile = validateProfile(toolUse.input);
-  const drops   = extractionDrops(toolUse.input, profile);
+  const validated = validateProfile(toolUse.input);
+  const drops     = extractionDrops(toolUse.input, validated);
+  const { profile, removed: contradictionsResolved } = resolveContradictions(validated);
 
   console.log(`\n═══ ${hit.companyname} ═══`);
   console.log(`modules:      ${profile.modules_owned.join(", ") || "(none)"}`);
@@ -77,10 +78,10 @@ async function main() {
     console.log(`\n⚠ Dropped for having no evidence: ${JSON.stringify(drops)}`);
   }
 
-  const contradictions = findContradictions(profile);
-  if (contradictions.length) {
-    console.log(`\n⚠ Listed as BOTH owned and not-bought: ${contradictions.join(", ")}`);
-    console.log(`   Check the evidence before quoting either list back to the customer.`);
+  if (contradictionsResolved.length) {
+    console.log(`\n⚠ Struck from the owned lists: ${contradictionsResolved.join(", ")}`);
+    console.log(`   Each was also recorded as never purchased, with evidence. The`);
+    console.log(`   evidenced side wins — see findContradictions in cs-profile-extract.`);
   }
 }
 

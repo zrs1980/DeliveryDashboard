@@ -5,7 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { gatherCustomerCorpus } from "@/lib/cs-profile-corpus";
 import {
   PROFILE_MODEL, PROFILE_TOOL, EXTRACTION_VERSION,
-  profileMessages, validateProfile, extractionDrops, findContradictions,
+  profileMessages, validateProfile, extractionDrops, resolveContradictions,
 } from "@/lib/cs-profile-extract";
 import { runSuiteQL } from "@/lib/netsuite";
 
@@ -114,8 +114,10 @@ export async function POST(req: Request) {
 
     // Re-validate rather than trusting the model's shape. Unevidenced claims are
     // dropped here, and the count is reported so the loss is visible.
-    const profile = validateProfile(toolUse.input);
-    const drops   = extractionDrops(toolUse.input, profile);
+    const validated = validateProfile(toolUse.input);
+    const drops     = extractionDrops(toolUse.input, validated);
+    // A capability claimed as owned AND as never-bought: the evidenced side wins.
+    const { profile, removed: contradictionsResolved } = resolveContradictions(validated);
 
     const row = {
       customer_ns_id:    customerNsId,
@@ -163,9 +165,9 @@ export async function POST(req: Request) {
         notes:      corpus.stats.notes,
       },
       droppedUnevidenced: drops,
-      // Listed as both owned and not-bought. Reported, not auto-corrected —
-      // which side is wrong depends on evidence a person has to weigh.
-      contradictions: findContradictions(profile),
+      // Struck from modules_owned / integrations because the same capability was
+      // also recorded as never purchased, with evidence. Always reported.
+      contradictionsResolved,
       usage: { input: message.usage?.input_tokens, output: message.usage?.output_tokens },
     });
   } catch (e) {
