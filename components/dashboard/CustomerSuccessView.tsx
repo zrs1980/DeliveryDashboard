@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
+import CsContracts from "@/components/dashboard/CsContracts";
 
 // ─── Customer Success — account overview ─────────────────────────────────────
 //
@@ -64,6 +65,7 @@ export default function CustomerSuccessView() {
   const [q,       setQ]       = useState("");
   const [sort,    setSort]    = useState<SortKey>("quiet");
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
+  const [mode,     setMode]     = useState<"accounts" | "renewals">("accounts");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +138,23 @@ export default function CustomerSuccessView() {
         <span style={{ fontSize: 12, color: C.textSub }}>
           Account activity and silence. No scoring yet — see Phase 2.
         </span>
+        <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
+                      borderRadius: 7, padding: 2 }}>
+          {(["accounts", "renewals"] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={{
+                background: mode === m ? C.blue : "transparent",
+                color: mode === m ? "#fff" : C.textMid,
+                border: "none", borderRadius: 5, padding: "4px 12px",
+                fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+              }}
+            >
+              {m === "accounts" ? "Accounts" : "Renewals"}
+            </button>
+          ))}
+        </div>
         <button
           onClick={load}
           disabled={loading}
@@ -159,13 +178,19 @@ export default function CustomerSuccessView() {
         </div>
       )}
 
-      {loading && !data && (
+      {mode === "renewals" && (
+        <div style={{ marginTop: 16 }}>
+          <CsContracts />
+        </div>
+      )}
+
+      {mode === "accounts" && loading && !data && (
         <div style={{ padding: "40px 0", textAlign: "center", color: C.textSub, fontSize: 13 }}>
           Loading customer activity from NetSuite…
         </div>
       )}
 
-      {data && (
+      {mode === "accounts" && data && (
         <>
           {/* Summary */}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "16px 0" }}>

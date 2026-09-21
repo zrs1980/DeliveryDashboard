@@ -1812,6 +1812,35 @@ wins, and the removal is always reported. Proper fix is migrating those two colu
 chip reads as "this customer is in trouble". Only observed-vs-inferred is tinted, in blue,
 because that is the distinction deciding whether a claim may be quoted to a customer.
 
+### Contracts and renewals (Phase 3)
+
+`lib/cs-contracts.ts` · `app/api/cs/contracts/route.ts` · `components/dashboard/CsContracts.tsx`.
+Per-customer in the profile panel; portfolio-wide under the **Renewals** toggle on the CS tab.
+
+**Contracts are hand-entered, because NetSuite has nowhere to hold them.** Verified Sep
+2026: no `contract`, `subscription` or `billingschedule` table exists in SuiteQL, and the
+`customer` record (85 columns) carries no renewal date, notice period or annual value. The
+only contract-adjacent field in the account is `custentity9`, contracted monthly MSA hours
+on the `job`. Don't go looking for a sync — there is nothing to sync from.
+
+**⚠ The deadline is the NOTICE date, not the end date.** A 90-day notice period on a
+31 December contract means the decision is due 2 October; the end date is merely when it
+became too late. Every countdown and every alert band (120/90/60/30) runs on
+`daysToNotice`. A contract past its notice date and set to auto-renew is *already
+committed* — `renewalSummary` says so outright.
+
+**`days_to_renewal` / `days_to_notice_deadline` are derived, never stored** — a stored
+countdown is wrong by one every midnight. `renewalClock()` computes both.
+
+**This view uses amber and red where the accounts table deliberately does not.** A notice
+deadline inside 30 days is a hard fact requiring action, not an inference about health, so
+it cannot cry wolf the way colouring 40 of 55 quiet accounts would. Green is unused: a
+contract that is simply not due yet is not "healthy", it is just not due.
+
+**`custentity_date_lsa`** on the customer (populated on 132 of 180) holds a date with a
+linked message and reads as **last sales activity** — the "last contact date" the triage
+view wants in Phase 2. Not yet wired up.
+
 ### The Customer Success tab
 
 `💚 Customer Success` lists every customer with project count, hours in the last 90 days

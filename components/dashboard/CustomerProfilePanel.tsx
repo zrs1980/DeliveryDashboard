@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
+import CsContracts from "@/components/dashboard/CsContracts";
 
 // ─── Customer profile — view, verify, re-extract ─────────────────────────────
 //
@@ -162,6 +163,13 @@ export default function CustomerProfilePanel({
           {error}
         </div>
       )}
+
+      {/* Contracts first: the renewal clock is actionable today, where the
+          profile is reference material. Also independent of extraction, so it
+          is worth filling in even before a profile exists. */}
+      <div style={{ marginBottom: 20 }}>
+        <CsContracts customerNsId={customerNsId} customerName={customerName} />
+      </div>
 
       {loading && <div style={{ color: C.textSub, fontSize: 13, padding: "18px 0" }}>Loading profile…</div>}
 
