@@ -1775,9 +1775,42 @@ built. Phase 1 (customer profile extraction) is next and has not started.
 /app/api/cs/customers/route.ts → customer base with hours + silence. Gated on cs_layer.
 /app/api/cs/access/route.ts    → { csLayer: boolean } — lets the client hide the tab
 /app/api/cs/cron/health/route.ts → nightly job. Currently a Phase 0 stub that writes nothing.
-/components/dashboard/CustomerSuccessView.tsx → 💚 Customer Success tab
+/app/api/cs/profiles/route.ts  → GET list/one · PUT commit a dry run · PATCH notes+verified
+/app/api/cs/profiles/extract/route.ts → POST { customerNsId, dryRun?, force? }
+/lib/cs-profile-corpus.ts      → gathers and REDUCES the per-customer corpus
+/lib/cs-profile-extract.ts     → tool schema, prompt, validation
+/components/dashboard/CustomerSuccessView.tsx  → 💚 Customer Success tab
+/components/dashboard/CustomerProfilePanel.tsx → profile, evidence, re-extract
 /scripts/verify-cs-customers.ts → reconciliation check against live NetSuite
+/scripts/probe-cs-corpus.ts     → how much source material each customer has
+/scripts/try-cs-profile.ts      → extract one profile and print it, no DB
 ```
+
+### Profile extraction (Phase 1)
+
+Click a customer in the CS tab to see their profile. Extraction reads projects, support
+cases and consultant time memos, and writes `cs_customer_profiles`.
+
+**Re-extract never overwrites in place.** It runs with `dryRun`, shows the new version
+beside the stored one, and commits through `PUT /api/cs/profiles` only when kept — so the
+accept path costs no second model call. `human_notes` survives every re-extraction, and a
+profile marked `human_verified` answers **409** with both versions rather than being
+replaced.
+
+**An item with no `evidence_refs` is dropped, not downgraded.** A claim that cannot be
+drilled into is worse than a shorter profile, because it gets believed anyway. The count
+dropped is reported in the response.
+
+**A capability claimed as owned AND as never-bought is struck from the owned list.**
+Reproduced on both validation accounts in the same direction — the model reads "discussed"
+as "owned". The cause is structural: `modules_owned` and `integrations` are the only bare
+strings in the profile, with nowhere to record how a claim is known. The evidenced side
+wins, and the removal is always reported. Proper fix is migrating those two columns from
+`text[]` to `jsonb` so they carry evidence like everything else.
+
+**Confidence is never RAG-coloured.** Confidence is not health, and a red "low confidence"
+chip reads as "this customer is in trouble". Only observed-vs-inferred is tinted, in blue,
+because that is the distinction deciding whether a claim may be quoted to a customer.
 
 ### The Customer Success tab
 

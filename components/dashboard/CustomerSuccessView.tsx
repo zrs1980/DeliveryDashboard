@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
+import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 
 // ─── Customer Success — account overview ─────────────────────────────────────
 //
@@ -62,6 +63,7 @@ export default function CustomerSuccessView() {
   const [error,   setError]   = useState<string | null>(null);
   const [q,       setQ]       = useState("");
   const [sort,    setSort]    = useState<SortKey>("quiet");
+  const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -216,7 +218,14 @@ export default function CustomerSuccessView() {
               </thead>
               <tbody>
                 {rows.map((c, i) => (
-                  <tr key={c.customerNsId} style={{ background: i % 2 ? C.alt : C.surface }}>
+                  <tr
+                    key={c.customerNsId}
+                    onClick={() => setSelected({ id: c.customerNsId, name: c.name })}
+                    style={{
+                      background: selected?.id === c.customerNsId ? C.blueBg : i % 2 ? C.alt : C.surface,
+                      cursor: "pointer",
+                    }}
+                  >
                     <td style={{ padding: "8px 12px", fontSize: 13, color: C.text, fontWeight: 500 }}>
                       {c.name}
                       <span style={{ color: C.textSub, fontWeight: 400, marginLeft: 6, fontSize: 11 }}>
@@ -244,6 +253,8 @@ export default function CustomerSuccessView() {
                         href={nsCustomerUrl(c.customerNsId)}
                         target="_blank"
                         rel="noreferrer"
+                        // The row opens the profile; the link must not do both.
+                        onClick={e => e.stopPropagation()}
                         style={{
                           fontSize: 11, color: C.purple, background: C.purpleBg,
                           border: `1px solid ${C.purpleBd}`, borderRadius: 5,
@@ -266,7 +277,17 @@ export default function CustomerSuccessView() {
             </table>
           </div>
 
+          {selected && (
+            <CustomerProfilePanel
+              key={selected.id}
+              customerNsId={selected.id}
+              customerName={selected.name}
+              onClose={() => setSelected(null)}
+            />
+          )}
+
           <p style={{ fontSize: 11, color: C.textSub, marginTop: 10, lineHeight: 1.6 }}>
+            Click a customer to see their profile.
             Hours count actual logged time only (<span style={{ fontFamily: C.mono }}>timetype=&apos;A&apos;</span>),
             excluding leave, rolled up from projects to the customer that owns them.
             Customers shown are those with NetSuite status “Customer-Closed Won”; accounts

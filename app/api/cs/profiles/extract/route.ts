@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const gate = await requireCsLayer();
   if (gate.response) return gate.response;
 
-  let body: { customerNsId?: string | number; force?: boolean };
+  let body: { customerNsId?: string | number; force?: boolean; dryRun?: boolean };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Expected a JSON body" }, { status: 400 }); }
 
@@ -60,7 +60,12 @@ export async function POST(req: Request) {
       }, { status: 503 });
     }
 
-    if (existing?.human_verified && !body.force) {
+    // dryRun extracts and returns without writing, so the UI can show the new
+    // profile beside the current one before anything is replaced. The spec asks
+    // for a diff before committing; committing first and diffing afterwards
+    // would defeat the point. A verified profile is therefore allowed through
+    // here — nothing is being overwritten.
+    if (existing?.human_verified && !body.force && !body.dryRun) {
       return NextResponse.json({
         error:   "This profile is marked human-verified and was not overwritten.",
         reason:  "Re-extract with force: true once you have compared the two versions.",
@@ -138,6 +143,21 @@ export async function POST(req: Request) {
       human_notes:       existing?.human_notes ?? null,
       human_verified:    false,
     };
+
+    if (body.dryRun) {
+      return NextResponse.json({
+        dryRun:   true,
+        profile:  row,
+        previous: existing ?? null,
+        corpus: {
+          projects: corpus.projects.length, cases: corpus.cases.length,
+          uniqueMemos: corpus.stats.uniqueMemoCount, notes: corpus.stats.notes,
+        },
+        droppedUnevidenced: drops,
+        contradictionsResolved,
+        usage: { input: message.usage?.input_tokens, output: message.usage?.output_tokens },
+      });
+    }
 
     const { data: saved, error: writeErr } = await supabase
       .from("cs_customer_profiles")
