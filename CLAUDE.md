@@ -2077,3 +2077,38 @@ rewritten — the draft is theirs to judge.
 
 Try it without a database: `npx tsx --env-file=.env.local scripts/try-cs-healthcheck.ts "Oxide"`
 (set `VERIFIED=1` to see what a human-verified profile unlocks).
+
+### Release matching and per-customer PDFs (Phase 6)
+
+`lib/cs-release.ts` · `app/api/cs/releases/route.ts` (ingest) ·
+`app/api/cs/releases/match/route.ts` · `components/reports/ReleasePdf.tsx` ·
+`components/dashboard/CsReleases.tsx` · `app/api/cs/motions/release/route.ts` (covering email).
+The **Releases** toggle on the CS tab.
+
+**Manual paste is a first-class path, not a fallback.** Release note formats change, and an
+ingestion pipeline that breaks twice a year at exactly the moment you need it is worse than
+a paste box. Re-pasting a version **replaces** its items so a corrected parse does not leave
+the old one behind to be matched against.
+
+**One model call per customer, deliberately.** Asking one call to reason about fifteen
+customers produces fifteen versions of the same paragraph — the exact failure the spec warns
+about. A single customer failing is collected into `warnings` and the rest of the run stands.
+
+**The spec's validation test is computed, not left to judgement.** The match run reports the
+highest overlap between any two customers' matched sets, and warns above 80%: *if the
+documents read alike, the matching is not working and the profiles are too thin.* A generic
+"personalised" document is worse than sending nothing.
+
+**A match with no reasoning is discarded.** The reasoning text appears verbatim in the
+customer's PDF and is the entire product; without it the item arrives as a bare bullet the
+vendor already sent them.
+
+**PDF caps at 7 items and states the overflow** — never truncates silently. A document with
+thirty items *is* a release note, which is the thing they already ignore.
+
+**`scripts/verify-release-pdf.tsx` needs `PDF_FONT_DIR` on the command line**
+(`PDF_FONT_DIR=./public/fonts npx tsx …`), same as the status-report check. `Font.register`
+runs at module load, so setting it inside the script is too late — imports are hoisted above
+the assignment and fonts resolve to `C:\fonts`. It renders at three volumes (tidy, at the
+cap, over it) because the original status-report check passed for months on a tidy fixture
+and missed exactly the overflow cases.
