@@ -87,6 +87,115 @@ CREATE TABLE IF NOT EXISTS pm_crm_contacts (
   updated_at           timestamptz DEFAULT now()
 );
 
+-- The remaining five, so this file stands on its own against a clean database
+-- rather than only working as a rename of what crm-schema.sql created. Without
+-- these the index statements below fail on a database that has never seen the
+-- old names.
+
+CREATE TABLE IF NOT EXISTS pm_crm_stages (
+  id            text PRIMARY KEY,
+  name          text NOT NULL,
+  entity_type   text,
+  probability   numeric,
+  sort_order    integer NOT NULL DEFAULT 0,
+  is_won        boolean DEFAULT false,
+  is_lost       boolean DEFAULT false,
+  is_open       boolean DEFAULT true,
+  hidden        boolean DEFAULT false,
+  created_at    timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pm_crm_opportunities (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ns_opportunity_id  text,
+  ns_tranid          text,
+  customer_ns_id     text NOT NULL,
+  customer_name      text,
+  title              text NOT NULL,
+  description        text,
+  stage_id           text REFERENCES pm_crm_stages(id),
+  stage_name         text,
+  status             text,
+  opportunity_type   text,
+  projected_total    numeric,
+  weighted_total     numeric,
+  probability        numeric,
+  expected_close     date,
+  close_date         date,
+  tran_date          date,
+  days_open          integer,
+  owner_ns_id        integer,
+  owner_name         text,
+  primary_contact_id uuid REFERENCES pm_crm_contacts(id) ON DELETE SET NULL,
+  lead_source        text,
+  source             text DEFAULT 'manual',
+  synced_at          timestamptz,
+  created_at         timestamptz DEFAULT now(),
+  updated_at         timestamptz DEFAULT now()
+);
+-- Opportunities still sync, so this one keeps its upsert key. Not partial:
+-- ON CONFLICT cannot infer a partial index, and NULLs are already distinct.
+CREATE UNIQUE INDEX IF NOT EXISTS pm_crm_opps_ns_uniq
+  ON pm_crm_opportunities (ns_opportunity_id);
+
+CREATE TABLE IF NOT EXISTS pm_crm_opportunity_lines (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  opportunity_id uuid NOT NULL REFERENCES pm_crm_opportunities(id) ON DELETE CASCADE,
+  ns_unique_key  text,
+  line_number    integer,
+  item_name      text,
+  item_type      text,
+  description    text,
+  quantity       numeric,
+  rate           numeric,
+  amount         numeric,
+  created_at     timestamptz DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pm_crm_opp_lines_ns_uniq
+  ON pm_crm_opportunity_lines (ns_unique_key);
+CREATE INDEX IF NOT EXISTS pm_crm_opp_lines_opp
+  ON pm_crm_opportunity_lines (opportunity_id);
+
+CREATE TABLE IF NOT EXISTS pm_crm_tasks (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_ns_id text,
+  contact_id     uuid REFERENCES pm_crm_contacts(id) ON DELETE SET NULL,
+  opportunity_id uuid REFERENCES pm_crm_opportunities(id) ON DELETE CASCADE,
+  title          text NOT NULL,
+  notes          text,
+  task_type      text DEFAULT 'todo'
+                   CHECK (task_type IN ('todo','call','email','meeting','follow_up')),
+  priority       text DEFAULT 'normal' CHECK (priority IN ('low','normal','high')),
+  status         text NOT NULL DEFAULT 'open'
+                   CHECK (status IN ('open','in_progress','done','cancelled')),
+  due_date       date,
+  completed_at   timestamptz,
+  assigned_to    text,
+  created_by     text NOT NULL,
+  created_at     timestamptz DEFAULT now(),
+  updated_at     timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pm_crm_activities (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_ns_id text,
+  contact_id     uuid REFERENCES pm_crm_contacts(id) ON DELETE SET NULL,
+  opportunity_id uuid REFERENCES pm_crm_opportunities(id) ON DELETE CASCADE,
+  kind           text NOT NULL
+                   CHECK (kind IN ('email','note','call','meeting','stage_change','task_done')),
+  direction      text CHECK (direction IN ('inbound','outbound','internal')),
+  subject        text,
+  body           text,
+  occurred_at    timestamptz NOT NULL,
+  actor_email    text,
+  actor_name     text,
+  source         text NOT NULL DEFAULT 'app',
+  -- Provenance on rows imported before activities became app-only. Nothing
+  -- writes it now.
+  ns_message_id  text,
+  created_at     timestamptz DEFAULT now()
+);
+
 -- ─── Contacts are no longer synced ─────────────────────────────────────────
 -- The unique index on ns_contact_id existed purely so the sync could upsert on
 -- it. With no sync there is nothing to upsert, and keeping a uniqueness rule on
