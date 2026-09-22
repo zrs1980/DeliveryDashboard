@@ -55,6 +55,8 @@ export default function CsTriage() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen]   = useState<string | null>(null);
   const [note, setNote]   = useState("");
+  const [drafting, setDrafting] = useState<string | null>(null);
+  const [drafted,  setDrafted]  = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -82,6 +84,33 @@ export default function CsTriage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally { setRunning(false); }
+  }
+
+  /**
+   * Turn a flag into a draft. It lands in the queue and goes nowhere until a
+   * person approves it — there is no path from here to an outbound email.
+   */
+  async function draft(customerNsId: string, flagId: string) {
+    setDrafting(flagId); setError(null); setDrafted(null);
+    try {
+      const res = await fetch("/api/cs/motions/health-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerNsId, flagId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+
+      const bits: string[] = [];
+      if (json.suppression?.blocked) bits.push(`blocked by suppression: ${json.suppression.reasons.join(" · ")}`);
+      else bits.push("waiting in Drafts");
+      if (json.lint?.length) bits.push(`flagged phrasing: ${json.lint.join(", ")}`);
+      if (json.facts?.withheld?.total) bits.push(`${json.facts.withheld.total} unverified fact(s) withheld from the prompt`);
+      if (!json.facts?.profileVerified) bits.push("profile is not human-verified, so only high-confidence facts were usable");
+      setDrafted(bits.join(" · "));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally { setDrafting(null); }
   }
 
   async function act(flagId: string, status: string, dismissedReason?: string) {
@@ -131,6 +160,13 @@ export default function CsTriage() {
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12 }}>
           {error}
+        </div>
+      )}
+
+      {drafted && (
+        <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, color: C.blue,
+                      borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+          Draft written — {drafted}. Nothing sends until you approve it in Drafts.
         </div>
       )}
 
@@ -219,6 +255,13 @@ export default function CsTriage() {
                       {f.status === "open" && (
                         <button onClick={() => act(f.id, "acknowledged")} style={smallBtn(C.textMid)}>Acknowledge</button>
                       )}
+                      <button
+                        onClick={() => draft(r.customerNsId, f.id)}
+                        disabled={drafting === f.id}
+                        style={smallBtn(C.blue)}
+                      >
+                        {drafting === f.id ? "Writing…" : "Draft health check"}
+                      </button>
                       <input
                         value={open === r.customerNsId ? note : ""}
                         onChange={e => setNote(e.target.value)}

@@ -2051,3 +2051,29 @@ a 503 means `CRON_SECRET` is unset; a 307 means the deploy predates the `proxy.t
 - **`cs_outreach_drafts.expires_at` and snapshot retention have columns but no enforcement.**
   Draft expiry belongs with the queue in Phase 4; the snapshot prune belongs in the nightly
   job once there is history to roll up.
+
+### Health check motion (Phase 5)
+
+`lib/cs-healthcheck.ts` · `app/api/cs/motions/health-check/route.ts`. Triggered from a flag
+in Triage — "Draft health check" — and lands in the Drafts queue. Nothing sends.
+
+**The no-fabrication rule is enforced by withholding, not by instruction.** `quotableFacts()`
+filters the profile BEFORE the model sees it: high confidence is usable, medium only if the
+profile is human-verified, anything inferred or low-confidence is withheld entirely. The
+model cannot reference an unverified pain point because it is never told one exists. A
+prompt instruction not to fabricate is a request; withholding the material is a guarantee.
+The withheld count is reported so a thin draft is visibly thin *data*, not a weak model.
+
+**Never let the email mention internal metrics.** The first real draft opened with "noticed
+our logged hours have been pretty quiet lately" — which to the customer reads as "we noticed
+we haven't billed you recently". The silence is *why we write*, not *what we write about*.
+The flag and the hours are now passed to the model explicitly labelled internal-only, for
+its rationale to the reviewer; the email itself talks about what happened on the customer's
+side. Verified by re-running: the draft now opens on a manual process that got solved.
+
+**`lintDraft()` catches the corporate filler the spec names** ("hope this email finds you
+well", "circling back", "touching base"…). Surfaced to the reviewer rather than silently
+rewritten — the draft is theirs to judge.
+
+Try it without a database: `npx tsx --env-file=.env.local scripts/try-cs-healthcheck.ts "Oxide"`
+(set `VERIFIED=1` to see what a human-verified profile unlocks).
