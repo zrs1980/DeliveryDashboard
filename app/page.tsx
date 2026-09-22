@@ -25,6 +25,7 @@ import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
 import { ManagerPTOView } from "@/components/dashboard/ManagerPTOView";
 import CustomerSuccessView from "@/components/dashboard/CustomerSuccessView";
+import CrmView from "@/components/dashboard/CrmView";
 import type { Project, ProjectPhase, NSAllocation, ConsultantRosterEntry } from "@/lib/types";
 
 interface NSCase {
@@ -41,7 +42,7 @@ interface NSCase {
   lastNote?: string;
 }
 
-type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto" | "meetings" | "fireflies" | "cs";
+type Tab = "projects" | "tasks" | "resources" | "delivery-time" | "time" | "mgr-review" | "consultant" | "cases" | "calendar" | "wiki" | "service-requests" | "employee" | "customers" | "utilization" | "projectMgmt" | "mgr-pto" | "meetings" | "fireflies" | "cs" | "crm";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
@@ -66,6 +67,10 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   // Visible only to cs_layer holders — gated on /api/cs/access, not on a
   // hardcoded list here. See the filter below.
   { id: "cs",               label: "Customer Success", icon: "💚" },
+  // Unlike the CS tab, CRM is open to anyone signed in — pipeline, contacts
+  // and tasks are ordinary commercial work, not the risk data cs_layer exists
+  // to contain.
+  { id: "crm",              label: "CRM",              icon: "🤝" },
 ];
 
 interface DataState {
@@ -624,6 +629,12 @@ export default function DashboardPage() {
         {tab === "cs" && csLayer && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
             <CustomerSuccessView />
+          </div>
+        )}
+
+        {tab === "crm" && (
+          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
+            <CrmView />
           </div>
         )}
 
