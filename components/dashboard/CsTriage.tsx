@@ -57,6 +57,10 @@ export default function CsTriage() {
   const [note, setNote]   = useState("");
   const [drafting, setDrafting] = useState<string | null>(null);
   const [drafted,  setDrafted]  = useState<string | null>(null);
+  // A draft needs a profile, and most customers do not have one yet. Rather
+  // than bouncing the reader to the Accounts tab and back, offer to extract it
+  // here and continue.
+  const [needsProfile, setNeedsProfile] = useState<{ cid: string; name: string; flagId: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -90,8 +94,8 @@ export default function CsTriage() {
    * Turn a flag into a draft. It lands in the queue and goes nowhere until a
    * person approves it — there is no path from here to an outbound email.
    */
-  async function draft(customerNsId: string, flagId: string) {
-    setDrafting(flagId); setError(null); setDrafted(null);
+  async function draft(customerNsId: string, flagId: string, name = "") {
+    setDrafting(flagId); setError(null); setDrafted(null); setNeedsProfile(null);
     try {
       const res = await fetch("/api/cs/motions/health-check", {
         method: "POST",
@@ -109,8 +113,29 @@ export default function CsTriage() {
       if (!json.facts?.profileVerified) bits.push("profile is not human-verified, so only high-confidence facts were usable");
       setDrafted(bits.join(" · "));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      // The commonest first-run outcome, and recoverable in place.
+      if (/no profile/i.test(msg)) setNeedsProfile({ cid: customerNsId, name, flagId });
+      else setError(msg);
     } finally { setDrafting(null); }
+  }
+
+  /** Extract the profile, then carry on to the draft that wanted it. */
+  async function extractThenDraft(cid: string, name: string, flagId: string) {
+    setDrafting(flagId); setError(null); setNeedsProfile(null);
+    try {
+      const res = await fetch("/api/cs/profiles/extract", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerNsId: cid }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Extraction failed (${res.status})`);
+      setDrafting(null);
+      await draft(cid, flagId, name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+      setDrafting(null);
+    }
   }
 
   async function act(flagId: string, status: string, dismissedReason?: string) {
@@ -161,6 +186,30 @@ export default function CsTriage() {
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12 }}>
           {error}
+        </div>
+      )}
+
+      {needsProfile && (
+        <div style={{ background: C.alt, border: `1px solid ${C.mid}`, borderRadius: 8,
+                      padding: "11px 14px", fontSize: 12, marginBottom: 12, lineHeight: 1.6 }}>
+          <strong>{needsProfile.name || "This customer"} has no profile yet.</strong> A health
+          check with nothing specific in it is worse than none, so extraction has to run
+          first — it reads their projects, support cases and consultant time memos, and takes
+          up to a couple of minutes on a large account.
+          <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={() => extractThenDraft(needsProfile.cid, needsProfile.name, needsProfile.flagId)}
+              style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, color: C.blue,
+                       borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                       cursor: "pointer", fontFamily: C.font }}
+            >
+              Extract profile, then draft
+            </button>
+            <button onClick={() => setNeedsProfile(null)} style={smallBtn(C.textSub)}>Not now</button>
+            <span style={{ fontSize: 11, color: C.textSub }}>
+              You can also read and verify the profile first, under Accounts.
+            </span>
+          </div>
         </div>
       )}
 
@@ -257,11 +306,11 @@ export default function CsTriage() {
                         <button onClick={() => act(f.id, "acknowledged")} style={smallBtn(C.textMid)}>Acknowledge</button>
                       )}
                       <button
-                        onClick={() => draft(r.customerNsId, f.id)}
+                        onClick={() => draft(r.customerNsId, f.id, r.customerName)}
                         disabled={drafting === f.id}
                         style={smallBtn(C.blue)}
                       >
-                        {drafting === f.id ? "Writing…" : "Draft health check"}
+                        {drafting === f.id ? "Working…" : "Draft health check"}
                       </button>
                       <input
                         value={open === r.customerNsId ? note : ""}
