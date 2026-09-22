@@ -3,6 +3,8 @@ import { requireCsLayer } from "@/lib/cs-permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { runHealthScoring } from "@/lib/cs-scoring-run";
 import { SEVERITY_WEIGHT, type Severity, type Band } from "@/lib/cs-rules";
+import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contracts";
+import { fetchCsCustomers } from "@/lib/cs-customers";
 
 export const revalidate  = 0;
 export const maxDuration = 300;
@@ -33,14 +35,25 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
 
   try {
-    const [{ data: flags, error: fErr }, { data: snaps, error: sErr }, { data: contracts }] =
-      await Promise.all([
+    const [
+      { data: flags, error: fErr }, { data: snaps, error: sErr },
+      nsContracts, customers, { data: overlays },
+    ] = await Promise.all([
         supabase.from("cs_health_flags").select("*")
           .in("status", includeAll ? ["open", "acknowledged", "resolved", "dismissed"] : ["open", "acknowledged"]),
         supabase.from("cs_health_snapshots")
           .select("customer_ns_id, score, band, delta, computed_at, signals, rules_version")
           .order("computed_at", { ascending: false }).limit(5000),
-        supabase.from("cs_contracts").select("customer_ns_id, customer_name, end_date, notice_period_days, annual_value, auto_renew, status"),
+        // Contracts come from NetSuite, not cs_contracts — that table now holds
+        // only notice-period overlays. Reading it here was leaving renewal
+        // proximity and contract value empty for every row, which silently
+        // removed two of the four ranking keys.
+        fetchNsContracts().catch(() => [] as Awaited<ReturnType<typeof fetchNsContracts>>),
+        // Names come from the canonical customer list. They used to be taken
+        // from cs_contracts, so once contracts moved to NetSuite every row fell
+        // back to the raw customer id.
+        fetchCsCustomers().catch(() => [] as Awaited<ReturnType<typeof fetchCsCustomers>>),
+        supabase.from("cs_contracts").select("source, notice_period_days"),
       ]);
 
     if (fErr) return NextResponse.json({ error: fErr.message, hint: SCHEMA_HINT }, { status: 503 });
@@ -54,21 +67,28 @@ export async function GET(req: Request) {
       }
     }
 
+    // Every scored customer resolves to a name, whether or not they hold a
+    // contract — which is most of them.
     const nameOf: Record<string, string> = {};
+    for (const c of customers) nameOf[String(c.id)] = c.companyname;
+
+    const noticeBySource: Record<string, number> = {};
+    for (const o of overlays ?? []) {
+      if (o.source?.startsWith("netsuite:")) noticeBySource[o.source] = o.notice_period_days ?? 0;
+    }
+
     const noticeOf: Record<string, number | null> = {};
     const valueOf: Record<string, number | null> = {};
     const DAY = 86_400_000;
-    for (const c of contracts ?? []) {
-      nameOf[c.customer_ns_id] = c.customer_name;
-      valueOf[c.customer_ns_id] = c.annual_value ?? null;
-      if (c.end_date) {
-        const end = new Date(`${c.end_date}T00:00:00`);
-        if (!Number.isNaN(end.getTime())) {
-          const days = Math.round((end.getTime() - Math.max(0, c.notice_period_days ?? 0) * DAY - Date.now()) / DAY);
-          const cur = noticeOf[c.customer_ns_id];
-          if (cur === undefined || cur === null || days < cur) noticeOf[c.customer_ns_id] = days;
-        }
-      }
+    for (const c of Object.values(currentContractByCustomer(nsContracts))) {
+      valueOf[c.customerNsId] = c.annualValue;
+      // A contract name from NetSuite beats the customer list where they differ.
+      if (c.customerName) nameOf[c.customerNsId] ??= c.customerName;
+      if (!c.endDate) continue;
+      const end = new Date(`${c.endDate}T00:00:00`);
+      if (Number.isNaN(end.getTime())) continue;
+      const noticeDays = noticeBySource[`netsuite:${c.nsContractId}`] ?? 0;
+      noticeOf[c.customerNsId] = Math.round((end.getTime() - noticeDays * DAY - Date.now()) / DAY);
     }
 
     const byCustomer = new Map<string, FlagRow[]>();
@@ -85,7 +105,7 @@ export async function GET(req: Request) {
       const sig = (snap?.signals ?? {}) as Record<string, unknown>;
       return {
         customerNsId: cid,
-        customerName: nameOf[cid] ?? (sig.customerName as string) ?? cid,
+        customerName: nameOf[cid] ?? cid,
         score: snap?.score ?? null,
         band:  snap?.band  ?? null,
         delta: snap?.delta ?? null,
@@ -121,7 +141,7 @@ export async function GET(req: Request) {
       rows,
       lastRun: snaps?.[0]?.computed_at ?? null,
       rulesVersion: snaps?.[0]?.rules_version ?? null,
-      contractsRecorded: contracts?.length ?? 0,
+      contractsRecorded: nsContracts.length,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });

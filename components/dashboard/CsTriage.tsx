@@ -150,9 +150,10 @@ export default function CsTriage() {
       {meta.contractsRecorded === 0 && (
         <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, color: C.yellow,
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-          No contracts recorded yet, so silence flags are over-sensitive: nothing can tell a
-          finished implementation from an account going quiet. Add contracts under Renewals
-          and these will settle down.
+          No contracts came back from NetSuite, so the silence rules cannot fire at all —
+          nothing can tell a finished implementation from an account going quiet. Contracts
+          are read from the Contract Renewals record, so this usually means NetSuite was
+          unreachable rather than that none exist. Check the Renewals tab.
         </div>
       )}
 
