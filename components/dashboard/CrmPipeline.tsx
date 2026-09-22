@@ -44,7 +44,10 @@ const money = (n: number | null) => {
 };
 const fullMoney = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-export default function CrmPipeline({ onOpenCustomer }: { onOpenCustomer?: (id: string, name: string) => void }) {
+export default function CrmPipeline({ onOpenCustomer, onOpenDeal }: {
+  onOpenCustomer?: (id: string, name: string) => void;
+  onOpenDeal?: (dealId: string) => void;
+}) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [opps, setOpps]     = useState<Opp[]>([]);
   const [summary, setSummary] = useState<{ open: number; pipelineValue: number; weightedValue: number } | null>(null);
@@ -174,9 +177,15 @@ export default function CrmPipeline({ onOpenCustomer }: { onOpenCustomer?: (id: 
                       background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7,
                       padding: "9px 11px", marginBottom: 7, opacity: moving === o.id ? 0.5 : 1,
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.35 }}>
+                      <button
+                        onClick={() => onOpenDeal?.(o.id)}
+                        style={{ background: "none", border: "none", padding: 0, textAlign: "left",
+                                 fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.35,
+                                 fontFamily: C.font, cursor: onOpenDeal ? "pointer" : "default",
+                                 width: "100%" }}
+                      >
                         {o.title}
-                      </div>
+                      </button>
                       <button
                         onClick={() => o.customer_name && onOpenCustomer?.(o.customer_ns_id, o.customer_name)}
                         style={{ background: "none", border: "none", padding: 0, marginTop: 3,
@@ -229,7 +238,8 @@ export default function CrmPipeline({ onOpenCustomer }: { onOpenCustomer?: (id: 
 
       <p style={{ fontSize: 11, color: C.textSub, marginTop: 10, lineHeight: 1.6 }}>
         Value is the projected total on open deals only. Moving a deal to a won or lost column
-        closes it. The pipeline is app-owned — nothing here is overwritten by NetSuite.
+        closes it. Click a deal to open it. The pipeline is app-owned — nothing here is
+        overwritten by NetSuite.
       </p>
     </div>
   );

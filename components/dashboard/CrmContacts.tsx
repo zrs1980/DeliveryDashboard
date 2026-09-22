@@ -49,6 +49,34 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Adding a person. Only offered when scoped to an account, because a contact
+  // has to belong to one — the unscoped list spans every account and has no
+  // answer to "which". POST /api/crm/contacts existed from the start with no
+  // caller at all, so until now the only contacts in the system were the ones
+  // imported from NetSuite before that link was cut.
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({
+    name: "", email: "", jobTitle: "", phone: "", role: "unknown",
+  });
+
+  async function create() {
+    if (!draft.name.trim() || !customerNsId) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch("/api/crm/contacts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, customerNsId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      setDraft({ name: "", email: "", jobTitle: "", phone: "", role: "unknown" });
+      setAdding(false);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setSaving(false); }
+  }
+
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -102,7 +130,40 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
         <button onClick={load} disabled={loading} style={btn(C.blue, true)}>
           {loading ? "…" : "↻"}
         </button>
+        {customerNsId && (
+          <button onClick={() => setAdding(a => !a)} style={btn(C.blue, !adding)}>
+            {adding ? "Cancel" : "+ Add contact"}
+          </button>
+        )}
       </div>
+
+      {adding && customerNsId && (
+        <div style={{ border: `1px solid ${C.blueBd}`, background: C.blueBg, borderRadius: 8,
+                      padding: "11px 13px", marginBottom: 12, display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}
+                   placeholder="Full name" autoFocus style={{ ...fld, flex: "1 1 170px" }} />
+            <input value={draft.jobTitle} onChange={e => setDraft({ ...draft, jobTitle: e.target.value })}
+                   placeholder="Job title" style={{ ...fld, flex: "1 1 170px" }} />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={draft.email} onChange={e => setDraft({ ...draft, email: e.target.value })}
+                   placeholder="Email" type="email" style={{ ...fld, flex: "1 1 190px" }} />
+            <input value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })}
+                   placeholder="Phone" style={{ ...fld, flex: "1 1 130px", fontFamily: C.mono }} />
+            <select value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value })}
+                    style={{ ...fld, flex: "1 1 140px", cursor: "pointer" }}>
+              {(roles.length ? roles : ["unknown"]).map(r => (
+                <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>
+              ))}
+            </select>
+            <button onClick={create} disabled={saving || !draft.name.trim()}
+                    style={{ ...btn(C.blue, true), opacity: draft.name.trim() ? 1 : 0.5 }}>
+              {saving ? "Saving…" : "Create"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
@@ -205,6 +266,10 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   );
 }
 
+const fld: React.CSSProperties = {
+  padding: "6px 10px", fontSize: 12.5, fontFamily: C.font,
+  border: `1px solid ${C.mid}`, borderRadius: 6, background: C.surface, color: C.text,
+};
 const btn = (color: string, filled = false): React.CSSProperties => ({
   background: filled ? C.blueBg : "transparent",
   border: `1px solid ${filled ? C.blueBd : C.border}`,

@@ -37,8 +37,11 @@ const KIND_ICON: Record<string, string> = {
 type Section = "overview" | "contacts" | "tasks" | "activity";
 
 export default function CrmCustomerPanel({
-  customerNsId, customerName, onClose,
-}: { customerNsId: string; customerName: string; onClose: () => void }) {
+  customerNsId, customerName, onClose, onOpenDeal,
+}: {
+  customerNsId: string; customerName: string; onClose: () => void;
+  onOpenDeal?: (dealId: string) => void;
+}) {
   const [section, setSection] = useState<Section>("overview");
   const [opps, setOpps] = useState<Opp[]>([]);
   const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
@@ -230,10 +233,14 @@ export default function CrmCustomerPanel({
               </div>
             )}
             {opps.map(o => (
-              <div key={o.id} style={{
-                border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 13px",
-                marginBottom: 7, opacity: o.status === "A" ? 1 : 0.6,
-              }}>
+              <button key={o.id}
+                onClick={() => onOpenDeal?.(o.id)}
+                style={{
+                  display: "block", width: "100%", textAlign: "left", fontFamily: C.font,
+                  background: C.surface, cursor: onOpenDeal ? "pointer" : "default",
+                  border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 13px",
+                  marginBottom: 7, opacity: o.status === "A" ? 1 : 0.6,
+                }}>
                 <div style={{ display: "flex", gap: 9, alignItems: "baseline", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{o.title}</span>
                   <span style={{ fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text }}>
@@ -249,7 +256,7 @@ export default function CrmCustomerPanel({
                   {o.expected_close ?? "no close date"}
                   {o.opportunity_type ? ` · ${o.opportunity_type}` : ""}
                 </div>
-              </div>
+              </button>
             ))}
           </>
         )}

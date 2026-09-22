@@ -23,13 +23,23 @@ const TYPE_ICON: Record<string, string> = {
   todo: "☐", call: "📞", email: "✉", meeting: "👥", follow_up: "↻",
 };
 
-export default function CrmTasks({ customerNsId }: { customerNsId?: string }) {
+// Scoped three ways from one component: the whole book (Tasks tab), one account
+// (customer panel), or one deal (deal panel). The deal panel reuses this rather
+// than rendering its own list, on the same reasoning as ProjectTaskPanel — two
+// task lists drift, and this one already owns overdue/today, completion and the
+// create form.
+export default function CrmTasks({
+  customerNsId, opportunityId,
+}: { customerNsId?: string; opportunityId?: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [counts, setCounts] = useState<{ open: number; overdue: number; today: number } | null>(null);
   const [types, setTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mine, setMine] = useState(!customerNsId);
+  // Scoped to a record, "my tasks only" would hide a colleague's task on the
+  // very deal you are looking at. It defaults on only for the whole-book view.
+  const scoped = Boolean(customerNsId || opportunityId);
+  const [mine, setMine] = useState(!scoped);
   const [showDone, setShowDone] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -39,9 +49,10 @@ export default function CrmTasks({ customerNsId }: { customerNsId?: string }) {
     setLoading(true); setError(null);
     try {
       const p = new URLSearchParams();
-      if (mine)         p.set("mine", "1");
-      if (customerNsId) p.set("customerNsId", customerNsId);
-      if (showDone)     p.set("done", "1");
+      if (mine)          p.set("mine", "1");
+      if (customerNsId)  p.set("customerNsId", customerNsId);
+      if (opportunityId) p.set("opportunityId", opportunityId);
+      if (showDone)      p.set("done", "1");
       const res  = await fetch(`/api/crm/tasks?${p}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
@@ -50,7 +61,7 @@ export default function CrmTasks({ customerNsId }: { customerNsId?: string }) {
       setTypes(json.types ?? []);
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
     finally { setLoading(false); }
-  }, [mine, customerNsId, showDone]);
+  }, [mine, customerNsId, opportunityId, showDone]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -74,7 +85,7 @@ export default function CrmTasks({ customerNsId }: { customerNsId?: string }) {
     try {
       const res = await fetch("/api/crm/tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...draft, customerNsId }),
+        body: JSON.stringify({ ...draft, customerNsId, opportunityId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);

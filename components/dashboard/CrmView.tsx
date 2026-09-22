@@ -5,6 +5,7 @@ import CrmPipeline from "@/components/dashboard/CrmPipeline";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmCustomerPanel from "@/components/dashboard/CrmCustomerPanel";
+import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 
 // ─── CRM ────────────────────────────────────────────────────────────────────
 //
@@ -37,13 +38,24 @@ export default function CrmView() {
   // four separate lists.
   const [mode, setMode] = useState<Mode>("accounts");
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
+  // The open deal, held at this level rather than inside the board: a deal is
+  // reachable from the board AND from its account, and both must land on the
+  // same record page rather than each growing their own.
+  const [deal, setDeal] = useState<string | null>(null);
+  const [pipelineNonce, setPipelineNonce] = useState(0);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [q, setQ] = useState("");
   const [book, setBook] = useState<"all" | "loop" | "parent">("all");
 
+  const openDeal = useCallback((dealId: string) => {
+    setDeal(dealId);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   const openCustomer = useCallback((id: string, name: string) => {
     setSelected({ id, name });
+    setDeal(null);
     setMode("accounts");
     // The panel renders above the list; scrolling up is what makes the jump
     // read as "opened this account" rather than "nothing happened".
@@ -113,6 +125,20 @@ export default function CrmView() {
       )}
 
       <div style={{ marginTop: 14 }}>
+        {deal && (
+          <div style={{ marginBottom: 18 }}>
+            <CrmDealPanel
+              key={deal}
+              dealId={deal}
+              onClose={() => setDeal(null)}
+              onOpenCustomer={openCustomer}
+              // An edit here changes a card on the board behind it. Bumping the
+              // nonce remounts the board so the two cannot disagree.
+              onChanged={() => setPipelineNonce(n => n + 1)}
+            />
+          </div>
+        )}
+
         {mode === "accounts" && (
           <>
             {selected && (
@@ -122,6 +148,7 @@ export default function CrmView() {
                   customerNsId={selected.id}
                   customerName={selected.name}
                   onClose={() => setSelected(null)}
+                  onOpenDeal={openDeal}
                 />
               </div>
             )}
@@ -194,7 +221,9 @@ export default function CrmView() {
           </>
         )}
 
-        {mode === "pipeline" && <CrmPipeline onOpenCustomer={openCustomer} />}
+        {mode === "pipeline" && (
+          <CrmPipeline key={pipelineNonce} onOpenCustomer={openCustomer} onOpenDeal={openDeal} />
+        )}
         {mode === "contacts" && <CrmContacts />}
         {mode === "tasks"    && <CrmTasks />}
       </div>
