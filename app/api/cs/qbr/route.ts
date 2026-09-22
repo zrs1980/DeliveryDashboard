@@ -3,6 +3,7 @@ import { requireCsLayer } from "@/lib/cs-permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { runSuiteQLAll } from "@/lib/netsuite";
 import { fetchCustomerProjectIndex } from "@/lib/cs-customers";
+import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contracts";
 import { LEAVE_PROJECT_IDS } from "@/lib/constants";
 import {
   qbrTier, TIER_MONTHS, GOALS_UNAVAILABLE_NOTE, validateNextSteps,
@@ -38,11 +39,16 @@ export async function GET(req: Request) {
 
   try {
     const [
-      { data: profile }, { data: contracts }, { data: sentiment },
+      { data: profile }, nsContracts, { data: overlays }, { data: sentiment },
       { data: flags }, { data: snap }, { data: commitments }, { data: matches },
     ] = await Promise.all([
       supabase.from("cs_customer_profiles").select("*").eq("customer_ns_id", customerNsId).maybeSingle(),
-      supabase.from("cs_contracts").select("*").eq("customer_ns_id", customerNsId),
+      fetchNsContracts().catch(() => [] as Awaited<ReturnType<typeof fetchNsContracts>>),
+      // Contracts are NetSuite's (CUSTOMRECORD_CONTRACTS); cs_contracts holds
+      // only the notice-period overlay. Reading the local table here left the
+      // briefing's contract position empty and defaulted every account to
+      // annual cadence — the same miss as the triage route.
+      supabase.from("cs_contracts").select("source, notice_period_days"),
       supabase.from("cs_consultant_sentiment").select("*").eq("customer_ns_id", customerNsId)
         .order("captured_at", { ascending: false }).limit(20),
       supabase.from("cs_health_flags").select("*").eq("customer_ns_id", customerNsId).in("status", ["open", "acknowledged"]),
@@ -59,16 +65,18 @@ export async function GET(req: Request) {
       }, { status: 422 });
     }
 
-    const contract = (contracts ?? [])[0] ?? null;
-    const noticeDays = contract?.end_date
-      ? Math.round((new Date(`${contract.end_date}T00:00:00`).getTime()
-          - (contract.notice_period_days ?? 0) * DAY - Date.now()) / DAY)
-      : null;
-    const renewalDays = contract?.end_date
-      ? Math.round((new Date(`${contract.end_date}T00:00:00`).getTime() - Date.now()) / DAY)
-      : null;
+    // The governing contract, so a term already superseded by its renewal is
+    // not presented as current.
+    const contract = currentContractByCustomer(nsContracts)[customerNsId] ?? null;
+    const noticePeriodDays = contract
+      ? ((overlays ?? []).find(o => o.source === `netsuite:${contract.nsContractId}`)?.notice_period_days ?? 0)
+      : 0;
 
-    const tier = qbrTier(contract?.annual_value ?? null, noticeDays !== null && noticeDays <= 180);
+    const endMs = contract?.endDate ? new Date(`${contract.endDate}T00:00:00`).getTime() : NaN;
+    const noticeDays  = Number.isNaN(endMs) ? null : Math.round((endMs - noticePeriodDays * DAY - Date.now()) / DAY);
+    const renewalDays = Number.isNaN(endMs) ? null : Math.round((endMs - Date.now()) / DAY);
+
+    const tier = qbrTier(contract?.annualValue ?? null, noticeDays !== null && noticeDays <= 180);
     const months = Number(url.searchParams.get("months")) || TIER_MONTHS[tier];
 
     // ── Period delivery, from NetSuite ───────────────────────────────────────
@@ -169,9 +177,9 @@ export async function GET(req: Request) {
           rating: s.rating, note: s.note, consultant: s.consultant_name ?? "—", capturedAt: s.captured_at,
         })),
         contractPosition: contract ? {
-          product: contract.product, endDate: contract.end_date,
+          product: contract.contractType ?? "NetSuite", endDate: contract.endDate,
           daysToRenewal: renewalDays, daysToNotice: noticeDays,
-          annualValue: contract.annual_value, autoRenew: contract.auto_renew,
+          annualValue: contract.annualValue, autoRenew: true,
         } : null,
         openCommitments: (commitments ?? []).map(c => ({
           direction: c.direction, description: c.description, dueDate: c.due_date,
