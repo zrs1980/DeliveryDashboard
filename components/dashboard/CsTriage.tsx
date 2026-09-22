@@ -61,6 +61,11 @@ export default function CsTriage() {
   // than bouncing the reader to the Accounts tab and back, offer to extract it
   // here and continue.
   const [needsProfile, setNeedsProfile] = useState<{ cid: string; name: string; flagId: string } | null>(null);
+  // Extraction takes one to two minutes on an account with real history. The
+  // first version of this dismissed the prompt and showed only a small "Working"
+  // label on the row button, which reads as nothing happening at all — so the
+  // progress line is explicit, persistent, and says which phase it is in.
+  const [status, setStatus] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -96,24 +101,36 @@ export default function CsTriage() {
    */
   async function draft(customerNsId: string, flagId: string, name = "") {
     setDrafting(flagId); setError(null); setDrafted(null); setNeedsProfile(null);
+    setStatus(`Writing the draft for ${name || "this account"}…`);
     try {
       const res = await fetch("/api/cs/motions/health-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerNsId, flagId }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      // A non-JSON body means something upstream returned HTML — a timeout page
+      // or a login redirect — and json() would throw an opaque parse error.
+      const text = await res.text();
+      let json: Record<string, unknown>;
+      try { json = JSON.parse(text); }
+      catch { throw new Error(`Server returned ${res.status} and a non-JSON response (${text.slice(0, 120)})`); }
+      if (!res.ok) throw new Error(String(json?.error ?? `Failed (${res.status})`));
+
+      const sup  = json.suppression as { blocked?: boolean; reasons?: string[] } | undefined;
+      const fx   = json.facts as { withheld?: { total?: number }; profileVerified?: boolean } | undefined;
+      const lint = json.lint as string[] | undefined;
 
       const bits: string[] = [];
-      if (json.suppression?.blocked) bits.push(`blocked by suppression: ${json.suppression.reasons.join(" · ")}`);
+      if (sup?.blocked) bits.push(`blocked by suppression: ${(sup.reasons ?? []).join(" · ")}`);
       else bits.push("waiting in Drafts");
-      if (json.lint?.length) bits.push(`flagged phrasing: ${json.lint.join(", ")}`);
-      if (json.facts?.withheld?.total) bits.push(`${json.facts.withheld.total} unverified fact(s) withheld from the prompt`);
-      if (!json.facts?.profileVerified) bits.push("profile is not human-verified, so only high-confidence facts were usable");
+      if (lint?.length) bits.push(`flagged phrasing: ${lint.join(", ")}`);
+      if (fx?.withheld?.total) bits.push(`${fx.withheld.total} unverified fact(s) withheld from the prompt`);
+      if (!fx?.profileVerified) bits.push("profile is not human-verified, so only high-confidence facts were usable");
       setDrafted(bits.join(" · "));
+      setStatus(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
+      setStatus(null);
       // The commonest first-run outcome, and recoverable in place.
       if (/no profile/i.test(msg)) setNeedsProfile({ cid: customerNsId, name, flagId });
       else setError(msg);
@@ -123,16 +140,32 @@ export default function CsTriage() {
   /** Extract the profile, then carry on to the draft that wanted it. */
   async function extractThenDraft(cid: string, name: string, flagId: string) {
     setDrafting(flagId); setError(null); setNeedsProfile(null);
+    const started = Date.now();
+    setStatus(`Reading ${name || "this account"}'s projects, support cases and time memos… this takes one to two minutes.`);
     try {
       const res = await fetch("/api/cs/profiles/extract", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerNsId: cid }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `Extraction failed (${res.status})`);
+      const text = await res.text();
+      let json: Record<string, unknown>;
+      try { json = JSON.parse(text); }
+      catch {
+        // Vercel's timeout page is HTML, and so is a login redirect. Either
+        // way json() would throw something that says nothing useful.
+        throw new Error(
+          `Extraction returned ${res.status} with a non-JSON body after ` +
+          `${Math.round((Date.now() - started) / 1000)}s. That is usually a function timeout. ` +
+          `Body began: ${text.slice(0, 120)}`,
+        );
+      }
+      if (!res.ok) throw new Error(String(json?.error ?? `Extraction failed (${res.status})`));
+
+      setStatus(`Profile extracted in ${Math.round((Date.now() - started) / 1000)}s. Writing the draft…`);
       setDrafting(null);
       await draft(cid, flagId, name);
     } catch (e) {
+      setStatus(null);
       setError(e instanceof Error ? e.message : "Unknown error");
       setDrafting(null);
     }
@@ -186,6 +219,15 @@ export default function CsTriage() {
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12 }}>
           {error}
+        </div>
+      )}
+
+      {status && (
+        <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, color: C.blue,
+                      borderRadius: 8, padding: "10px 13px", fontSize: 12, marginBottom: 12,
+                      display: "flex", gap: 9, alignItems: "center" }}>
+          <span style={{ fontSize: 14 }}>⏳</span>
+          <span style={{ lineHeight: 1.5 }}>{status} Leave this tab open.</span>
         </div>
       )}
 
