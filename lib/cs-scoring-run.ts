@@ -1,8 +1,9 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { fetchCsCustomers, fetchCustomerProjectIndex } from "@/lib/cs-customers";
+import { fetchCsCustomers, fetchCustomerProjectIndex, SCORABLE_STAGE } from "@/lib/cs-customers";
 import { computeAllSignals, applySupabaseSignals } from "@/lib/cs-signals";
 import { evaluateRules, scoreFrom, STARTER_RULES, RULES_VERSION, type FiredFlag } from "@/lib/cs-rules";
 import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contracts";
+import { buildCustomerIndex } from "@/lib/cs-customer-index";
 
 // ─── The nightly run ────────────────────────────────────────────────────────
 //
@@ -23,6 +24,8 @@ import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contrac
 
 export interface ScoringRunResult {
   scored:         number;
+  /** Rows written to cs_customer_index. 0 means the rebuild failed — see warnings. */
+  indexed:        number;
   flagsRaised:    number;
   flagsUpdated:   number;
   flagsResolved:  number;
@@ -44,9 +47,25 @@ export async function runHealthScoring(): Promise<ScoringRunResult> {
   const warnings: string[] = [];
   const supabase = getSupabaseAdmin();
 
-  const index     = await fetchCustomerProjectIndex();
-  const customers = await fetchCsCustomers();
+  const index = await fetchCustomerProjectIndex();
+
+  // ⚠ SCORE CUSTOMERS, NOT THE WHOLE ADDRESS BOOK.
+  //
+  // fetchCsCustomers() returns every active record — 180, including 90
+  // prospects and 68 closed-lost — because the rest of the app needs them
+  // visible. Health scoring does not: a prospect with no logged hours is not an
+  // account going quiet, and scoring them would drop 90 meaningless rows into
+  // triage. Being visible and being judged are separate things.
+  const everyone  = await fetchCsCustomers();
+  const customers = everyone.filter(c => c.stage === SCORABLE_STAGE);
   const ids       = customers.map(c => String(c.id));
+
+  if (customers.length < everyone.length) {
+    warnings.push(
+      `Scored ${customers.length} of ${everyone.length} active records — ` +
+      `only stage "${SCORABLE_STAGE}" is scored; prospects and leads are visible but not judged.`,
+    );
+  }
 
   const signals = await computeAllSignals(ids, index);
 
@@ -205,8 +224,25 @@ export async function runHealthScoring(): Promise<ScoringRunResult> {
     if (error) warnings.push(`Flags not resolved: ${error.message}`);
   }
 
+  // Rebuild the index LAST, so it picks up the scores and flags this run just
+  // wrote. A failure here must not fail the run — the scoring is already
+  // committed and is the part that matters; a stale index is a stale dashboard,
+  // not lost data.
+  let indexed = 0;
+  try {
+    const built = await buildCustomerIndex();
+    indexed = built.rows;
+    warnings.push(...built.warnings);
+  } catch (e) {
+    warnings.push(
+      `Customer index not rebuilt: ${e instanceof Error ? e.message : "unknown"}. ` +
+      `Scoring succeeded; the dashboard will show the previous refresh.`,
+    );
+  }
+
   return {
     scored: snapshots.length,
+    indexed,
     flagsRaised: toInsert.length,
     flagsUpdated: toUpdate.length,
     flagsResolved: toResolve.length,
