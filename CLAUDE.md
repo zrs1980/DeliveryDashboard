@@ -2112,3 +2112,32 @@ runs at module load, so setting it inside the script is too late — imports are
 the assignment and fonts resolve to `C:\fonts`. It renders at three volumes (tidy, at the
 cap, over it) because the original status-report check passed for months on a tidy fixture
 and missed exactly the overflow cases.
+
+### QBR packs (Phase 7)
+
+`lib/cs-qbr.ts` · `app/api/cs/qbr/route.ts` · `components/dashboard/CsQbr.tsx`.
+Appears at the bottom of a customer's profile panel.
+
+**Two artefacts, separated at the TYPE level.** `CustomerFacingPack` has nowhere to put
+consultant sentiment, a health score or a flag — the fields do not exist on it. The spec
+says sentiment never appears in the customer-facing pack, and "remember not to render that
+field" is not a safeguard. A renderer handed the customer pack cannot leak the briefing
+because it was never given it.
+
+**The internal briefing is shown first and given the most room**, because the spec is right
+that it is the more valuable half: "what a good CSM would have in their head walking into
+the room." It carries health, contract position, consultant sentiment, open commitments in
+both directions, and what not to raise.
+
+**Cadence is derived from contract value**, with one override: a notice deadline inside 180
+days promotes an account to quarterly regardless of size. A QBR should always land
+comfortably before the notice deadline, not after it.
+
+**Missing kickoff goals are reported as a gap, never filled with prose.** No structured
+success criteria exist anywhere in the account, so the outcomes-against-goals section says
+so. The spec: that gap is itself a finding, and the fix is upstream — capture success
+criteria at kickoff.
+
+**`validateNextSteps()` rejects a pack where every step is chargeable.** "A pack where every
+recommendation has a price tag reads as a sales document and the whole framing collapses."
+At least one suggestion must cost the customer nothing.

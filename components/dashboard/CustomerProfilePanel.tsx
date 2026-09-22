@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CsContracts from "@/components/dashboard/CsContracts";
+import CsQbr from "@/components/dashboard/CsQbr";
 
 // ─── Customer profile — view, verify, re-extract ─────────────────────────────
 //
@@ -266,6 +267,11 @@ export default function CustomerProfilePanel({
               </div>
             </div>
           )}
+
+          {/* QBR sits below the profile because it draws on it — the forward-look
+              section is assembled from manual processes, prior enquiries and
+              release matches. */}
+          {!pending && <CsQbr customerNsId={customerNsId} />}
         </>
       )}
     </div>
