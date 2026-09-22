@@ -1878,6 +1878,40 @@ dismissed across many accounts is a bad rule. The route rejects a dismissal with
 system made and must defend with evidence; "quiet for 200 days" is a fact, and facts don't
 get colour. That line runs through this whole module.
 
+### Draft queue (Phase 4)
+
+`lib/cs-suppression.ts` · `lib/gmail-send.ts` · `app/api/cs/drafts/route.ts` ·
+`components/dashboard/CsDraftQueue.tsx`. The **Drafts** toggle on the CS tab.
+
+**Draft, never autosend — permanently.** Sending happens only on an explicit PATCH from a
+signed-in reviewer, through *their* mailbox. There is no code path from the nightly job to
+an outbound email and there must never be one. The architecture enforces it: mail goes via
+the user's own OAuth token, so an unattended job *cannot* send. **Do not add a
+service-account sender to make cron able to email.**
+
+**A skipped suppression check is not a passed one.** Several rules need `cs_contacts` and
+`cs_commitments`, both empty — those record `skipped` with the reason, never `passed`.
+Recording them as passed would quietly convert missing data into permission to send. The
+queue shows the split ("4 passed, 4 not evaluated").
+
+**Suppression re-runs at send time, not only at generation.** A draft may have sat for days,
+and an escalation or a broken promise arriving since is exactly when it must not go out.
+
+**A blocked draft is still written**, with status `rejected` and the reason, rather than
+silently discarded — a generator producing blocked drafts is telling you something.
+
+**`original_body` is captured on the FIRST edit only.** The diff between generated and sent
+is the highest-value training data in the system; overwriting it on a second edit loses the
+original permanently.
+
+**Rejection requires a reason, and expiry is enforced on read.** An expired draft cannot be
+sent — its facts are stale, so it is regenerated rather than sent late.
+
+**`lib/gmail-send.ts` exists so this is not a third copy of MIME assembly.**
+`app/api/email/send` and `app/api/pto-requests/*` still build their own; they are left alone
+deliberately (they work), but new callers use the lib and those two should move when someone
+is in them anyway.
+
 **`POST /api/cs/sentiment` is deliberately NOT gated on `cs_layer`** — the only route in
 the module that isn't. Consultants are the people with the opinion worth capturing and must
 not hold `cs_layer`, because a risk flag reaching the delivery team is self-fulfilling. They

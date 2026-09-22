@@ -4,6 +4,7 @@ import { C } from "@/lib/constants";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsTriage from "@/components/dashboard/CsTriage";
+import CsDraftQueue from "@/components/dashboard/CsDraftQueue";
 
 // ─── Customer Success — account overview ─────────────────────────────────────
 //
@@ -68,7 +69,7 @@ export default function CustomerSuccessView() {
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
-  const [mode,     setMode]     = useState<"triage" | "accounts" | "renewals">("triage");
+  const [mode,     setMode]     = useState<"triage" | "drafts" | "accounts" | "renewals">("triage");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,11 +140,11 @@ export default function CustomerSuccessView() {
           Customer Success
         </h2>
         <span style={{ fontSize: 12, color: C.textSub }}>
-          Account activity and silence. No scoring yet — see Phase 2.
+          Who needs attention, what is drafted, and when contracts fall due.
         </span>
         <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
                       borderRadius: 7, padding: 2 }}>
-          {(["triage", "accounts", "renewals"] as const).map(m => (
+          {(["triage", "drafts", "accounts", "renewals"] as const).map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -154,7 +155,7 @@ export default function CustomerSuccessView() {
                 fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
               }}
             >
-              {m === "triage" ? "Triage" : m === "accounts" ? "Accounts" : "Renewals"}
+              {m === "triage" ? "Triage" : m === "drafts" ? "Drafts" : m === "accounts" ? "Accounts" : "Renewals"}
             </button>
           ))}
         </div>
@@ -184,6 +185,12 @@ export default function CustomerSuccessView() {
       {mode === "triage" && (
         <div style={{ marginTop: 16 }}>
           <CsTriage />
+        </div>
+      )}
+
+      {mode === "drafts" && (
+        <div style={{ marginTop: 16 }}>
+          <CsDraftQueue />
         </div>
       )}
 
