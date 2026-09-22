@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const revalidate = 0;
 
-const HINT = "Run supabase/crm-schema.sql in the Supabase SQL Editor.";
+const HINT = "Run supabase/crm-schema.sql then supabase/pm-crm-rename.sql in the Supabase SQL Editor.";
 const TYPES    = ["todo", "call", "email", "meeting", "follow_up"] as const;
 const STATUSES = ["open", "in_progress", "done", "cancelled"] as const;
 
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
   const includeDone  = url.searchParams.get("done") === "1";
 
   try {
-    let q = getSupabaseAdmin().from("crm_tasks").select("*");
+    let q = getSupabaseAdmin().from("pm_crm_tasks").select("*");
     if (mine)          q = q.ilike("assigned_to", gate.email);
     if (customerNsId)  q = q.eq("customer_ns_id", customerNsId);
     if (opportunityId) q = q.eq("opportunity_id", opportunityId);
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { data, error } = await getSupabaseAdmin().from("crm_tasks").insert({
+    const { data, error } = await getSupabaseAdmin().from("pm_crm_tasks").insert({
       customer_ns_id: body.customerNsId ? String(body.customerNsId) : null,
       contact_id:     body.contactId ? String(body.contactId) : null,
       opportunity_id: body.opportunityId ? String(body.opportunityId) : null,
@@ -145,14 +145,14 @@ export async function PATCH(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
-      .from("crm_tasks").update(patch).eq("id", id).select().maybeSingle();
+      .from("pm_crm_tasks").update(patch).eq("id", id).select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
     if (!data)  return NextResponse.json({ error: "No task with that id" }, { status: 404 });
 
     // Completing a task is account history — it belongs on the timeline, not
     // only in a status column nobody looks back at.
     if (patch.status === "done" && (data.customer_ns_id || data.opportunity_id)) {
-      await supabase.from("crm_activities").insert({
+      await supabase.from("pm_crm_activities").insert({
         customer_ns_id: data.customer_ns_id,
         contact_id:     data.contact_id,
         opportunity_id: data.opportunity_id,

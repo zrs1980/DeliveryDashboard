@@ -1,0 +1,135 @@
+-- ─── CRM tables move to the pm_crm_ prefix, and stop syncing ───────────────
+-- Run this in the Supabase SQL Editor AFTER crm-schema.sql.
+-- Safe to re-run: every rename is guarded, every drop is IF EXISTS.
+--
+-- Two changes, both requested:
+--
+-- 1. PREFIX. The new tables take `pm_crm_`, not `pm_`. A plain `pm_` prefix
+--    collides head-on: `pm_tasks` ALREADY EXISTS and holds project tasks
+--    (supabase/pm-schema.sql), alongside pm_phases, pm_projects,
+--    pm_time_entries and pm_status_reports. Naming a CRM task table `pm_tasks`
+--    would have been the one collision that actually mattered.
+--
+-- 2. CONTACTS, TASKS AND ACTIVITIES ARE APP-ONLY. They no longer sync from
+--    NetSuite in either direction. Opportunities still do — those were asked
+--    for specifically, and the pipeline is only worth having if it reflects the
+--    deals NetSuite knows about.
+--
+-- Nothing is deleted. Contacts already imported stay, and are now simply
+-- app-owned rows like any other; `ns_contact_id` is kept as provenance —
+-- where this row originally came from — and is no longer a sync key.
+
+-- ─── Rename ────────────────────────────────────────────────────────────────
+-- Postgres carries indexes, constraints and foreign keys through a rename;
+-- only their NAMES stay as they were, which is cosmetic.
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_name = 'cs_contacts')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_name = 'pm_crm_contacts') THEN
+    ALTER TABLE cs_contacts RENAME TO pm_crm_contacts;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crm_stages')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_stages') THEN
+    ALTER TABLE crm_stages RENAME TO pm_crm_stages;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crm_opportunities')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_opportunities') THEN
+    ALTER TABLE crm_opportunities RENAME TO pm_crm_opportunities;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crm_opportunity_lines')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_opportunity_lines') THEN
+    ALTER TABLE crm_opportunity_lines RENAME TO pm_crm_opportunity_lines;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crm_tasks')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_tasks') THEN
+    ALTER TABLE crm_tasks RENAME TO pm_crm_tasks;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crm_activities')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_activities') THEN
+    ALTER TABLE crm_activities RENAME TO pm_crm_activities;
+  END IF;
+END $$;
+
+-- If crm-schema.sql was never run, create everything fresh under the new names.
+CREATE TABLE IF NOT EXISTS pm_crm_contacts (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_ns_id       text NOT NULL,
+  name                 text NOT NULL,
+  first_name           text,
+  last_name            text,
+  email                text,
+  job_title            text,
+  phone                text,
+  mobile               text,
+  role                 text NOT NULL DEFAULT 'unknown'
+                         CHECK (role IN ('economic_buyer','champion','admin','end_user','technical','unknown')),
+  is_primary           boolean DEFAULT false,
+  is_active            boolean DEFAULT true,
+  first_seen_at        timestamptz,
+  last_seen_at         timestamptz,
+  departed_detected_at timestamptz,
+  notes                text,
+  owner_email          text,
+  -- Provenance, not a sync key. A row imported before contacts became app-only
+  -- keeps a record of where it came from; nothing reads it to match or
+  -- overwrite, and no sync writes this table any more.
+  ns_contact_id        text,
+  source               text DEFAULT 'manual',
+  created_at           timestamptz DEFAULT now(),
+  updated_at           timestamptz DEFAULT now()
+);
+
+-- ─── Contacts are no longer synced ─────────────────────────────────────────
+-- The unique index on ns_contact_id existed purely so the sync could upsert on
+-- it. With no sync there is nothing to upsert, and keeping a uniqueness rule on
+-- a provenance column would block someone legitimately re-entering a person.
+DROP INDEX IF EXISTS cs_contacts_ns_uniq;
+ALTER TABLE pm_crm_contacts DROP COLUMN IF EXISTS synced_at;
+
+CREATE INDEX IF NOT EXISTS pm_crm_contacts_customer ON pm_crm_contacts (customer_ns_id);
+CREATE INDEX IF NOT EXISTS pm_crm_contacts_name     ON pm_crm_contacts (lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS pm_crm_contacts_email_uniq
+  ON pm_crm_contacts (customer_ns_id, lower(email)) WHERE email IS NOT NULL;
+
+-- ─── Activities are no longer seeded from NetSuite ─────────────────────────
+-- The seed pulled 4,310 emails out of NetSuite's `message` table. Activities
+-- are now app-only: what this application records is what appears. Already
+-- imported rows stay — deleting correspondence history nobody asked to lose
+-- would be the wrong way to honour "app-only".
+DROP INDEX IF EXISTS crm_activities_ns_uniq;
+
+CREATE INDEX IF NOT EXISTS pm_crm_activities_customer ON pm_crm_activities (customer_ns_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS pm_crm_activities_contact  ON pm_crm_activities (contact_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS pm_crm_activities_opp      ON pm_crm_activities (opportunity_id, occurred_at DESC);
+
+-- ─── Tasks were always app-only ────────────────────────────────────────────
+-- Nothing to change beyond the name: NetSuite exposes no task, call or event
+-- data to this integration and its `activity` view is empty, so there was never
+-- anything to sync.
+CREATE INDEX IF NOT EXISTS pm_crm_tasks_open     ON pm_crm_tasks (status, due_date)
+  WHERE status IN ('open','in_progress');
+CREATE INDEX IF NOT EXISTS pm_crm_tasks_customer ON pm_crm_tasks (customer_ns_id);
+CREATE INDEX IF NOT EXISTS pm_crm_tasks_assignee ON pm_crm_tasks (lower(assigned_to), status);
+
+-- ─── Opportunities still sync ──────────────────────────────────────────────
+-- Kept deliberately. The pipeline is only useful if it reflects the deals
+-- NetSuite holds, and mirroring them was the point of building it.
+CREATE INDEX IF NOT EXISTS pm_crm_opps_customer ON pm_crm_opportunities (customer_ns_id);
+CREATE INDEX IF NOT EXISTS pm_crm_opps_board    ON pm_crm_opportunities (stage_id, expected_close);
+
+-- ─── Triggers follow the rename ────────────────────────────────────────────
+DROP TRIGGER IF EXISTS crm_opps_touch  ON pm_crm_opportunities;
+DROP TRIGGER IF EXISTS crm_tasks_touch ON pm_crm_tasks;
+
+CREATE TRIGGER pm_crm_opps_touch BEFORE UPDATE ON pm_crm_opportunities
+  FOR EACH ROW EXECUTE FUNCTION cs_set_updated_at();
+CREATE TRIGGER pm_crm_tasks_touch BEFORE UPDATE ON pm_crm_tasks
+  FOR EACH ROW EXECUTE FUNCTION cs_set_updated_at();

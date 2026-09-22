@@ -149,7 +149,7 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
     skip("contact_role",   "No contact recorded — cs_contacts is not populated.");
   } else {
     const { data: contact, error: ctErr } = await supabase
-      .from("cs_contacts").select("is_active, departed_detected_at, role")
+      .from("pm_crm_contacts").select("is_active, departed_detected_at, role")
       .eq("id", input.contactId).maybeSingle();
     if (ctErr || !contact) {
       skip("contact_active", "Contact not found.");

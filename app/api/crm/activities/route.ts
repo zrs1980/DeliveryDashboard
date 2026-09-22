@@ -5,7 +5,7 @@ import { sendAsUser } from "@/lib/gmail-send";
 
 export const revalidate = 0;
 
-const HINT = "Run supabase/crm-schema.sql in the Supabase SQL Editor.";
+const HINT = "Run supabase/crm-schema.sql then supabase/pm-crm-rename.sql in the Supabase SQL Editor.";
 const KINDS = ["email", "note", "call", "meeting"] as const;
 
 /**
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    let q = getSupabaseAdmin().from("crm_activities").select("*");
+    let q = getSupabaseAdmin().from("pm_crm_activities").select("*");
     if (customerNsId)  q = q.eq("customer_ns_id", customerNsId);
     if (contactId)     q = q.eq("contact_id", contactId);
     if (opportunityId) q = q.eq("opportunity_id", opportunityId);
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
       sentMessageId = sent.messageId;
     }
 
-    const { data, error } = await supabase.from("crm_activities").insert({
+    const { data, error } = await supabase.from("pm_crm_activities").insert({
       customer_ns_id: customerNsId,
       contact_id:     contactId,
       opportunity_id: opportunityId,
@@ -150,7 +150,7 @@ export async function POST(req: Request) {
     // Touch the contact's liveness — this is what makes "last seen" mean
     // something, and it feeds the champion-silence rule.
     if (contactId) {
-      await supabase.from("cs_contacts")
+      await supabase.from("pm_crm_contacts")
         .update({ last_seen_at: new Date().toISOString() }).eq("id", contactId);
     }
 

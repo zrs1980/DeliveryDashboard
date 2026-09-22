@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const revalidate = 0;
 
-const HINT = "Run supabase/crm-schema.sql in the Supabase SQL Editor.";
+const HINT = "Run supabase/crm-schema.sql then supabase/pm-crm-rename.sql in the Supabase SQL Editor.";
 
 /**
  * The pipeline.
@@ -41,9 +41,9 @@ export async function GET(req: Request) {
 
   try {
     const [{ data: stages, error: sErr }, oppRes] = await Promise.all([
-      supabase.from("crm_stages").select("*").eq("hidden", false).order("sort_order"),
+      supabase.from("pm_crm_stages").select("*").eq("hidden", false).order("sort_order"),
       (() => {
-        let q = supabase.from("crm_opportunities").select("*");
+        let q = supabase.from("pm_crm_opportunities").select("*");
         // 'A' is in progress; C won and D lost are closed.
         if (openOnly)     q = q.eq("status", "A");
         if (customerNsId) q = q.eq("customer_ns_id", customerNsId);
@@ -101,13 +101,13 @@ export async function POST(req: Request) {
     let stageName: string | null = null;
     let probability: number | null = null;
     if (body.stageId) {
-      const { data: s } = await supabase.from("crm_stages")
+      const { data: s } = await supabase.from("pm_crm_stages")
         .select("name, probability").eq("id", String(body.stageId)).maybeSingle();
       stageName   = s?.name ?? null;
       probability = s?.probability ?? null;
     }
 
-    const { data, error } = await supabase.from("crm_opportunities").insert({
+    const { data, error } = await supabase.from("pm_crm_opportunities").insert({
       customer_ns_id:  customerNsId,
       customer_name:   String(body.customerName ?? "").trim() || null,
       title,
@@ -147,7 +147,7 @@ export async function PATCH(req: Request) {
 
   try {
     const { data: existing, error: readErr } = await supabase
-      .from("crm_opportunities").select("id, ns_opportunity_id, stage_id").eq("id", id).maybeSingle();
+      .from("pm_crm_opportunities").select("id, ns_opportunity_id, stage_id").eq("id", id).maybeSingle();
     if (readErr) return NextResponse.json({ error: readErr.message, hint: HINT }, { status: 503 });
     if (!existing) return NextResponse.json({ error: "No opportunity with that id" }, { status: 404 });
 
@@ -164,7 +164,7 @@ export async function PATCH(req: Request) {
 
     let stageChanged: { from: string | null; to: string } | null = null;
     if (body.stageId) {
-      const { data: s } = await supabase.from("crm_stages")
+      const { data: s } = await supabase.from("pm_crm_stages")
         .select("name, probability, is_won, is_lost").eq("id", String(body.stageId)).maybeSingle();
       patch.stage_id    = String(body.stageId);
       patch.stage_name  = s?.name ?? null;
@@ -183,13 +183,13 @@ export async function PATCH(req: Request) {
     }
 
     const { data, error } = await supabase
-      .from("crm_opportunities").update(patch).eq("id", id).select().single();
+      .from("pm_crm_opportunities").update(patch).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
 
     // A stage move is the most meaningful thing that happens to a deal, so it
     // goes on the timeline rather than only into updated_at.
     if (stageChanged) {
-      await supabase.from("crm_activities").insert({
+      await supabase.from("pm_crm_activities").insert({
         customer_ns_id: data.customer_ns_id,
         opportunity_id: id,
         kind: "stage_change",

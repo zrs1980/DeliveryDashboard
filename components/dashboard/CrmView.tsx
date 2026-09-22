@@ -8,8 +8,12 @@ import CrmCustomerPanel from "@/components/dashboard/CrmCustomerPanel";
 
 // ─── CRM ────────────────────────────────────────────────────────────────────
 //
-// Pipeline, contacts and tasks. Customers stay in NetSuite; contacts and
-// opportunities are mirrored in and then owned here; tasks are native.
+// Pipeline, contacts and tasks.
+//
+// Customers stay in NetSuite. Opportunities are mirrored in from there and can
+// then be edited here. Contacts, tasks and activity are APP-ONLY — they are
+// never read from or written to NetSuite, so nothing overwrites them and
+// nothing leaks back.
 //
 // Not behind cs_layer. This is ordinary commercial work an account manager or
 // PM does, not the risk data that boundary exists to contain — no health
@@ -26,10 +30,8 @@ interface AccountRow {
 
 interface SyncResult {
   stages: number;
-  contacts: { inserted: number; updated: number; skippedNoCompany: number };
   opportunities: { inserted: number; updated: number };
   lines: number;
-  activities: number;
   warnings: string[];
   seconds: number;
 }
@@ -78,12 +80,11 @@ export default function CrmView() {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [withEmail, setWithEmail] = useState(true);
 
   async function sync() {
     setSyncing(true); setError(null); setResult(null);
     try {
-      const res  = await fetch(`/api/crm/sync${withEmail ? "" : "?email=0"}`, { method: "POST" });
+      const res  = await fetch("/api/crm/sync", { method: "POST" });
       const text = await res.text();
       let json: Record<string, unknown>;
       // A Vercel timeout page and a login redirect are both HTML; json() on
@@ -120,11 +121,6 @@ export default function CrmView() {
           ))}
         </div>
 
-        <label style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center",
-                        fontSize: 11, color: C.textSub }}>
-          <input type="checkbox" checked={withEmail} onChange={e => setWithEmail(e.target.checked)} />
-          include email history
-        </label>
         <button onClick={sync} disabled={syncing} style={{
           background: C.purpleBg, border: `1px solid ${C.purpleBd}`, color: C.purple,
           borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600,
@@ -137,8 +133,8 @@ export default function CrmView() {
       {syncing && (
         <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, color: C.blue,
                       borderRadius: 8, padding: "10px 13px", fontSize: 12, margin: "12px 0", lineHeight: 1.5 }}>
-          ⏳ Pulling contacts, opportunities{withEmail ? " and email history" : ""} from NetSuite.
-          {withEmail && " The email history is around 4,300 messages, so this takes a minute or two."} Leave this tab open.
+          ⏳ Pulling the pipeline from NetSuite — stages, opportunities and line items.
+          Contacts, tasks and activity are app-only and are not touched. Leave this tab open.
         </div>
       )}
 
@@ -159,10 +155,8 @@ export default function CrmView() {
         <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8,
                       padding: "11px 14px", margin: "12px 0", fontSize: 12, color: C.textMid, lineHeight: 1.7 }}>
           <strong style={{ color: C.text }}>Synced in {result.seconds}s.</strong>{" "}
-          {result.contacts.inserted} contacts added, {result.contacts.updated} updated ·{" "}
           {result.opportunities.inserted} opportunities added, {result.opportunities.updated} updated ·{" "}
           {result.lines} line items · {result.stages} stages
-          {result.activities > 0 && ` · ${result.activities.toLocaleString()} emails`}
           {/* Warnings are the interesting part — they are what the data is
               telling you about itself, not noise to collapse. */}
           {result.warnings?.map((w, i) => (

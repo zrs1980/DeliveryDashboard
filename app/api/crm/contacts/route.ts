@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const revalidate = 0;
 
-const HINT = "Run supabase/crm-schema.sql in the Supabase SQL Editor.";
+const HINT = "Run supabase/crm-schema.sql then supabase/pm-crm-rename.sql in the Supabase SQL Editor.";
 const ROLES = ["economic_buyer", "champion", "admin", "end_user", "technical", "unknown"] as const;
 
 /**
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
   const role         = url.searchParams.get("role");
 
   try {
-    let query = getSupabaseAdmin().from("cs_contacts").select("*").eq("is_active", true);
+    let query = getSupabaseAdmin().from("pm_crm_contacts").select("*").eq("is_active", true);
     if (customerNsId) query = query.eq("customer_ns_id", customerNsId);
     if (role)         query = query.eq("role", role);
     if (q)            query = query.or(`name.ilike.%${q}%,email.ilike.%${q}%,job_title.ilike.%${q}%`);
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   const role = ROLES.includes(body.role as typeof ROLES[number]) ? String(body.role) : "unknown";
 
   try {
-    const { data, error } = await getSupabaseAdmin().from("cs_contacts").insert({
+    const { data, error } = await getSupabaseAdmin().from("pm_crm_contacts").insert({
       customer_ns_id: customerNsId,
       name, first_name: first || null, last_name: last || null,
       email:      String(body.email ?? "").trim().toLowerCase() || null,
@@ -145,7 +145,7 @@ export async function PATCH(req: Request) {
 
   try {
     const { data, error } = await getSupabaseAdmin()
-      .from("cs_contacts").update(patch).eq("id", id).select().maybeSingle();
+      .from("pm_crm_contacts").update(patch).eq("id", id).select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
     if (!data)  return NextResponse.json({ error: "No contact with that id" }, { status: 404 });
 

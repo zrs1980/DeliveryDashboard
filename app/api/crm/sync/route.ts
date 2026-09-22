@@ -16,20 +16,19 @@ export const maxDuration = 300;
  * row created in this app — every upsert keys on the NetSuite id, which a
  * hand-entered contact or opportunity does not have.
  *
- * `?email=0` skips the 4,300-row message history, which is the slow part and
- * only needs running when it has actually changed.
+ * Syncs STAGES AND OPPORTUNITIES ONLY. Contacts, tasks and activities are
+ * app-only and are never read from NetSuite.
  */
-export async function POST(req: Request) {
+export async function POST() {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const withEmail = new URL(req.url).searchParams.get("email") !== "0";
   const startedAt = Date.now();
 
   try {
-    const result = await syncCrmFromNetSuite({ withEmail });
+    const result = await syncCrmFromNetSuite();
     return NextResponse.json({
       ok: true,
       ...result,
