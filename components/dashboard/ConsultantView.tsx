@@ -7,6 +7,7 @@ import { fmtH, fmtD, fmtPct } from "@/lib/health";
 import { HealthBadge } from "@/components/health/HealthBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
+import SentimentPrompt from "@/components/dashboard/SentimentPrompt";
 import type { Project, CUTask } from "@/lib/types";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 
@@ -1046,6 +1047,19 @@ export function ConsultantView({ projects, cases }: Props) {
                             label="NetSuite"
                           />
                         </div>
+                      </div>
+
+                      {/* Consultant sentiment. Three seconds, optional, and the
+                          only thing from the CS layer a consultant ever sees —
+                          they answer, they do not receive. A risk flag reaching
+                          the delivery team changes how people behave toward the
+                          client and becomes self-fulfilling. */}
+                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                        <SentimentPrompt
+                          customerNsId={p.customerNsId}
+                          projectNsId={p.id}
+                          consultantName={consultant || undefined}
+                        />
                       </div>
                     </div>
                   );

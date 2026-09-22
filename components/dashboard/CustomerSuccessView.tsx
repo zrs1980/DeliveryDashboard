@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import CsContracts from "@/components/dashboard/CsContracts";
+import CsTriage from "@/components/dashboard/CsTriage";
 
 // ─── Customer Success — account overview ─────────────────────────────────────
 //
@@ -65,7 +66,9 @@ export default function CustomerSuccessView() {
   const [q,       setQ]       = useState("");
   const [sort,    setSort]    = useState<SortKey>("quiet");
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
-  const [mode,     setMode]     = useState<"accounts" | "renewals">("accounts");
+  // Triage is the default: it is the question the module exists to answer, and
+  // the accounts table is reference material by comparison.
+  const [mode,     setMode]     = useState<"triage" | "accounts" | "renewals">("triage");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +143,7 @@ export default function CustomerSuccessView() {
         </span>
         <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
                       borderRadius: 7, padding: 2 }}>
-          {(["accounts", "renewals"] as const).map(m => (
+          {(["triage", "accounts", "renewals"] as const).map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -151,7 +154,7 @@ export default function CustomerSuccessView() {
                 fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
               }}
             >
-              {m === "accounts" ? "Accounts" : "Renewals"}
+              {m === "triage" ? "Triage" : m === "accounts" ? "Accounts" : "Renewals"}
             </button>
           ))}
         </div>
@@ -175,6 +178,12 @@ export default function CustomerSuccessView() {
           borderRadius: 8, padding: "10px 14px", fontSize: 13, margin: "12px 0",
         }}>
           Could not load customers: {error}
+        </div>
+      )}
+
+      {mode === "triage" && (
+        <div style={{ marginTop: 16 }}>
+          <CsTriage />
         </div>
       )}
 

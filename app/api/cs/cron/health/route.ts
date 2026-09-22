@@ -1,29 +1,25 @@
 import { NextResponse } from "next/server";
 import { requireCronSecret } from "@/lib/cs-permissions";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { runHealthScoring } from "@/lib/cs-scoring-run";
 
-export const revalidate = 0;
-// A full recompute walks every account and will call NetSuite per account.
-// 55 accounts is comfortable inside this; revisit if the universe grows.
+export const revalidate  = 0;
 export const maxDuration = 300;
 
 /**
- * Nightly health recompute — Phase 0 stub.
+ * Nightly health recompute — every account, every night.
  *
- * Wiring only: it proves the cron reaches an authenticated endpoint and that the
- * schema is present. The signal computation and rules engine arrive in the
- * health-scoring phase; until then this deliberately writes nothing.
+ * Evaluates all customers rather than reacting to events, because the state this
+ * exists to catch generates no events: nothing happening at all. See
+ * docs/03-HEALTH-SCORING.md, "the absence problem".
  *
- * Two things this endpoint has to get right, both of which fail silently:
+ * Authenticates on CRON_SECRET, not a session — Vercel Cron arrives with none.
+ * The path is exempted in proxy.ts; without that the request is redirected to
+ * /login and the job returns HTML 200 forever, which reads as a healthy run.
  *
- * 1. It must NOT be behind the /login redirect. Vercel Cron arrives with no
- *    session, so proxy.ts would bounce it with a 302 and the job would return
- *    HTML 200 forever, looking healthy. Hence the /api/cs/cron exemption there.
- *
- * 2. Failure must be loud. An empty flag list is indistinguishable from "no
- *    accounts are at risk", so a dead job reads as good news. This returns a
- *    non-2xx on failure so Vercel's cron log shows it, and every run reports
- *    what it saw.
+ * ⚠ A FAILED RUN MUST BE LOUD. An empty flag list reads as "no risk", so a
+ * silently dead job is worse than no job. Failures return 500 with the reason,
+ * and partial failures come back as `warnings` on an otherwise successful run
+ * rather than being swallowed.
  */
 export async function GET(req: Request) {
   const denied = requireCronSecret(req);
@@ -32,41 +28,18 @@ export async function GET(req: Request) {
   const startedAt = new Date().toISOString();
 
   try {
-    // Phase 0's only real check: the schema is deployed and reachable. `head`
-    // asks for the count without pulling rows.
-    const db = getSupabaseAdmin();
-    const { count, error } = await db
-      .from("cs_health_snapshots")
-      .select("*", { count: "exact", head: true });
-
-    if (error) {
-      // The most likely cause by far: cs-agent-schema.sql was never pasted into
-      // the Supabase SQL editor. Name the file — a previous table in this repo
-      // was missing for months because the error didn't say what to run.
-      console.error("[cs/cron/health] schema check failed:", error.message);
-      return NextResponse.json(
-        {
-          ok: false,
-          error: error.message,
-          hint: "Run supabase/cs-agent-schema.sql in the Supabase SQL Editor.",
-          startedAt,
-        },
-        { status: 500 },
-      );
-    }
-
+    const result = await runHealthScoring();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    console.error("[cs/cron] health run failed:", msg);
     return NextResponse.json({
-      ok: true,
-      phase: "0 — wiring only, no accounts scored yet",
-      snapshotsExisting: count ?? 0,
+      ok: false,
+      error: msg,
+      hint: /relation|does not exist|schema/i.test(msg)
+        ? "Run supabase/cs-agent-schema.sql in the Supabase SQL Editor."
+        : undefined,
       startedAt,
-      finishedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error("[cs/cron/health]", err);
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Unknown error", startedAt },
-      { status: 500 },
-    );
+    }, { status: 500 });
   }
 }

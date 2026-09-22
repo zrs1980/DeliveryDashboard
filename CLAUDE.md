@@ -1839,7 +1839,50 @@ contract that is simply not due yet is not "healthy", it is just not due.
 
 **`custentity_date_lsa`** on the customer (populated on 132 of 180) holds a date with a
 linked message and reads as **last sales activity** — the "last contact date" the triage
-view wants in Phase 2. Not yet wired up.
+view wants. Not yet wired up.
+
+### Health scoring and triage (Phase 2)
+
+`lib/cs-signals.ts` (compute) · `lib/cs-rules.ts` (rules as data) ·
+`lib/cs-scoring-run.ts` (the nightly run) · `app/api/cs/triage/route.ts` ·
+`components/dashboard/CsTriage.tsx`. **Triage is the default tab view.**
+
+**An absent signal is `null`, never `0`.** "No contacts recorded" and "every contact has
+gone silent" look identical if absence is zero, and the second is a churn alarm. Only the
+`isNull` operator matches a null, so empty tables produce no flags instead of flagging the
+whole book. `cs_contacts`, `cs_commitments` and `cs_consultant_sentiment` are all empty
+today; four specced rules ship **disabled** with a `requires` note naming what they need.
+
+**Silence rules are gated on `contractStatus === 'active'`, and that clause is
+load-bearing.** The spec's own example rule carries it. Without it, `silent_account` fired
+on **38 of 55** accounts on the first real run, because most are finished implementations
+rather than live relationships going quiet. Likewise `stalled_work` requires
+`hoursLast90 > 0` — otherwise it just reports NetSuite projects left open after the work
+finished, which it did on 38 accounts. With both gates the list is **18 rows**, and reads.
+
+> Expect the silence rules to need retuning once contracts are populated. Simulating an
+> active contract on every account puts 54 of 55 back on the list. The designed answer is
+> dismissal with a reason plus 90-day suppression, and ranking by contract value — but this
+> is the part that needs real contract data, not more tuning against a guess.
+
+**The run evaluates every account, never a change feed** — the state it exists to catch
+generates no events. Flags are idempotent (an open flag is updated, not duplicated), a rule
+that stops firing **resolves** its flag rather than deleting it, and a dismissed flag stays
+suppressed until `suppressed_until`. If existing flags can't be read the run **throws**
+rather than proceeding, because the alternative is duplicating every flag in the table.
+
+**A dismissal requires a reason.** It is the only feedback on rule quality — a rule
+dismissed across many accounts is a bad rule. The route rejects a dismissal without one.
+
+**Triage is RAG-coloured and the accounts table is not.** A health band is a judgment the
+system made and must defend with evidence; "quiet for 200 days" is a fact, and facts don't
+get colour. That line runs through this whole module.
+
+**`POST /api/cs/sentiment` is deliberately NOT gated on `cs_layer`** — the only route in
+the module that isn't. Consultants are the people with the opinion worth capturing and must
+not hold `cs_layer`, because a risk flag reaching the delivery team is self-fulfilling. They
+answer; they never receive. Reading sentiment back **is** behind `cs_layer`, since the trend
+is commercial risk data. The prompt lives on each project card in **My Work**.
 
 ### The Customer Success tab
 
