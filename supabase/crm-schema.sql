@@ -45,10 +45,19 @@ ALTER TABLE cs_contacts ADD COLUMN IF NOT EXISTS owner_email     text;
 ALTER TABLE cs_contacts ADD COLUMN IF NOT EXISTS source          text DEFAULT 'manual';
 ALTER TABLE cs_contacts ADD COLUMN IF NOT EXISTS synced_at       timestamptz;
 
--- The sync key. Partial, because manually created contacts have no NetSuite id
--- and several of them may legitimately share a null.
-CREATE UNIQUE INDEX IF NOT EXISTS cs_contacts_ns_uniq
-  ON cs_contacts (ns_contact_id) WHERE ns_contact_id IS NOT NULL;
+-- The sync key.
+--
+-- ⚠ NOT PARTIAL, and that matters. This was first written as
+-- `... WHERE ns_contact_id IS NOT NULL`, on the assumption that manually
+-- created rows sharing a NULL would collide. They do not: Postgres treats
+-- NULLs as distinct in a unique index, so a plain UNIQUE already allows any
+-- number of them. The predicate bought nothing and broke every upsert —
+-- ON CONFLICT cannot infer a partial index, so the sync failed with
+-- "no unique or exclusion constraint matching the ON CONFLICT specification".
+--
+-- The DROP is here so re-running this file repairs an existing database.
+DROP INDEX IF EXISTS cs_contacts_ns_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS cs_contacts_ns_uniq ON cs_contacts (ns_contact_id);
 
 CREATE INDEX IF NOT EXISTS cs_contacts_name_idx ON cs_contacts (lower(name));
 
@@ -119,8 +128,10 @@ CREATE TABLE IF NOT EXISTS crm_opportunities (
   updated_at        timestamptz DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS crm_opps_ns_uniq
-  ON crm_opportunities (ns_opportunity_id) WHERE ns_opportunity_id IS NOT NULL;
+-- Not partial — see the note on cs_contacts_ns_uniq. ON CONFLICT cannot infer
+-- a partial index, and NULLs are already distinct in a plain unique index.
+DROP INDEX IF EXISTS crm_opps_ns_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS crm_opps_ns_uniq ON crm_opportunities (ns_opportunity_id);
 CREATE INDEX IF NOT EXISTS crm_opps_customer ON crm_opportunities (customer_ns_id);
 CREATE INDEX IF NOT EXISTS crm_opps_board    ON crm_opportunities (stage_id, expected_close);
 CREATE INDEX IF NOT EXISTS crm_opps_open     ON crm_opportunities (status) WHERE status = 'A';
@@ -143,8 +154,8 @@ CREATE TABLE IF NOT EXISTS crm_opportunity_lines (
   amount          numeric,
   created_at      timestamptz DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS crm_opp_lines_ns_uniq
-  ON crm_opportunity_lines (ns_unique_key) WHERE ns_unique_key IS NOT NULL;
+DROP INDEX IF EXISTS crm_opp_lines_ns_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS crm_opp_lines_ns_uniq ON crm_opportunity_lines (ns_unique_key);
 CREATE INDEX IF NOT EXISTS crm_opp_lines_opp ON crm_opportunity_lines (opportunity_id);
 
 -- ─── Tasks ─────────────────────────────────────────────────────────────────
@@ -218,8 +229,8 @@ CREATE TABLE IF NOT EXISTS crm_activities (
   ns_message_id   text,
   created_at      timestamptz DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS crm_activities_ns_uniq
-  ON crm_activities (ns_message_id) WHERE ns_message_id IS NOT NULL;
+DROP INDEX IF EXISTS crm_activities_ns_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS crm_activities_ns_uniq ON crm_activities (ns_message_id);
 CREATE INDEX IF NOT EXISTS crm_activities_customer ON crm_activities (customer_ns_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS crm_activities_contact  ON crm_activities (contact_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS crm_activities_opp      ON crm_activities (opportunity_id, occurred_at DESC);

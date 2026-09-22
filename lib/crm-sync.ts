@@ -145,6 +145,30 @@ async function syncContacts(): Promise<SyncResult["contacts"] & { warnings: stri
     });
   }
 
+  // cs_contacts carries a unique index on (customer_ns_id, lower(email)), and
+  // NetSuite has 15 duplicate emails among active contacts — a shared
+  // info@ address, or the same person entered twice. The whole upsert would
+  // fail on one of them.
+  //
+  // The duplicate loses its EMAIL, not its row: a person with no email address
+  // is still a contact worth having, where dropping them would quietly shrink
+  // the list. Reported so the real fix can happen in NetSuite.
+  const seenEmail = new Set<string>();
+  let emailDuplicates = 0;
+  for (const p of payload) {
+    const email = p.email as string | null;
+    if (!email) continue;
+    const key = `${p.customer_ns_id}::${email.toLowerCase()}`;
+    if (seenEmail.has(key)) { p.email = null; emailDuplicates++; }
+    else seenEmail.add(key);
+  }
+  if (emailDuplicates) {
+    warnings.push(
+      `${emailDuplicates} contact(s) shared an email with another contact on the same ` +
+      `account; the duplicate was imported without an email address.`,
+    );
+  }
+
   const { data: before } = await supabase
     .from("cs_contacts").select("ns_contact_id").not("ns_contact_id", "is", null);
   const existing = new Set((before ?? []).map(b => b.ns_contact_id));
