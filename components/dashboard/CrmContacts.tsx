@@ -54,6 +54,20 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   // answer to "which". POST /api/crm/contacts existed from the start with no
   // caller at all, so until now the only contacts in the system were the ones
   // imported from NetSuite before that link was cut.
+  // Editing an existing person. PATCH has always accepted name, email, title,
+  // phone, mobile and notes; the UI only ever sent role/primary/departed, so a
+  // typo in a name or a changed email could not be corrected at all.
+  const [editId, setEditId] = useState<string | null>(null);
+  const [ef, setEf] = useState({ name: "", jobTitle: "", email: "", phone: "", mobile: "", notes: "" });
+
+  function startEdit(c: Contact) {
+    setEditId(c.id);
+    setEf({
+      name: c.name, jobTitle: c.job_title ?? "", email: c.email ?? "",
+      phone: c.phone ?? "", mobile: c.mobile ?? "", notes: c.notes ?? "",
+    });
+  }
+
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState({
@@ -240,12 +254,20 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                 </button>
 
                 <button
-                  onClick={() => patch(c.id, { isActive: false })}
+                  onClick={() => editId === c.id ? setEditId(null) : startEdit(c)}
+                  disabled={busy === c.id}
+                  style={mini(editId === c.id ? C.blue : C.textMid)}
+                >
+                  {editId === c.id ? "Cancel" : "Edit"}
+                </button>
+
+                <button
+                  onClick={() => patch(c.id, { isActive: !c.is_active })}
                   disabled={busy === c.id}
                   style={mini(C.textSub)}
                   title="Records that they have left. This is what the champion-silence rule reads."
                 >
-                  Mark departed
+                  {c.is_active ? "Mark departed" : "Mark returned"}
                 </button>
 
                 {c.source === "netsuite" && (
@@ -255,7 +277,39 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                 )}
               </div>
 
-              {c.notes && (
+              {editId === c.id && (
+                <div style={{ display: "grid", gap: 7, marginTop: 9, paddingTop: 9,
+                              borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    <input value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })}
+                           placeholder="Full name" style={{ ...fld, flex: "1 1 160px" }} />
+                    <input value={ef.jobTitle} onChange={e => setEf({ ...ef, jobTitle: e.target.value })}
+                           placeholder="Job title" style={{ ...fld, flex: "1 1 160px" }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    <input value={ef.email} onChange={e => setEf({ ...ef, email: e.target.value })}
+                           placeholder="Email" type="email" style={{ ...fld, flex: "1 1 180px" }} />
+                    <input value={ef.phone} onChange={e => setEf({ ...ef, phone: e.target.value })}
+                           placeholder="Phone" style={{ ...fld, flex: "1 1 120px", fontFamily: C.mono }} />
+                    <input value={ef.mobile} onChange={e => setEf({ ...ef, mobile: e.target.value })}
+                           placeholder="Mobile" style={{ ...fld, flex: "1 1 120px", fontFamily: C.mono }} />
+                  </div>
+                  <textarea value={ef.notes} onChange={e => setEf({ ...ef, notes: e.target.value })}
+                            placeholder="Notes on this person" rows={2}
+                            style={{ ...fld, width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+                  <div>
+                    <button
+                      onClick={async () => { await patch(c.id, ef); setEditId(null); }}
+                      disabled={busy === c.id || !ef.name.trim()}
+                      style={{ ...btn(C.blue, true), opacity: ef.name.trim() ? 1 : 0.5 }}
+                    >
+                      {busy === c.id ? "Saving\u2026" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {c.notes && editId !== c.id && (
                 <div style={{ fontSize: 12, color: C.textMid, marginTop: 6 }}>{c.notes}</div>
               )}
             </div>

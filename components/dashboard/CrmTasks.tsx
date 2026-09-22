@@ -42,6 +42,12 @@ export default function CrmTasks({
   const [mine, setMine] = useState(!scoped);
   const [showDone, setShowDone] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Same gap as contacts had: PATCH accepts title, due date, priority, assignee
+  // and notes, and the row only ever sent `status`. A task created with the
+  // wrong date had to be ticked off and retyped.
+  const [editId, setEditId] = useState<string | null>(null);
+  const [ef, setEf] = useState({ title: "", dueDate: "", priority: "normal", assignedTo: "", notes: "" });
+
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ title: "", dueDate: "", taskType: "todo", priority: "normal", notes: "" });
 
@@ -206,8 +212,63 @@ export default function CrmTasks({
                     <span style={{ fontSize: 11, color: C.textSub }}>{t.assigned_to}</span>
                   )}
                 </div>
-                {t.notes && <div style={{ fontSize: 12, color: C.textMid, marginTop: 4 }}>{t.notes}</div>}
+                {t.notes && editId !== t.id && (
+                  <div style={{ fontSize: 12, color: C.textMid, marginTop: 4 }}>{t.notes}</div>
+                )}
+
+                {editId === t.id && (
+                  <div style={{ display: "grid", gap: 7, marginTop: 9, paddingTop: 9,
+                                borderTop: `1px solid ${C.border}` }}>
+                    <input value={ef.title} onChange={e => setEf({ ...ef, title: e.target.value })}
+                           placeholder="Task" style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                      <input type="date" value={ef.dueDate}
+                             onChange={e => setEf({ ...ef, dueDate: e.target.value })}
+                             style={{ ...inp, flex: "1 1 130px", fontFamily: C.mono }} />
+                      <select value={ef.priority} onChange={e => setEf({ ...ef, priority: e.target.value })}
+                              style={{ ...inp, flex: "0 1 110px", cursor: "pointer" }}>
+                        <option value="low">Low</option>
+                        <option value="normal">Normal</option>
+                        <option value="high">High</option>
+                      </select>
+                      <input value={ef.assignedTo} onChange={e => setEf({ ...ef, assignedTo: e.target.value })}
+                             placeholder="Assigned to" style={{ ...inp, flex: "1 1 160px" }} />
+                    </div>
+                    <textarea value={ef.notes} onChange={e => setEf({ ...ef, notes: e.target.value })}
+                              placeholder="Notes" rows={2}
+                              style={{ ...inp, width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+                    <div style={{ display: "flex", gap: 7 }}>
+                      <button
+                        onClick={async () => { await patch(t.id, ef); setEditId(null); }}
+                        disabled={busy === t.id || !ef.title.trim()}
+                        style={{ ...btn(C.blue, true), opacity: ef.title.trim() ? 1 : 0.5 }}
+                      >
+                        {busy === t.id ? "Saving\u2026" : "Save"}
+                      </button>
+                      <button onClick={() => setEditId(null)} style={btn(C.textMid)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {!done && (
+                <button
+                  onClick={() => {
+                    if (editId === t.id) { setEditId(null); return; }
+                    setEditId(t.id);
+                    setEf({
+                      title: t.title, dueDate: t.due_date ?? "", priority: t.priority,
+                      assignedTo: t.assigned_to ?? "", notes: t.notes ?? "",
+                    });
+                  }}
+                  style={{ background: "transparent", border: `1px solid ${C.border}`,
+                           color: editId === t.id ? C.blue : C.textSub, borderRadius: 5,
+                           padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                           cursor: "pointer", fontFamily: C.font, flexShrink: 0 }}
+                >
+                  {editId === t.id ? "Cancel" : "Edit"}
+                </button>
+              )}
             </div>
           );
         })}
