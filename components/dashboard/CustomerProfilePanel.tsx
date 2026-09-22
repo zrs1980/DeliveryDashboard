@@ -169,7 +169,7 @@ export default function CustomerProfilePanel({
           profile is reference material. Also independent of extraction, so it
           is worth filling in even before a profile exists. */}
       <div style={{ marginBottom: 20 }}>
-        <CsContracts customerNsId={customerNsId} customerName={customerName} />
+        <CsContracts customerNsId={customerNsId} />
       </div>
 
       {loading && <div style={{ color: C.textSub, fontSize: 13, padding: "18px 0" }}>Loading profile…</div>}

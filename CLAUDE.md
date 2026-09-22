@@ -1817,11 +1817,33 @@ because that is the distinction deciding whether a claim may be quoted to a cust
 `lib/cs-contracts.ts` · `app/api/cs/contracts/route.ts` · `components/dashboard/CsContracts.tsx`.
 Per-customer in the profile panel; portfolio-wide under the **Renewals** toggle on the CS tab.
 
-**Contracts are hand-entered, because NetSuite has nowhere to hold them.** Verified Sep
-2026: no `contract`, `subscription` or `billingschedule` table exists in SuiteQL, and the
-`customer` record (85 columns) carries no renewal date, notice period or annual value. The
-only contract-adjacent field in the account is `custentity9`, contracted monthly MSA hours
-on the `job`. Don't go looking for a sync — there is nothing to sync from.
+**Contracts are READ FROM NETSUITE**, from the Contract Renewals SuiteApp record
+`CUSTOMRECORD_CONTRACTS` (`lib/cs-ns-contracts.ts`). Terms, dates, values and status are
+NetSuite's and are not editable in the dashboard — a second copy would drift from the
+renewal process the business actually runs on.
+
+> **⚠ A correction worth reading before you go looking.** This was first built on the
+> conclusion that NetSuite held no contract data at all. That came from probing for SuiteQL
+> tables named `contract`, `subscription` and `billingschedule` — all of which genuinely
+> fail — and checking the 85 columns on `customer`. **The probe was too shallow.** Custom
+> records are queryable in SuiteQL by their script id, and `SELECT … FROM customrecordtype`
+> lists all 178 of them. Run that first when looking for anything in this account.
+>
+> Verified Sep 2026: 5 contracts, 4 customers — Sortera (×2, one superseded by its renewal),
+> Certified Waste Solutions, The Yaffe Companies, Strategic Telecom.
+
+**A customer can hold several contract rows and only one governs.** Sortera has a 2025–26
+term at status *Renewal Processed* and the 2026–27 term that replaced it. `currentContract
+ByCustomer()` prefers Active, then the latest end date — taking the first row would report
+an expired contract as current.
+
+**`custrecord_swe_days_b4_renewal` is NOT a notice period.** It reads **358 on every
+contract in the account**, so it is a SuiteApp setting for when to raise the renewal
+transaction, not a per-contract term. Using it as a notice period would generate confident,
+wrong deadlines — worse than none, since the whole point of the clock is that the notice
+date is the real one. **NetSuite carries no notice period at all**, so it stays a local
+annotation in `cs_contracts`, keyed by `source = 'netsuite:<id>'`. Until one is entered the
+countdown runs to the END date and the row says so.
 
 **⚠ The deadline is the NOTICE date, not the end date.** A 90-day notice period on a
 31 December contract means the decision is due 2 October; the end date is merely when it

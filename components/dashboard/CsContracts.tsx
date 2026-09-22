@@ -1,105 +1,92 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
-import {
-  renewalClock, renewalSummary, PRODUCTS, STATUSES, PRODUCT_LABEL, STATUS_LABEL,
-  type CsContract, type ContractProduct, type ContractStatus,
-} from "@/lib/cs-contracts";
+import { renewalClock, renewalSummary } from "@/lib/cs-contracts";
 
 // ─── Contracts and renewals ─────────────────────────────────────────────────
 //
-// Hand-entered, because NetSuite has nowhere to put them — verified Sep 2026,
-// there is no contract/subscription/billingschedule table in SuiteQL and the
-// customer record holds no renewal date, notice period or annual value.
+// Read from NetSuite — the Contract Renewals SuiteApp record
+// CUSTOMRECORD_CONTRACTS. Terms, dates, values and status are NetSuite's and are
+// NOT editable here; a second copy would drift from the renewal process the
+// business actually runs on.
 //
-// The countdown shown is to the NOTICE deadline, not the end date. A 90-day
-// notice period on a 31 December contract means the decision is due on 2
-// October; the end date is merely when it becomes too late. Sorting is on that
-// same clock.
+// The one editable field is the NOTICE PERIOD, because NetSuite has no field for
+// it. Until one is entered the countdown runs to the END date, and the row says
+// so rather than implying a notice window that was never agreed.
 //
-// ON COLOUR: this view does use amber and red, where the accounts table
-// deliberately does not. The difference is that a notice deadline inside 30
-// days is a hard fact requiring action, not an inference about health — so it
-// cannot cry wolf the way colouring 40 of 55 quiet accounts would. Green is not
-// used at all: a contract that is simply not due yet is not "healthy", it is
-// just not due.
+// ON COLOUR: this view uses amber and red where the accounts table does not. A
+// notice deadline inside 30 days is a hard fact requiring action, not an
+// inference about health, so it cannot cry wolf. Green is unused — a contract
+// that is simply not due yet is not "healthy", it is just not due.
 
-const bandStyle = (band: number | null, expired: boolean, noticePassed: boolean) => {
-  if (expired || band === 30) return { bg: C.redBg,    fg: C.red,    bd: C.redBd };
-  if (noticePassed)           return { bg: C.redBg,    fg: C.red,    bd: C.redBd };
-  if (band === 60 || band === 90 || band === 120) return { bg: C.yellowBg, fg: C.yellow, bd: C.yellowBd };
-  return { bg: C.alt, fg: C.textMid, bd: C.border };
-};
+interface Contract {
+  nsContractId: string;
+  customerNsId: string;
+  customerName: string;
+  status: "active" | "renewed" | "other";
+  statusLabel: string;
+  contractType: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  renewalTermMonths: number | null;
+  annualValue: number | null;
+  totalValue: number | null;
+  dateRenewed: string | null;
+  noticePeriodDays: number | null;
+  localNotes: string | null;
+}
 
 const money = (n: number | null) =>
   n === null ? "—" : `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-interface Props {
-  /** Scope to one customer, with an add form. Omit for the portfolio renewal calendar. */
-  customerNsId?: string;
-  customerName?: string;
-}
+const bandStyle = (band: number | null, expired: boolean, noticePassed: boolean) => {
+  if (expired || band === 30 || noticePassed) return { bg: C.redBg, fg: C.red, bd: C.redBd };
+  if (band === 60 || band === 90 || band === 120) return { bg: C.yellowBg, fg: C.yellow, bd: C.yellowBd };
+  return { bg: C.alt, fg: C.textMid, bd: C.border };
+};
 
-export default function CsContracts({ customerNsId, customerName }: Props) {
-  const [contracts, setContracts] = useState<CsContract[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [editing, setEditing] = useState<Partial<CsContract> | null>(null);
-  const [busy,    setBusy]    = useState(false);
+export default function CsContracts({ customerNsId }: { customerNsId?: string }) {
+  const [all, setAll]       = useState<Contract[]>([]);
+  const [loading, setLoad]  = useState(true);
+  const [error, setError]   = useState<string | null>(null);
+  const [editing, setEdit]  = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy]     = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoad(true); setError(null);
     try {
-      const qs  = customerNsId ? `?customerNsId=${encodeURIComponent(customerNsId)}` : "";
-      const res = await fetch(`/api/cs/contracts${qs}`);
+      const res  = await fetch("/api/cs/contracts");
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
-      setContracts(json.contracts ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally { setLoading(false); }
-  }, [customerNsId]);
+      setAll(json.contracts ?? []);
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setLoad(false); }
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  async function save() {
-    if (!editing) return;
+  async function saveNotice(nsContractId: string) {
     setBusy(true); setError(null);
     try {
-      const isNew = !editing.id;
       const res = await fetch("/api/cs/contracts", {
-        method: isNew ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isNew
-          ? { ...editing, customerNsId, customerName }
-          : editing),
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nsContractId, noticePeriodDays: Number(notice) || 0 }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
-      setEditing(null);
+      setEdit(null); setNotice("");
       await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setBusy(false); }
   }
 
-  async function remove(id: string) {
-    setBusy(true); setError(null);
-    try {
-      const res = await fetch(`/api/cs/contracts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally { setBusy(false); }
-  }
+  const shown = customerNsId ? all.filter(c => c.customerNsId === customerNsId) : all;
 
-  // Portfolio view sorts by the notice clock: soonest decision first, then the
-  // ones with no end date at all, which are their own kind of problem.
-  const sorted = [...contracts].sort((a, b) => {
-    const ka = renewalClock(a), kb = renewalClock(b);
-    if (ka.daysToNotice === null && kb.daysToNotice === null) return 0;
+  // Soonest decision first; contracts with no end date have no clock to run.
+  const sorted = [...shown].sort((a, b) => {
+    const ka = renewalClock({ end_date: a.endDate, notice_period_days: a.noticePeriodDays ?? 0 });
+    const kb = renewalClock({ end_date: b.endDate, notice_period_days: b.noticePeriodDays ?? 0 });
     if (ka.daysToNotice === null) return 1;
     if (kb.daysToNotice === null) return -1;
     return ka.daysToNotice - kb.daysToNotice;
@@ -111,122 +98,110 @@ export default function CsContracts({ customerNsId, customerName }: Props) {
         <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.text }}>
           {customerNsId ? "Contracts" : "Renewal calendar"}
         </h4>
-        <span style={{ fontSize: 12, color: C.textSub, fontFamily: C.mono }}>{contracts.length}</span>
-        <span style={{ fontSize: 11, color: C.textSub }}>Countdown is to the notice deadline, not the end date.</span>
-        {customerNsId && !editing && (
-          <button onClick={() => setEditing({ product: "services", status: "active", notice_period_days: 0, auto_renew: false })}
-                  style={{ marginLeft: "auto", ...btnStyle(C.blue, true) }}>
-            + Add contract
-          </button>
-        )}
+        <span style={{ fontSize: 12, color: C.textSub, fontFamily: C.mono }}>{sorted.length}</span>
+        <span style={{ fontSize: 11, color: C.textSub }}>
+          From NetSuite · Contract Renewals. Read-only except the notice period.
+        </span>
+        <button onClick={load} disabled={loading} style={{
+          marginLeft: "auto", background: "transparent", border: `1px solid ${C.border}`,
+          color: C.textMid, borderRadius: 6, padding: "4px 10px", fontSize: 12,
+          fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+        }}>↻</button>
       </div>
 
       {error && (
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
-                      borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 10 }}>
-          {error}
-        </div>
+                      borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 10 }}>{error}</div>
       )}
 
-      {loading && <div style={{ fontSize: 12, color: C.textSub, padding: "10px 0" }}>Loading…</div>}
+      {loading && <div style={{ fontSize: 12, color: C.textSub, padding: "10px 0" }}>Loading from NetSuite…</div>}
 
-      {!loading && contracts.length === 0 && !editing && (
+      {!loading && sorted.length === 0 && (
         <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6, padding: "4px 0 10px" }}>
           {customerNsId
-            ? "No contract recorded. Without one, nothing can tell a finished implementation from an account going quiet — which is why most accounts read as silent."
-            : "No contracts recorded yet. Add them from a customer's profile."}
-        </div>
-      )}
-
-      {editing && (
-        <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8,
-                      padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-            <Field label="Product">
-              <select value={editing.product ?? "services"} onChange={e => setEditing({ ...editing, product: e.target.value as ContractProduct })} style={input}>
-                {PRODUCTS.map(p => <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>)}
-              </select>
-            </Field>
-            <Field label="Status">
-              <select value={editing.status ?? "active"} onChange={e => setEditing({ ...editing, status: e.target.value as ContractStatus })} style={input}>
-                {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-              </select>
-            </Field>
-            <Field label="Start date">
-              <input type="date" value={editing.start_date ?? ""} onChange={e => setEditing({ ...editing, start_date: e.target.value })} style={input} />
-            </Field>
-            <Field label="End date">
-              <input type="date" value={editing.end_date ?? ""} onChange={e => setEditing({ ...editing, end_date: e.target.value })} style={input} />
-            </Field>
-            <Field label="Notice period (days)" hint="The real deadline">
-              <input type="number" min={0} value={editing.notice_period_days ?? 0} onChange={e => setEditing({ ...editing, notice_period_days: Number(e.target.value) })} style={input} />
-            </Field>
-            <Field label="Annual value">
-              <input type="number" min={0} value={editing.annual_value ?? ""} onChange={e => setEditing({ ...editing, annual_value: e.target.value === "" ? null : Number(e.target.value) })} style={input} />
-            </Field>
-            <Field label="Seats">
-              <input type="number" min={0} value={editing.seat_count ?? ""} onChange={e => setEditing({ ...editing, seat_count: e.target.value === "" ? null : Number(e.target.value) })} style={input} />
-            </Field>
-            <Field label="Auto-renew">
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text, height: 30 }}>
-                <input type="checkbox" checked={Boolean(editing.auto_renew)} onChange={e => setEditing({ ...editing, auto_renew: e.target.checked })} />
-                Renews unless cancelled
-              </label>
-            </Field>
-          </div>
-          <Field label="Notes">
-            <input value={editing.notes ?? ""} onChange={e => setEditing({ ...editing, notes: e.target.value })} style={{ ...input, width: "100%" }} placeholder="Where this came from, anything unusual…" />
-          </Field>
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={save} disabled={busy} style={btnStyle(C.blue, true)}>{busy ? "Saving…" : "Save"}</button>
-            <button onClick={() => setEditing(null)} disabled={busy} style={btnStyle(C.textMid)}>Cancel</button>
-          </div>
+            ? "No NetSuite contract for this customer. Without one, nothing can tell a finished implementation from an account going quiet — which is why the silence rules stay quiet here."
+            : "No contracts found in NetSuite."}
         </div>
       )}
 
       {sorted.map(c => {
-        const k = renewalClock(c);
+        const k = renewalClock({ end_date: c.endDate, notice_period_days: c.noticePeriodDays ?? 0 });
         const s = bandStyle(k.alertBand, k.expired, k.noticePassed);
+        const superseded = c.status === "renewed";
         return (
-          <div key={c.id} style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${s.bd}`,
-                                   borderRadius: 8, padding: "10px 13px", marginBottom: 8, background: C.surface }}>
+          <div key={c.nsContractId} style={{
+            border: `1px solid ${C.border}`, borderLeft: `3px solid ${superseded ? C.border : s.bd}`,
+            borderRadius: 8, padding: "10px 13px", marginBottom: 8, background: C.surface,
+            opacity: superseded ? 0.6 : 1,
+          }}>
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
               {!customerNsId && (
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{c.customer_name}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{c.customerName}</span>
               )}
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMid }}>{PRODUCT_LABEL[c.product]}</span>
               <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3,
-                             color: C.textSub, fontFamily: C.mono }}>{STATUS_LABEL[c.status]}</span>
-              {c.auto_renew && (
+                             color: C.textSub, fontFamily: C.mono }}>
+                {c.statusLabel}
+              </span>
+              {c.contractType && (
                 <span style={{ fontSize: 10, color: C.purple, background: C.purpleBg,
                                border: `1px solid ${C.purpleBd}`, borderRadius: 4, padding: "1px 6px" }}>
-                  auto-renew
+                  {c.contractType}
                 </span>
               )}
               <span style={{ marginLeft: "auto", fontSize: 12, fontFamily: C.mono, color: C.textMid }}>
-                {money(c.annual_value)}{c.seat_count ? ` · ${c.seat_count} seats` : ""}
+                {money(c.annualValue)}/yr
+                {c.totalValue && c.totalValue !== c.annualValue ? ` · ${money(c.totalValue)} total` : ""}
               </span>
             </div>
 
             <div style={{ marginTop: 6, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: s.fg, background: s.bg,
-                             border: `1px solid ${s.bd}`, borderRadius: 5, padding: "2px 8px" }}>
-                {renewalSummary(c)}
-              </span>
-              <span style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
-                {c.start_date ?? "—"} → {c.end_date ?? "—"}
-                {k.noticeDeadline && ` · notice by ${k.noticeDeadline}`}
-                {c.notice_period_days ? ` (${c.notice_period_days}d)` : " (no notice period set)"}
-              </span>
-              {customerNsId && (
-                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                  <button onClick={() => setEditing(c)} disabled={busy} style={btnStyle(C.textMid)}>Edit</button>
-                  <button onClick={() => remove(c.id)} disabled={busy} style={btnStyle(C.red)}>Delete</button>
+              {!superseded && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: s.fg, background: s.bg,
+                               border: `1px solid ${s.bd}`, borderRadius: 5, padding: "2px 8px" }}>
+                  {renewalSummary({ end_date: c.endDate, notice_period_days: c.noticePeriodDays ?? 0, auto_renew: true })}
                 </span>
+              )}
+              <span style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
+                {c.startDate ?? "—"} → {c.endDate ?? "—"}
+                {c.renewalTermMonths ? ` · ${c.renewalTermMonths}mo term` : ""}
+                {c.dateRenewed ? ` · renewed ${c.dateRenewed}` : ""}
+              </span>
+            </div>
+
+            {/* The only editable field — NetSuite has no notice-period column. */}
+            <div style={{ marginTop: 7, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {editing === c.nsContractId ? (
+                <>
+                  <input
+                    type="number" min={0} autoFocus value={notice}
+                    onChange={e => setNotice(e.target.value)}
+                    placeholder="days"
+                    style={{ width: 90, padding: "3px 8px", fontSize: 12, border: `1px solid ${C.mid}`,
+                             borderRadius: 5, fontFamily: C.font }}
+                  />
+                  <button onClick={() => saveNotice(c.nsContractId)} disabled={busy} style={mini(C.blue)}>
+                    {busy ? "…" : "Save"}
+                  </button>
+                  <button onClick={() => setEdit(null)} style={mini(C.textSub)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 11, color: c.noticePeriodDays ? C.textMid : C.orange }}>
+                    {c.noticePeriodDays
+                      ? `Notice period: ${c.noticePeriodDays} days`
+                      : "No notice period recorded — countdown runs to the end date"}
+                  </span>
+                  <button
+                    onClick={() => { setEdit(c.nsContractId); setNotice(String(c.noticePeriodDays ?? "")); }}
+                    style={mini(C.blue)}
+                  >
+                    {c.noticePeriodDays ? "Change" : "Set notice period"}
+                  </button>
+                </>
               )}
             </div>
 
-            {c.notes && <div style={{ marginTop: 5, fontSize: 12, color: C.textMid }}>{c.notes}</div>}
+            {c.localNotes && <div style={{ marginTop: 5, fontSize: 12, color: C.textMid }}>{c.localNotes}</div>}
           </div>
         );
       })}
@@ -234,26 +209,8 @@ export default function CsContracts({ customerNsId, customerName }: Props) {
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginTop: 6 }}>
-      <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
-                      textTransform: "uppercase", color: C.textSub, marginBottom: 3 }}>
-        {label}{hint && <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, marginLeft: 5 }}>— {hint}</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-const input: React.CSSProperties = {
-  padding: "5px 8px", fontSize: 13, border: `1px solid ${C.mid}`, borderRadius: 5,
-  fontFamily: C.font, color: C.text, width: "100%", height: 30, background: C.surface,
-};
-
-const btnStyle = (color: string, filled = false): React.CSSProperties => ({
-  background: filled ? C.blueBg : "transparent",
-  border: `1px solid ${filled ? C.blueBd : C.border}`,
-  color, borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600,
+const mini = (color: string): React.CSSProperties => ({
+  background: "transparent", border: `1px solid ${C.border}`, color,
+  borderRadius: 5, padding: "2px 9px", fontSize: 11, fontWeight: 600,
   cursor: "pointer", fontFamily: C.font,
 });

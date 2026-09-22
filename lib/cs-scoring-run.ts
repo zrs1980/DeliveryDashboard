@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchCsCustomers, fetchCustomerProjectIndex } from "@/lib/cs-customers";
 import { computeAllSignals, applySupabaseSignals } from "@/lib/cs-signals";
 import { evaluateRules, scoreFrom, STARTER_RULES, RULES_VERSION, type FiredFlag } from "@/lib/cs-rules";
+import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contracts";
 
 // ─── The nightly run ────────────────────────────────────────────────────────
 //
@@ -49,22 +50,53 @@ export async function runHealthScoring(): Promise<ScoringRunResult> {
 
   const signals = await computeAllSignals(ids, index);
 
-  // Contracts and sentiment. Both tables may be empty — that leaves the
-  // relevant signals null, and a null fires nothing.
-  const [{ data: contracts, error: cErr }, { data: sentiment, error: sErr }] = await Promise.all([
-    supabase.from("cs_contracts").select("customer_ns_id, end_date, notice_period_days, status, auto_renew"),
+  // Contracts come from NetSuite (CUSTOMRECORD_CONTRACTS), not from our own
+  // table. The local rows carry only the notice period, which NetSuite has no
+  // field for — see lib/cs-ns-contracts.ts.
+  const [nsContracts, { data: overlays, error: oErr }, { data: sentiment, error: sErr }] = await Promise.all([
+    fetchNsContracts().catch((e: unknown) => {
+      warnings.push(`NetSuite contracts unreadable, commercial signals skipped: ${e instanceof Error ? e.message : "unknown"}`);
+      return [] as Awaited<ReturnType<typeof fetchNsContracts>>;
+    }),
+    supabase.from("cs_contracts").select("source, notice_period_days"),
     supabase.from("cs_consultant_sentiment").select("customer_ns_id, rating, captured_at"),
   ]);
-  if (cErr) warnings.push(`Contracts unreadable, commercial signals skipped: ${cErr.message}`);
+  if (oErr) warnings.push(`Notice-period overrides unreadable: ${oErr.message}`);
   if (sErr) warnings.push(`Sentiment unreadable, relationship signals skipped: ${sErr.message}`);
 
-  applySupabaseSignals(signals, contracts ?? [], (sentiment ?? []) as never);
+  const noticeBySource: Record<string, number> = {};
+  for (const o of overlays ?? []) {
+    if (o.source?.startsWith("netsuite:")) noticeBySource[o.source] = o.notice_period_days ?? 0;
+  }
 
-  if (!contracts?.length) {
+  // One governing contract per customer — a renewed term must not be reported
+  // as the current one.
+  const current = currentContractByCustomer(nsContracts);
+  const contractSignals = Object.values(current).map(c => ({
+    customer_ns_id: c.customerNsId,
+    end_date:       c.endDate,
+    // No notice period recorded means the clock runs to the end date. That is
+    // the honest default: inventing one would produce confident wrong deadlines.
+    notice_period_days: noticeBySource[`netsuite:${c.nsContractId}`] ?? 0,
+    status:         c.status === "active" ? "active" : "renewed",
+    auto_renew:     true,
+  }));
+
+  applySupabaseSignals(signals, contractSignals, (sentiment ?? []) as never);
+
+  if (!contractSignals.length) {
     warnings.push(
-      "No contracts recorded. Silence cannot be told apart from a finished implementation, " +
-      "so silence flags will be over-sensitive until cs_contracts is populated.",
+      "No active contracts found in NetSuite. Silence cannot be told apart from a finished " +
+      "implementation, so the silence rules will not fire at all.",
     );
+  } else {
+    const missingNotice = contractSignals.filter(c => !c.notice_period_days).length;
+    if (missingNotice) {
+      warnings.push(
+        `${missingNotice} of ${contractSignals.length} contracts have no notice period recorded, ` +
+        `so their countdown runs to the end date. The notice date is usually the real deadline.`,
+      );
+    }
   }
 
   // Previous scores, for the delta the spec says matters more than the value.
