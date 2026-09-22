@@ -41,6 +41,7 @@ export default function CrmCustomerPanel({
 }: { customerNsId: string; customerName: string; onClose: () => void }) {
   const [section, setSection] = useState<Section>("overview");
   const [opps, setOpps] = useState<Opp[]>([]);
+  const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activityNote, setActivityNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,38 @@ export default function CrmCustomerPanel({
   const [logKind, setLogKind] = useState<"note" | "call" | "meeting">("note");
   const [logText, setLogText] = useState("");
   const [logging, setLogging] = useState(false);
+
+  // Adding a deal. This is the ONLY way an opportunity now enters the pipeline
+  // -- nothing arrives from NetSuite any more -- so it sits on the account
+  // panel rather than behind a separate screen, next to the contacts and tasks
+  // it will be worked alongside.
+  const [adding, setAdding] = useState(false);
+  const [nTitle, setNTitle] = useState("");
+  const [nValue, setNValue] = useState("");
+  const [nStage, setNStage] = useState("");
+  const [nClose, setNClose] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function addOpp() {
+    if (!nTitle.trim()) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch("/api/crm/opportunities", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerNsId, customerName, title: nTitle.trim(),
+          projectedTotal: nValue.trim() === "" ? undefined : Number(nValue),
+          stageId: nStage || undefined,
+          expectedClose: nClose || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      setNTitle(""); setNValue(""); setNStage(""); setNClose(""); setAdding(false);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setSaving(false); }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -63,6 +96,7 @@ export default function CrmCustomerPanel({
       if (!oRes.ok) throw new Error(oJson?.error ?? `Opportunities failed (${oRes.status})`);
       if (!aRes.ok) throw new Error(aJson?.error ?? `Activity failed (${aRes.status})`);
       setOpps(oJson.opportunities ?? []);
+      setStages(oJson.stages ?? []);
       setActivities(aJson.activities ?? []);
       setActivityNote(aJson.note ?? null);
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
@@ -139,16 +173,60 @@ export default function CrmCustomerPanel({
 
         {section === "overview" && (
           <>
-            {openOpps.length > 0 && (
-              <div style={{ fontSize: 12, color: C.textMid, marginBottom: 10 }}>
-                <strong style={{ color: C.text, fontFamily: C.mono }}>{money(openValue)}</strong>{" "}
-                across {openOpps.length} open {openOpps.length === 1 ? "deal" : "deals"}
+            <div style={{ display: "flex", gap: 10, alignItems: "center",
+                          flexWrap: "wrap", marginBottom: 10 }}>
+              {openOpps.length > 0 && (
+                <span style={{ fontSize: 12, color: C.textMid }}>
+                  <strong style={{ color: C.text, fontFamily: C.mono }}>{money(openValue)}</strong>{" "}
+                  across {openOpps.length} open {openOpps.length === 1 ? "deal" : "deals"}
+                </span>
+              )}
+              <button onClick={() => setAdding(a => !a)}
+                      style={{ ...btn(C.blue, !adding), marginLeft: "auto" }}>
+                {adding ? "Cancel" : "+ Add deal"}
+              </button>
+            </div>
+
+            {adding && (
+              <div style={{ border: `1px solid ${C.blueBd}`, background: C.blueBg,
+                            borderRadius: 8, padding: "11px 13px", marginBottom: 11,
+                            display: "grid", gap: 8 }}>
+                <input
+                  value={nTitle} onChange={e => setNTitle(e.target.value)}
+                  placeholder="What is the deal? e.g. Phase 2 - WMS rollout"
+                  autoFocus
+                  style={field()}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input
+                    value={nValue} onChange={e => setNValue(e.target.value.replace(/[^0-9.]/g, ""))}
+                    placeholder="Value"
+                    inputMode="decimal"
+                    style={{ ...field(), flex: "1 1 110px", fontFamily: C.mono }}
+                  />
+                  {/* Open stages only: a deal is not created already won or lost. */}
+                  <select value={nStage} onChange={e => setNStage(e.target.value)}
+                          style={{ ...field(), flex: "1 1 150px", cursor: "pointer" }}>
+                    <option value="">Stage...</option>
+                    {stages.filter(x => x.is_open).map(x => (
+                      <option key={x.id} value={x.id}>{x.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="date" value={nClose} onChange={e => setNClose(e.target.value)}
+                    style={{ ...field(), flex: "1 1 140px", fontFamily: C.mono }}
+                  />
+                  <button onClick={addOpp} disabled={saving || !nTitle.trim()}
+                          style={{ ...btn(C.blue, true), opacity: nTitle.trim() ? 1 : 0.5 }}>
+                    {saving ? "Saving..." : "Create"}
+                  </button>
+                </div>
               </div>
             )}
             {loading && <div style={{ fontSize: 12, color: C.textSub }}>Loading…</div>}
             {!loading && opps.length === 0 && (
               <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6, padding: "8px 0" }}>
-                No opportunities on this account.
+                No opportunities on this account yet — add the first one above.
               </div>
             )}
             {opps.map(o => (
@@ -211,8 +289,8 @@ export default function CrmCustomerPanel({
             {loading && <div style={{ fontSize: 12, color: C.textSub }}>Loading…</div>}
             {!loading && activities.length === 0 && (
               <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6 }}>
-                Nothing recorded yet. Email history comes from NetSuite on the next sync —
-                inbound replies only appear once NetSuite has them.
+                Nothing recorded yet. Historic email was seeded from NetSuite once and is not
+                refreshed; anything from here on is what gets logged or sent in this app.
               </div>
             )}
 
@@ -250,6 +328,10 @@ export default function CrmCustomerPanel({
   );
 }
 
+const field = (): React.CSSProperties => ({
+  padding: "6px 10px", fontSize: 12.5, fontFamily: C.font,
+  border: `1px solid ${C.mid}`, borderRadius: 6, background: C.surface, color: C.text,
+});
 const btn = (color: string, filled = false): React.CSSProperties => ({
   background: filled ? C.blueBg : "transparent",
   border: `1px solid ${filled ? C.blueBd : C.border}`,

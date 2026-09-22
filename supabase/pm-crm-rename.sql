@@ -133,8 +133,9 @@ CREATE TABLE IF NOT EXISTS pm_crm_opportunities (
   created_at         timestamptz DEFAULT now(),
   updated_at         timestamptz DEFAULT now()
 );
--- Opportunities still sync, so this one keeps its upsert key. Not partial:
--- ON CONFLICT cannot infer a partial index, and NULLs are already distinct.
+-- The imported deals keep a uniqueness guard on their NetSuite id so a re-run
+-- of the original import could never double them. Nothing upserts on it any
+-- more, and a deal created in the app has NULL here -- which stays distinct.
 CREATE UNIQUE INDEX IF NOT EXISTS pm_crm_opps_ns_uniq
   ON pm_crm_opportunities (ns_opportunity_id);
 
@@ -228,9 +229,10 @@ CREATE INDEX IF NOT EXISTS pm_crm_tasks_open     ON pm_crm_tasks (status, due_da
 CREATE INDEX IF NOT EXISTS pm_crm_tasks_customer ON pm_crm_tasks (customer_ns_id);
 CREATE INDEX IF NOT EXISTS pm_crm_tasks_assignee ON pm_crm_tasks (lower(assigned_to), status);
 
--- ─── Opportunities still sync ──────────────────────────────────────────────
--- Kept deliberately. The pipeline is only useful if it reflects the deals
--- NetSuite holds, and mirroring them was the point of building it.
+-- ─── Opportunities are app-owned too ───────────────────────────────
+-- The NetSuite link was removed in September 2026. The 295 deals imported
+-- before then are kept, and ns_opportunity_id on those rows is provenance,
+-- not a key: nothing matches on it and nothing overwrites them.
 CREATE INDEX IF NOT EXISTS pm_crm_opps_customer ON pm_crm_opportunities (customer_ns_id);
 CREATE INDEX IF NOT EXISTS pm_crm_opps_board    ON pm_crm_opportunities (stage_id, expected_close);
 
@@ -242,3 +244,25 @@ CREATE TRIGGER pm_crm_opps_touch BEFORE UPDATE ON pm_crm_opportunities
   FOR EACH ROW EXECUTE FUNCTION cs_set_updated_at();
 CREATE TRIGGER pm_crm_tasks_touch BEFORE UPDATE ON pm_crm_tasks
   FOR EACH ROW EXECUTE FUNCTION cs_set_updated_at();
+
+-- ─── Default stages, ONLY when the board has none ──────────────────────
+-- Stages used to be seeded from NetSuite's entitystatus table by the sync.
+-- With the sync gone a fresh database would have no columns at all and the
+-- board would be unusable, so these seven stand in.
+--
+-- ⚠ The guard is WHERE NOT EXISTS over the WHOLE TABLE, not ON CONFLICT on the
+-- id. An existing board carries ~30 NetSuite-derived stages under their own
+-- ids, none of which collide with these; ON CONFLICT DO NOTHING would happily
+-- add seven more columns beside them and split every deal's pipeline in two.
+-- All-or-nothing is the only safe seed here.
+INSERT INTO pm_crm_stages (id, name, entity_type, probability, sort_order, is_won, is_lost, is_open)
+SELECT * FROM (VALUES
+  ('qualifying',  'Qualifying',    'opportunity',  10::numeric, 10, false, false, true ),
+  ('scoping',     'Scoping',       'opportunity',  25::numeric, 20, false, false, true ),
+  ('proposal',    'Proposal Sent', 'opportunity',  50::numeric, 30, false, false, true ),
+  ('negotiation', 'Negotiation',   'opportunity',  75::numeric, 40, false, false, true ),
+  ('verbal',      'Verbal Yes',    'opportunity',  90::numeric, 50, false, false, true ),
+  ('closed_won',  'Closed Won',    'opportunity', 100::numeric, 60, true,  false, false),
+  ('closed_lost', 'Closed Lost',   'opportunity',   0::numeric, 70, false, true,  false)
+) AS seed (id, name, entity_type, probability, sort_order, is_won, is_lost, is_open)
+WHERE NOT EXISTS (SELECT 1 FROM pm_crm_stages);

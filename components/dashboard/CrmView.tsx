@@ -10,10 +10,13 @@ import CrmCustomerPanel from "@/components/dashboard/CrmCustomerPanel";
 //
 // Pipeline, contacts and tasks.
 //
-// Customers stay in NetSuite. Opportunities are mirrored in from there and can
-// then be edited here. Contacts, tasks and activity are APP-ONLY — they are
-// never read from or written to NetSuite, so nothing overwrites them and
-// nothing leaks back.
+// Customers stay in NetSuite and are read live. EVERYTHING ELSE IS APP-OWNED —
+// the pipeline, contacts, tasks and activity are never read from or written to
+// NetSuite, so nothing overwrites an edit made here and nothing leaks back.
+//
+// Opportunities and contacts were imported from NetSuite once, before the link
+// was removed. `ns_opportunity_id` / `ns_contact_id` on those rows record where
+// they came from; nothing matches on them any more.
 //
 // Not behind cs_layer. This is ordinary commercial work an account manager or
 // PM does, not the risk data that boundary exists to contain — no health
@@ -26,14 +29,6 @@ interface AccountRow {
   subsidiaryId: number | null; subsidiaryName: string | null;
   inBothSubsidiaries: boolean; stage: string | null;
   entitystatusLabel: string | null; industry: string | null;
-}
-
-interface SyncResult {
-  stages: number;
-  opportunities: { inserted: number; updated: number };
-  lines: number;
-  warnings: string[];
-  seconds: number;
 }
 
 export default function CrmView() {
@@ -77,26 +72,7 @@ export default function CrmView() {
     });
   }, [accounts, q, book]);
 
-  const [syncing, setSyncing] = useState(false);
-  const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  async function sync() {
-    setSyncing(true); setError(null); setResult(null);
-    try {
-      const res  = await fetch("/api/crm/sync", { method: "POST" });
-      const text = await res.text();
-      let json: Record<string, unknown>;
-      // A Vercel timeout page and a login redirect are both HTML; json() on
-      // either throws something that says nothing about what happened.
-      try { json = JSON.parse(text); }
-      catch { throw new Error(`Server returned ${res.status} with a non-JSON body: ${text.slice(0, 140)}`); }
-      if (!res.ok) throw new Error(String(json?.error ?? `Failed (${res.status})`));
-      setResult(json as unknown as SyncResult);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally { setSyncing(false); }
-  }
 
   return (
     <div>
@@ -121,22 +97,7 @@ export default function CrmView() {
           ))}
         </div>
 
-        <button onClick={sync} disabled={syncing} style={{
-          background: C.purpleBg, border: `1px solid ${C.purpleBd}`, color: C.purple,
-          borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600,
-          cursor: syncing ? "default" : "pointer", opacity: syncing ? 0.6 : 1, fontFamily: C.font,
-        }}>
-          {syncing ? "Syncing…" : "↧ Sync from NetSuite"}
-        </button>
       </div>
-
-      {syncing && (
-        <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, color: C.blue,
-                      borderRadius: 8, padding: "10px 13px", fontSize: 12, margin: "12px 0", lineHeight: 1.5 }}>
-          ⏳ Pulling the pipeline from NetSuite — stages, opportunities and line items.
-          Contacts, tasks and activity are app-only and are not touched. Leave this tab open.
-        </div>
-      )}
 
       {error && (
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
@@ -148,20 +109,6 @@ export default function CrmView() {
               Supabase SQL editor — it is safe to re-run and repairs an existing database.
             </div>
           )}
-        </div>
-      )}
-
-      {result && (
-        <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8,
-                      padding: "11px 14px", margin: "12px 0", fontSize: 12, color: C.textMid, lineHeight: 1.7 }}>
-          <strong style={{ color: C.text }}>Synced in {result.seconds}s.</strong>{" "}
-          {result.opportunities.inserted} opportunities added, {result.opportunities.updated} updated ·{" "}
-          {result.lines} line items · {result.stages} stages
-          {/* Warnings are the interesting part — they are what the data is
-              telling you about itself, not noise to collapse. */}
-          {result.warnings?.map((w, i) => (
-            <div key={i} style={{ color: C.yellow, marginTop: 3 }}>⚠ {w}</div>
-          ))}
         </div>
       )}
 

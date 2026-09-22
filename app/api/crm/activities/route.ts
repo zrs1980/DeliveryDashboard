@@ -16,17 +16,19 @@ const KINDS = ["email", "note", "call", "meeting"] as const;
  *
  * ─── How email works here ─────────────────────────────────────────────────
  *
- * HISTORY comes from NetSuite's `message` table: 4,548 emails, 4,310 linked to
- * a customer, seeded by the CRM sync. It costs no OAuth scope.
+ * HISTORY was seeded ONCE from NetSuite's `message` table: 4,548 emails, 4,310
+ * linked to a customer. That import is gone and is not repeated -- these rows
+ * are a frozen archive, and everything after them is logged by this app.
  *
  * OUTBOUND is sent through the signed-in user's own Gmail token and logged at
  * the moment it succeeds, so the timeline stays current.
  *
- * ⚠ INBOUND REPLIES ARE NOT PICKED UP. Reading Gmail needs `gmail.readonly`,
- * which this app does not request — adding it invalidates every session and
- * forces everyone to sign in again. So a reply appears here only once it is
- * logged in NetSuite and the next sync runs. Worth knowing before treating
- * this as a complete thread view.
+ * ⚠ INBOUND REPLIES ARE NOT PICKED UP, AND NOW NEVER ARRIVE LATE EITHER.
+ * Reading Gmail needs `gmail.readonly`, which this app does not request —
+ * adding it invalidates every session and forces everyone to sign in again.
+ * With the NetSuite import removed there is no longer a back door through
+ * which a reply eventually turns up, so a reply is here only if a person
+ * logged it. Do not read this as a complete thread view.
  *
  * ⚠ NetSuite's history hangs off the CUSTOMER, not the contact — 4,310 against
  * 9 — so a contact-scoped query returns only what this app recorded itself.

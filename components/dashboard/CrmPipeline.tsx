@@ -4,14 +4,20 @@ import { C } from "@/lib/constants";
 
 // ─── Pipeline board ─────────────────────────────────────────────────────────
 //
-// Columns are NetSuite's own stages, seeded from its `entitystatus` table with
-// each stage's probability. Stages nobody currently sits in are still shown —
-// a board needs the column to exist before a deal reaches it.
+// Columns came from NetSuite's `entitystatus` table, with each stage's
+// probability, and are now ordinary rows in `pm_crm_stages` that nothing
+// refreshes. Stages nobody currently sits in are still shown — a board needs
+// the column to exist before a deal reaches it.
 //
-// ⚠ VALUE IS `projected_total`, NOT `total`. Across the same 295 opportunities
-// those sum to $7.79M and $927k, because `total` only fills once a deal
-// transacts. The headline figure counts OPEN deals only; including won and lost
-// would make it meaningless and it would only ever climb.
+// ⚠ A BOARD WITH NO STAGES CANNOT BE USED, and there is no longer a sync to
+// seed them. `supabase/crm-schema.sql` inserts a default set, so a fresh
+// database still gets columns; an existing one keeps its NetSuite-derived ones.
+//
+// ⚠ VALUE IS `projected_total`, NOT `total`. Across the 295 opportunities
+// imported before the link was cut, those sum to $7.79M and $927k, because
+// `total` only fills once a deal transacts. The headline figure counts OPEN
+// deals only; including won and lost would make it meaningless and it would
+// only ever climb.
 //
 // ON COLOUR: won and lost are factual terminal states, not health judgments, so
 // they get green and muted grey. Open stages stay neutral — a deal at
@@ -126,7 +132,7 @@ export default function CrmPipeline({ onOpenCustomer }: { onOpenCustomer?: (id: 
       {!loading && opps.length === 0 && (
         <div style={{ padding: "32px 0", textAlign: "center", color: C.textSub, fontSize: 13, lineHeight: 1.7 }}>
           No opportunities yet.<br />
-          Run <span style={{ fontFamily: C.mono }}>Sync from NetSuite</span> to pull in the 295 that exist there.
+          Open an account and add one — the pipeline is yours to keep.
         </div>
       )}
 
@@ -222,9 +228,8 @@ export default function CrmPipeline({ onOpenCustomer }: { onOpenCustomer?: (id: 
       )}
 
       <p style={{ fontSize: 11, color: C.textSub, marginTop: 10, lineHeight: 1.6 }}>
-        Value is NetSuite&apos;s projected total on open deals only. Moving a deal to a won or
-        lost column closes it. Opportunities mirrored from NetSuite can be moved here, but the
-        next sync will restore NetSuite&apos;s stage — change it there to make it stick.
+        Value is the projected total on open deals only. Moving a deal to a won or lost column
+        closes it. The pipeline is app-owned — nothing here is overwritten by NetSuite.
       </p>
     </div>
   );

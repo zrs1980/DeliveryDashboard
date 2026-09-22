@@ -122,7 +122,7 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
 
       {!loading && contacts.length === 0 && (
         <div style={{ padding: "30px 0", textAlign: "center", color: C.textSub, fontSize: 13, lineHeight: 1.7 }}>
-          {q ? `Nothing matches “${q}”.` : "No contacts yet — run Sync from NetSuite."}
+          {q ? `Nothing matches “”.` : "No contacts on this account yet."}
         </div>
       )}
 

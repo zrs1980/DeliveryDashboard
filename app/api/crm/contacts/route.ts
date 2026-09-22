@@ -149,12 +149,7 @@ export async function PATCH(req: Request) {
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
     if (!data)  return NextResponse.json({ error: "No contact with that id" }, { status: 404 });
 
-    return NextResponse.json({
-      contact: data,
-      warning: data.ns_contact_id
-        ? "This contact is mirrored from NetSuite. Name, email, title and phone will be overwritten by the next sync — role, notes and primary are app-owned and will survive."
-        : undefined,
-    });
+    return NextResponse.json({ contact: data });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }

@@ -10,14 +10,16 @@ const HINT = "Run supabase/crm-schema.sql then supabase/pm-crm-rename.sql in the
  * The pipeline.
  *
  * GET    ?open=1 | ?customerNsId= | ?stage=   — board data plus the stage columns
- * POST   create an opportunity in this app (no NetSuite id, never synced away)
+ * POST   create an opportunity
  * PATCH  update one, including moving it between stages
  *
- * ⚠ An opportunity mirrored from NetSuite can be edited here, and the edit will
- * be OVERWRITTEN by the next sync, because NetSuite is the master for anything
- * carrying an ns_opportunity_id. The route says so on the response rather than
- * letting someone discover it by losing work. Locally created rows have no
- * NetSuite id and are never touched.
+ * ⚠ THE PIPELINE IS APP-OWNED. Nothing syncs from NetSuite any more, in either
+ * direction. An edit made here is permanent, and `ns_opportunity_id` on a row
+ * imported before the link was removed is PROVENANCE — where it originally came
+ * from — not a key anything matches on.
+ *
+ * Do not reintroduce a sync without saying so: these rows are now hand-curated,
+ * and an overwrite would be silent data loss rather than a refresh.
  */
 
 async function requireSession() {
@@ -120,8 +122,6 @@ export async function POST(req: Request) {
       probability,
       expected_close:  /^\d{4}-\d{2}-\d{2}$/.test(String(body.expectedClose ?? "")) ? String(body.expectedClose) : null,
       owner_name:      gate.email,
-      // No ns_opportunity_id: this row is ours, and the sync cannot match,
-      // overwrite or prune it.
       source:          "manual",
     }).select().single();
 
@@ -201,13 +201,7 @@ export async function PATCH(req: Request) {
       });
     }
 
-    return NextResponse.json({
-      opportunity: data,
-      // Said plainly rather than left to be discovered by losing an edit.
-      warning: existing.ns_opportunity_id
-        ? "This opportunity is mirrored from NetSuite. The next sync will overwrite these fields — change it in NetSuite to make it stick."
-        : undefined,
-    });
+    return NextResponse.json({ opportunity: data });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
