@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
+import { isLocalAccountId } from "@/lib/crm-accounts";
 
 // ─── One account, everything attached to it ─────────────────────────────────
 //
@@ -128,6 +129,7 @@ export default function CrmCustomerPanel({
     finally { setLogging(false); }
   }
 
+  const isLocal = isLocalAccountId(customerNsId);
   const openOpps = opps.filter(o => o.status === "A");
   const openValue = openOpps.reduce((n, o) => n + (o.projected_total ?? 0), 0);
 
@@ -136,14 +138,30 @@ export default function CrmCustomerPanel({
       <div style={{ padding: "12px 16px", background: C.alt, borderBottom: `1px solid ${C.border}`,
                     display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{customerName}</span>
-        <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textSub }}>#{customerNsId}</span>
-        <a href={`https://system.na1.netsuite.com/app/common/entity/custjob.nl?id=${customerNsId}`}
-           target="_blank" rel="noreferrer"
-           style={{ fontSize: 11, color: C.purple, background: C.purpleBg,
-                    border: `1px solid ${C.purpleBd}`, borderRadius: 5, padding: "2px 7px",
-                    textDecoration: "none", fontWeight: 600 }}>
-          ↗ NetSuite
-        </a>
+
+        {/* A local account has no NetSuite record, so it gets neither the id nor
+            the link. Rendering the link anyway would point at
+            custjob.nl?id=local:<uuid> — a dead page that states, wrongly and
+            with the authority of a working-looking link, that the account is in
+            NetSuite. */}
+        {isLocal ? (
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: C.teal,
+                         background: C.tealBg, border: `1px solid ${C.tealBd}`,
+                         borderRadius: 3, padding: "2px 6px" }}>
+            LOCAL · NOT IN NETSUITE
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: 11, fontFamily: C.mono, color: C.textSub }}>#{customerNsId}</span>
+            <a href={`https://system.na1.netsuite.com/app/common/entity/custjob.nl?id=${customerNsId}`}
+               target="_blank" rel="noreferrer"
+               style={{ fontSize: 11, color: C.purple, background: C.purpleBg,
+                        border: `1px solid ${C.purpleBd}`, borderRadius: 5, padding: "2px 7px",
+                        textDecoration: "none", fontWeight: 600 }}>
+              ↗ NetSuite
+            </a>
+          </>
+        )}
         <button onClick={onClose} style={{ marginLeft: "auto", ...btn(C.textSub) }}>Close</button>
       </div>
 

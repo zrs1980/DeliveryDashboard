@@ -1321,6 +1321,136 @@ Neither NetSuite nor ClickUp keeps a prior value, so the deck's **"Orig. Due Dat
 
 ---
 
+## Module: CRM (pipeline, contacts, tasks)
+
+A lite CRM on the HubSpot model — Accounts, Deals, Contacts, Tasks, plus an
+activity timeline. The `🤝 CRM` tab, four modes: Accounts · Pipeline · Contacts · Tasks.
+
+```
+/lib/crm-accounts.ts                  → the local:<uuid> id convention. CLIENT-SAFE.
+/app/api/crm/accounts/route.ts        → local prospects (GET/POST/PATCH)
+/app/api/crm/accounts/link/route.ts   → promote a local account onto a NetSuite one
+/app/api/crm/opportunities/route.ts   → board data, ?id= for one deal in full
+/app/api/crm/deal-contacts/route.ts   → deal ↔ contact associations
+/app/api/crm/contacts/route.ts        → contacts
+/app/api/crm/tasks/route.ts           → tasks
+/app/api/crm/activities/route.ts      → timeline + Gmail send
+/components/dashboard/CrmView.tsx           → the tab, account list, prospect create, linking
+/components/dashboard/CrmCustomerPanel.tsx  → one account
+/components/dashboard/CrmDealPanel.tsx      → one deal (the record page)
+/components/dashboard/CrmPipeline.tsx       → the board
+/components/dashboard/CrmContacts.tsx · CrmTasks.tsx
+/supabase/crm-schema.sql · pm-crm-rename.sql · pm-crm-associations.sql · pm-crm-accounts.sql
+```
+
+**All four SQL files are run by hand, in that order.** There is no migration runner.
+
+### Nothing syncs with NetSuite any more (September 2026)
+
+Customers are read live from NetSuite and are still the master. **Deals,
+contacts, tasks and activities are app-owned** — `lib/crm-sync.ts` and
+`/api/crm/sync` were deleted, in both directions.
+
+`ns_opportunity_id` / `ns_contact_id` / `ns_message_id` on rows imported before
+that are **provenance, not keys**: nothing matches on them and nothing
+overwrites those rows. Don't reintroduce a sync without saying so — these are
+hand-curated now, and an overwrite would be silent data loss rather than a
+refresh.
+
+Consequences worth knowing: the 295 imported deals and the 4,310-email archive
+are frozen, and inbound replies never arrive late through NetSuite any more
+(reading Gmail needs `gmail.readonly`, which this app does not request).
+
+### Local accounts — `customer_ns_id = "local:<uuid>"`
+
+A prospect NetSuite has never heard of, so a deal can start on day one. Marked
+**LOCAL** everywhere; `pm_crm_accounts` holds them.
+
+**The synthetic id is written straight into `customer_ns_id`, and that is the
+whole design.** Every CRM table already keys on `customer_ns_id text` with no
+foreign key, precisely because the master is elsewhere — so a prefixed id slots
+into contacts, deals, tasks and activities with no schema change and no query
+change. The alternative was a nullable parallel column on four tables plus a
+branch in every read.
+
+- **Anything that asks NETSUITE about a `customer_ns_id` will not find a local
+  one.** That is safe (empty result, not an error) and correct. The CS layer,
+  health scoring and the Customers tab therefore do not see these rows at all —
+  intended: there is nothing to score.
+- **Never render a NetSuite link for one.** `custjob.nl?id=local:<uuid>` is a
+  dead page that asserts, with the authority of a working-looking link, that the
+  account is in NetSuite. `CrmCustomerPanel` branches on `isLocalAccountId()`.
+- **`lib/crm-accounts.ts` is client-safe** and must stay that way — `CrmView`
+  imports it in the browser.
+- NetSuite internal ids are integers, so the namespaces cannot collide.
+
+**Linking re-keys four tables with no transaction**, because supabase-js cannot
+open one. The ordering IS the safety mechanism: collision check → re-key the
+children → mark linked **last**. That makes the whole operation re-runnable — a
+failure partway leaves the account live and unlinked, and a retry matches
+nothing for the rows already moved and finishes the rest. Linking first would
+retire an account whose records still sat on the old key, which nothing would
+ever show again.
+
+- **The contact email collision is checked up front and refused whole.**
+  `pm_crm_contacts` is unique on `(customer_ns_id, lower(email))`, so a shared
+  address would fail the re-key midway. Naming the clashing person is
+  actionable; a half-migrated account is not.
+- The per-table moved counts are returned, because "it worked" and "it matched
+  nothing" must be distinguishable by whoever ran it.
+
+### Deal ↔ contact associations
+
+`pm_crm_deal_contacts`, many-to-many with HubSpot-style labels.
+`primary_contact_id` held exactly one person, so on a deal with a sponsor, a
+budget holder, an IT contact and a quiet objector, three were invisible.
+
+- **The deal label is NOT `pm_crm_contacts.role`, and they are separate columns
+  on purpose.** Role is what someone is to the ACCOUNT and drives the
+  champion-silence signal; the label is what they are to THIS DEAL. The account
+  champion is regularly a blocker on one particular piece of work, and
+  collapsing the two loses whichever was written second.
+- **`primary_contact_id` is kept and mirrored, not dropped** — it is what the
+  pipeline card reads. Every write touching the primary flag updates both and
+  clears the old one first, because the partial unique index rejects a second
+  primary outright.
+- **Cross-account attachment is refused, not warned about.** It would put one
+  customer's name on another customer's deal.
+
+### Gotchas
+
+- **A capable route with no caller is this module's recurring bug.** It has now
+  happened four times: `POST /api/crm/opportunities`, `POST /api/crm/contacts`,
+  and the PATCH routes for contacts and tasks all shipped accepting fields the
+  UI never sent — so a deal could not be created, a contact's email could not be
+  corrected, and a task's due date could not be changed. **When adding a field
+  to a CRM route, check something calls it.**
+- **Stages no longer come from anywhere.** They were seeded from NetSuite's
+  `entitystatus` by the deleted sync. `pm-crm-rename.sql` seeds seven defaults
+  guarded on the table being **empty** — not `ON CONFLICT`, because an existing
+  board carries ~30 NetSuite-derived stages whose ids don't collide, so a
+  per-row guard would add seven more columns beside them and split every deal's
+  pipeline in two.
+- **Clearing a field must be distinguishable from not setting it.** The close
+  date and probability were both skipped by a truthiness check, so clearing one
+  and pressing Save silently did nothing. An empty close date now writes NULL;
+  an empty probability falls back to the stage's, never 0% — a deal at 0% reads
+  as lost, which is a different claim.
+- **Deal inactivity is derived, never stored**, like the renewal clock — a
+  stored "days since" is wrong by one every midnight.
+- **RAG is used in exactly two places here and both are facts about a date**:
+  overdue/due-today on tasks, and deal inactivity (amber 21d, red 45d). No
+  health score, band or flag appears anywhere in this tab — that is the CS
+  layer's job, behind `cs_layer`. The LOCAL chip is teal for the same reason the
+  task statuses use teal for "supplied": it marks provenance, not health.
+- **`CrmTasks` scopes three ways** (whole book / account / deal) from one
+  component. "My tasks only" defaults ON for the book and OFF when scoped, or a
+  colleague's task on the deal you are reading would be hidden.
+- **A row in the account list is a `<button>`**, so the Link action sits beside
+  it in a flex wrapper — a nested button is invalid HTML.
+
+---
+
 ## Module: Loop Services Intranet Wiki
 
 This module adds an internal knowledge base and company directory to the existing Loop Services dashboard. It is built as a new top-level section within the same Next.js app — no separate service required.

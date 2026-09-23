@@ -11,7 +11,14 @@ import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 //
 // Pipeline, contacts and tasks.
 //
-// Customers stay in NetSuite and are read live. EVERYTHING ELSE IS APP-OWNED —
+// Customers are read live from NetSuite, PLUS any local prospects — accounts
+// NetSuite has never heard of, so a deal can start on day one. They carry a
+// LOCAL chip everywhere and key on a synthetic `local:<uuid>` (lib/crm-accounts
+// .ts). The end state of every one is being linked onto its real NetSuite
+// record, which re-keys everything written against it. NetSuite stays the
+// customer master.
+//
+// EVERYTHING ELSE IS APP-OWNED —
 // the pipeline, contacts, tasks and activity are never read from or written to
 // NetSuite, so nothing overwrites an edit made here and nothing leaks back.
 //
@@ -26,11 +33,22 @@ import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 type Mode = "accounts" | "pipeline" | "contacts" | "tasks";
 
 interface AccountRow {
-  id: number; companyname: string; entityid: string;
+  // A NetSuite id is a number; a local one is the synthetic `local:<uuid>`.
+  id: number | string; companyname: string; entityid: string | null;
   subsidiaryId: number | null; subsidiaryName: string | null;
   inBothSubsidiaries: boolean; stage: string | null;
   entitystatusLabel: string | null; industry: string | null;
+  isLocal?: boolean; localId?: string;
 }
+
+const BLANK_PROSPECT = {
+  name: "", domain: "", industry: "", subsidiaryId: "", stage: "PROSPECT", notes: "",
+};
+
+const fld: React.CSSProperties = {
+  padding: "6px 10px", fontSize: 12.5, fontFamily: C.font,
+  border: `1px solid ${C.mid}`, borderRadius: 6, background: C.surface, color: C.text,
+};
 
 export default function CrmView() {
   // Accounts first: the account is the thing everything else hangs off, and
@@ -43,10 +61,19 @@ export default function CrmView() {
   // same record page rather than each growing their own.
   const [deal, setDeal] = useState<string | null>(null);
   const [pipelineNonce, setPipelineNonce] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [q, setQ] = useState("");
   const [book, setBook] = useState<"all" | "loop" | "parent">("all");
+
+  // Creating a local prospect, and promoting one onto its NetSuite record.
+  const [adding, setAdding]   = useState(false);
+  const [np, setNp]           = useState(BLANK_PROSPECT);
+  const [savingNp, setSavingNp] = useState(false);
+  const [linking, setLinking] = useState<{ localId: string; name: string } | null>(null);
+  const [linkQ, setLinkQ]     = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const openDeal = useCallback((dealId: string) => {
     setDeal(dealId);
@@ -62,15 +89,91 @@ export default function CrmView() {
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
+  // Two sources, one list. The local ones are fetched separately rather than
+  // merged into /api/customers, because that route's response shape is consumed
+  // by CustomersView, PMView and ProjectManagementView and must not change.
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    try {
+      const [nsRes, localRes] = await Promise.all([
+        fetch("/api/customers"),
+        fetch("/api/crm/accounts"),
+      ]);
+      const ns = await nsRes.json();
+      const rows: AccountRow[] = [...(ns.customers ?? [])];
+
+      // A failure here is surfaced, not swallowed. Silently dropping the local
+      // accounts would read as "my prospect vanished", which is the one thing
+      // a holding pen must never do.
+      if (localRes.ok) {
+        const lj = await localRes.json();
+        rows.push(...(lj.accounts ?? []));
+      } else {
+        const lj = await localRes.json().catch(() => ({}));
+        setError(lj?.hint
+          ? `Local prospects could not be loaded: ${lj.error}. ${lj.hint}`
+          : `Local prospects could not be loaded: ${lj?.error ?? localRes.status}`);
+      }
+
+      rows.sort((a, b) => a.companyname.localeCompare(b.companyname));
+      setAccounts(rows);
+    } catch {
+      /* the empty state covers it */
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (mode !== "accounts" || accounts.length) return;
-    setAccountsLoading(true);
-    fetch("/api/customers")
-      .then(r => r.json())
-      .then(j => setAccounts(j.customers ?? []))
-      .catch(() => { /* the empty state covers it */ })
-      .finally(() => setAccountsLoading(false));
-  }, [mode, accounts.length]);
+    loadAccounts();
+  }, [mode, accounts.length, loadAccounts]);
+
+  async function createProspect() {
+    if (!np.name.trim()) return;
+    setSavingNp(true); setError(null);
+    try {
+      const res = await fetch("/api/crm/accounts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(np),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      setNp(BLANK_PROSPECT); setAdding(false);
+      await loadAccounts();
+      // Straight into the new account: the reason you created it is to put
+      // something on it.
+      openCustomer(json.account.id, json.account.companyname);
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setSavingNp(false); }
+  }
+
+  async function linkTo(target: AccountRow) {
+    if (!linking) return;
+    setLinkBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/crm/accounts/link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          localId: linking.localId,
+          customerNsId: String(target.id),
+          customerName: target.companyname,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      const m = json.moved ?? {};
+      const total = Object.values(m).reduce((n: number, v) => n + Number(v || 0), 0);
+      setError(total === 0
+        ? `Linked to ${target.companyname}. Nothing was attached to the local record, so nothing moved.`
+        : `Linked to ${target.companyname} — moved ${m.contacts ?? 0} contacts, `
+          + `${m.opportunities ?? 0} deals, ${m.tasks ?? 0} tasks, ${m.activities ?? 0} activities.`);
+      setLinking(null); setLinkQ("");
+      setSelected(null);
+      await loadAccounts();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setLinkBusy(false); }
+  }
 
   const visibleAccounts = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -84,7 +187,12 @@ export default function CrmView() {
     });
   }, [accounts, q, book]);
 
-  const [error, setError] = useState<string | null>(null);
+  const linkTargets = useMemo(() => {
+    const needle = linkQ.trim().toLowerCase();
+    return accounts
+      .filter(a => !a.isLocal && (!needle || a.companyname.toLowerCase().includes(needle)))
+      .slice(0, 8);
+  }, [accounts, linkQ]);
 
   return (
     <div>
@@ -177,7 +285,105 @@ export default function CrmView() {
               <span style={{ fontSize: 12, color: C.textSub }}>
                 {visibleAccounts.length} of {accounts.length}
               </span>
+              <button onClick={() => setAdding(a => !a)} style={{
+                background: adding ? "transparent" : C.blueBg,
+                border: `1px solid ${adding ? C.border : C.blueBd}`,
+                color: adding ? C.textMid : C.blue, borderRadius: 6,
+                padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                cursor: "pointer", fontFamily: C.font,
+              }}>
+                {adding ? "Cancel" : "+ New prospect"}
+              </button>
             </div>
+
+            {adding && (
+              <div style={{ border: `1px solid ${C.blueBd}`, background: C.blueBg,
+                            borderRadius: 9, padding: "12px 14px", marginBottom: 13,
+                            display: "grid", gap: 8 }}>
+                <div style={{ fontSize: 11.5, color: C.textMid, lineHeight: 1.55 }}>
+                  For a company NetSuite has never heard of. It lives only here, marked
+                  <strong> LOCAL</strong>, until you link it to a real NetSuite record —
+                  which brings everything you attached along with it.
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input value={np.name} onChange={e => setNp({ ...np, name: e.target.value })}
+                         placeholder="Company name" autoFocus
+                         style={{ ...fld, flex: "1 1 200px" }} />
+                  <input value={np.domain} onChange={e => setNp({ ...np, domain: e.target.value })}
+                         placeholder="Domain (acme.com)"
+                         style={{ ...fld, flex: "1 1 150px", fontFamily: C.mono }} />
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input value={np.industry} onChange={e => setNp({ ...np, industry: e.target.value })}
+                         placeholder="Industry" style={{ ...fld, flex: "1 1 150px" }} />
+                  <select value={np.subsidiaryId}
+                          onChange={e => setNp({ ...np, subsidiaryId: e.target.value })}
+                          style={{ ...fld, flex: "1 1 140px", cursor: "pointer" }}>
+                    <option value="">Book not decided</option>
+                    <option value="1">Loop Services</option>
+                    <option value="2">Loop ERP</option>
+                  </select>
+                  <select value={np.stage} onChange={e => setNp({ ...np, stage: e.target.value })}
+                          style={{ ...fld, flex: "0 1 130px", cursor: "pointer" }}>
+                    <option value="PROSPECT">Prospect</option>
+                    <option value="LEAD">Lead</option>
+                  </select>
+                  <button onClick={createProspect} disabled={savingNp || !np.name.trim()}
+                          style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`,
+                                   color: C.blue, borderRadius: 6, padding: "6px 14px",
+                                   fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                   fontFamily: C.font, opacity: np.name.trim() ? 1 : 0.5 }}>
+                    {savingNp ? "Creating…" : "Create"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Promoting a local account onto its NetSuite record. */}
+            {linking && (
+              <div style={{ border: `1px solid ${C.purpleBd}`, background: C.purpleBg,
+                            borderRadius: 9, padding: "12px 14px", marginBottom: 13 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: 13, color: C.purple }}>
+                    Link “{linking.name}” to a NetSuite account
+                  </strong>
+                  <button onClick={() => { setLinking(null); setLinkQ(""); }}
+                          style={{ marginLeft: "auto", background: "transparent",
+                                   border: `1px solid ${C.border}`, color: C.textMid,
+                                   borderRadius: 5, padding: "2px 9px", fontSize: 11,
+                                   fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+                    Cancel
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: C.textMid, margin: "6px 0 9px", lineHeight: 1.55 }}>
+                  Every contact, deal, task and activity on the local record moves to the
+                  NetSuite one. This cannot be undone from here.
+                </div>
+                <input value={linkQ} onChange={e => setLinkQ(e.target.value)}
+                       placeholder="Search NetSuite accounts…" autoFocus
+                       style={{ ...fld, width: "100%", boxSizing: "border-box", marginBottom: 8 }} />
+                <div style={{ display: "grid", gap: 4 }}>
+                  {linkTargets.length === 0 && (
+                    <span style={{ fontSize: 12, color: C.textSub }}>No NetSuite account matches.</span>
+                  )}
+                  {linkTargets.map(t => (
+                    <button key={String(t.id)} disabled={linkBusy}
+                            onClick={() => linkTo(t)}
+                            style={{ display: "flex", gap: 9, alignItems: "baseline",
+                                     textAlign: "left", background: C.surface,
+                                     border: `1px solid ${C.border}`, borderRadius: 6,
+                                     padding: "7px 11px", cursor: "pointer", fontFamily: C.font }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text }}>
+                        {t.companyname}
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: C.textSub }}>
+                        {t.stage ?? ""}{t.industry ? ` · ${t.industry}` : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {accountsLoading && (
               <div style={{ padding: "26px 0", textAlign: "center", color: C.textSub, fontSize: 13 }}>
@@ -187,18 +393,28 @@ export default function CrmView() {
 
             <div style={{ display: "grid", gap: 5 }}>
               {visibleAccounts.map(a => (
+                <div key={String(a.id)} style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
                 <button
-                  key={a.id}
                   onClick={() => openCustomer(String(a.id), a.companyname)}
                   style={{
                     display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
-                    textAlign: "left", width: "100%",
+                    textAlign: "left", width: "100%", flex: 1, minWidth: 0,
                     background: selected?.id === String(a.id) ? C.blueBg : C.surface,
                     border: `1px solid ${selected?.id === String(a.id) ? C.blueBd : C.border}`,
                     borderRadius: 8, padding: "9px 13px", cursor: "pointer", fontFamily: C.font,
                   }}
                 >
                   <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{a.companyname}</span>
+                  {/* Not RAG — teal marks provenance, the same way the task
+                      statuses use it for "supplied". This says where the record
+                      lives, not whether anything is wrong. */}
+                  {a.isLocal && (
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: C.teal,
+                                   background: C.tealBg, border: `1px solid ${C.tealBd}`,
+                                   borderRadius: 3, padding: "1px 5px" }}>
+                      LOCAL
+                    </span>
+                  )}
                   {(a.subsidiaryId === 2 || a.inBothSubsidiaries) && (
                     <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: C.purple,
                                    background: C.purpleBg, border: `1px solid ${C.purpleBd}`,
@@ -216,6 +432,20 @@ export default function CrmView() {
                     {a.industry ? ` · ${a.industry}` : ""}
                   </span>
                 </button>
+
+                {a.isLocal && a.localId && (
+                  <button
+                    onClick={() => { setLinking({ localId: a.localId!, name: a.companyname }); setAdding(false); }}
+                    title="Promote this onto its real NetSuite record, bringing everything with it"
+                    style={{ background: C.surface, border: `1px solid ${C.border}`,
+                             color: C.purple, borderRadius: 8, padding: "0 11px",
+                             fontSize: 11, fontWeight: 600, cursor: "pointer",
+                             fontFamily: C.font, whiteSpace: "nowrap", flexShrink: 0 }}
+                  >
+                    Link…
+                  </button>
+                )}
+                </div>
               ))}
             </div>
           </>
