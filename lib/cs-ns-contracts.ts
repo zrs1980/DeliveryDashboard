@@ -126,3 +126,16 @@ export function currentContractByCustomer(contracts: NsContract[]): Record<strin
   }
   return best;
 }
+
+/**
+ * Internal id of the CUSTOMRECORD_CONTRACTS record type, for deep links.
+ * Verified September 2026: `SELECT internalid, scriptid FROM customrecordtype`
+ * returns 463 for CUSTOMRECORD_CONTRACTS (458 is Contract Item — a different
+ * record, and linking to it would open the wrong page).
+ */
+export const CONTRACT_RECTYPE = 463;
+
+/** Live link to a contract record in NetSuite. */
+export const nsContractUrl = (nsContractId: string) =>
+  `https://system.na1.netsuite.com/app/common/custom/custrecordentry.nl`
+  + `?rectype=${CONTRACT_RECTYPE}&id=${nsContractId}`;

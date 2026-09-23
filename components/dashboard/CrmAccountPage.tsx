@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "@/lib/constants";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
@@ -60,7 +60,21 @@ const KIND_ICON: Record<string, string> = {
   stage_change: "→", task_done: "✓",
 };
 
-type Section = "overview" | "contacts" | "tasks" | "activity";
+interface Contract {
+  nsContractId: string; name: string | null;
+  status: string; statusLabel: string; contractType: string | null;
+  startDate: string | null; endDate: string | null;
+  annualValue: number | null; totalValue: number | null;
+  renewalTermMonths: number | null;
+  netsuiteUrl: string;
+  noticePeriodDays: number | null; noticeIsEstimated: boolean;
+  daysToRenewal: number | null; daysToNotice: number | null;
+  noticeDeadline: string | null; noticePassed: boolean;
+  alertBand: 120 | 90 | 60 | 30 | null; expired: boolean;
+  summary: string;
+}
+
+type Section = "overview" | "contacts" | "tasks" | "activity" | "contracts";
 
 export default function CrmAccountPage({
   customerNsId, customerName, onClose, onOpenDeal, account,
@@ -79,6 +93,8 @@ export default function CrmAccountPage({
   const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activityNote, setActivityNote] = useState<string | null>(null);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contractNote, setContractNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,9 +139,14 @@ export default function CrmAccountPage({
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [oRes, aRes] = await Promise.all([
+      // Contracts are fetched with everything else rather than on tab open: the
+      // renewal chip in the header has to be right from the first paint, and a
+      // deadline that appears only once you click Contracts is a deadline
+      // nobody sees.
+      const [oRes, aRes, cRes] = await Promise.all([
         fetch(`/api/crm/opportunities?customerNsId=${encodeURIComponent(customerNsId)}`),
         fetch(`/api/crm/activities?customerNsId=${encodeURIComponent(customerNsId)}`),
+        fetch(`/api/crm/contracts?customerNsId=${encodeURIComponent(customerNsId)}`),
       ]);
       const [oJson, aJson] = await Promise.all([oRes.json(), aRes.json()]);
       if (!oRes.ok) throw new Error(oJson?.error ?? `Opportunities failed (${oRes.status})`);
@@ -134,6 +155,18 @@ export default function CrmAccountPage({
       setStages(oJson.stages ?? []);
       setActivities(aJson.activities ?? []);
       setActivityNote(aJson.note ?? null);
+
+      // A contracts failure must not blank the page — the account's deals and
+      // contacts are still worth showing, and NetSuite being unreachable is a
+      // different problem from the account having no contract.
+      const cJson = await cRes.json().catch(() => ({}));
+      if (cRes.ok) {
+        setContracts(cJson.contracts ?? []);
+        setContractNote(cJson.note ?? cJson.noticeOverlayError ?? null);
+      } else {
+        setContracts([]);
+        setContractNote(`Contracts unavailable: ${cJson?.error ?? cRes.status}`);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
     finally { setLoading(false); }
   }, [customerNsId]);
@@ -161,6 +194,44 @@ export default function CrmAccountPage({
   }
 
   const isLocal = isLocalAccountId(customerNsId);
+
+  // The contract that governs. Mirrors currentContractByCustomer(): prefer
+  // Active, then the latest end date — Sortera holds a superseded 2025-26 term
+  // alongside the 2026-27 one that replaced it, and showing the first row would
+  // report an expired contract as current.
+  const governing = useMemo(() => {
+    const live = contracts.filter(c => !c.expired);
+    const pool = live.length ? live : contracts;
+    return [...pool].sort((a, b) => {
+      const rank = (x: Contract) => x.status === "active" ? 2 : x.status === "other" ? 1 : 0;
+      if (rank(b) !== rank(a)) return rank(b) - rank(a);
+      return (b.endDate ?? "").localeCompare(a.endDate ?? "");
+    })[0] ?? null;
+  }, [contracts]);
+
+  const renewalChip = useMemo(() => {
+    if (!governing || governing.daysToRenewal === null) return null;
+    if (governing.expired) {
+      return { text: `CONTRACT ENDED ${Math.abs(governing.daysToRenewal)}D AGO`,
+               fg: C.textMid, bg: C.alt, bd: C.border };
+    }
+    if (governing.noticePassed) {
+      return { text: `NOTICE WINDOW CLOSED · ENDS IN ${governing.daysToRenewal}D`,
+               fg: C.yellow, bg: C.yellowBg, bd: C.yellowBd };
+    }
+    const d = governing.daysToNotice;
+    if (d === null) return null;
+    if (governing.alertBand === 30) {
+      return { text: d === 0 ? "NOTICE DUE TODAY" : `NOTICE DUE IN ${d}D`,
+               fg: C.red, bg: C.redBg, bd: C.redBd };
+    }
+    if (governing.alertBand) {
+      return { text: `NOTICE DUE IN ${d}D`, fg: C.yellow, bg: C.yellowBg, bd: C.yellowBd };
+    }
+    // Not due yet is not "healthy", it is just not due — so it stays neutral.
+    return { text: `RENEWS IN ${governing.daysToRenewal}D`,
+             fg: C.textMid, bg: C.alt, bd: C.border };
+  }, [governing]);
   const openOpps = opps.filter(o => o.status === "A");
   const openValue = openOpps.reduce((n, o) => n + (o.projected_total ?? 0), 0);
 
@@ -206,6 +277,21 @@ export default function CrmAccountPage({
                          borderRadius: 3, padding: "2px 6px" }}>
             LOOP ERP
           </span>
+        )}
+        {/* The renewal clock rides in the header so it is visible whichever tab
+            you are on. RAG is licensed here for the same reason it is on the
+            Renewals view: a notice deadline inside 30 days is a hard fact
+            requiring action, not an inference about the account's health. */}
+        {renewalChip && (
+          <button
+            onClick={() => setSection("contracts")}
+            style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.2,
+                     color: renewalChip.fg, background: renewalChip.bg,
+                     border: `1px solid ${renewalChip.bd}`, borderRadius: 4,
+                     padding: "3px 8px", cursor: "pointer", fontFamily: C.font }}
+          >
+            {renewalChip.text}
+          </button>
         )}
         <button onClick={onClose} style={{ marginLeft: "auto", ...btn(C.textSub) }}>
           ← All accounts
@@ -285,7 +371,7 @@ export default function CrmAccountPage({
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 12px" }}>
-        {(["overview", "contacts", "tasks", "activity"] as const).map(s => (
+        {(["overview", "contacts", "contracts", "tasks", "activity"] as const).map(s => (
           <button key={s} onClick={() => setSection(s)} style={{
             padding: "9px 14px", fontSize: 12,
             fontWeight: section === s ? 700 : 500,
@@ -294,7 +380,11 @@ export default function CrmAccountPage({
             borderBottom: section === s ? `2px solid ${C.blue}` : "2px solid transparent",
             cursor: "pointer", fontFamily: C.font, marginBottom: -1,
           }}>
-            {s === "overview" ? "Opportunities" : s === "contacts" ? "Contacts" : s === "tasks" ? "Tasks" : "Activity"}
+            {s === "overview" ? "Opportunities" : s === "contacts" ? "Contacts"
+              : s === "contracts" ? "Contracts" : s === "tasks" ? "Tasks" : "Activity"}
+            {s === "contracts" && contracts.length > 0 && (
+              <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{contracts.length}</span>
+            )}
             {s === "overview" && opps.length > 0 && (
               <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{opps.length}</span>
             )}
@@ -395,6 +485,116 @@ export default function CrmAccountPage({
                 </div>
               </button>
             ))}
+          </>
+        )}
+
+        {section === "contracts" && (
+          <>
+            {contractNote && (
+              <div style={{ background: C.alt, border: `1px solid ${C.border}`, color: C.textMid,
+                            borderRadius: 8, padding: "9px 13px", fontSize: 12,
+                            marginBottom: 12, lineHeight: 1.55 }}>
+                {contractNote}
+              </div>
+            )}
+
+            {!loading && contracts.length === 0 && !contractNote && (
+              <div style={{ fontSize: 12.5, color: C.textSub, lineHeight: 1.7, padding: "6px 0" }}>
+                No contract on this account.<br />
+                Contracts live in NetSuite&apos;s Contract Renewals record and only five
+                accounts carry one, so this is the usual answer rather than a gap.
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 9 }}>
+              {contracts.map(ct => {
+                const band = ct.expired ? { fg: C.textMid, bg: C.alt, bd: C.border }
+                  : ct.alertBand === 30 ? { fg: C.red, bg: C.redBg, bd: C.redBd }
+                  : ct.alertBand       ? { fg: C.yellow, bg: C.yellowBg, bd: C.yellowBd }
+                  : { fg: C.textMid, bg: C.alt, bd: C.border };
+                return (
+                  <div key={ct.nsContractId} style={{
+                    border: `1px solid ${C.border}`, borderRadius: 9, background: C.surface,
+                    padding: "12px 14px", opacity: ct.expired ? 0.65 : 1,
+                  }}>
+                    <div style={{ display: "flex", gap: 9, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: C.text }}>
+                        {ct.name ?? `Contract ${ct.nsContractId}`}
+                      </span>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3,
+                                     color: ct.status === "active" ? C.green : C.textMid,
+                                     background: ct.status === "active" ? C.greenBg : C.alt,
+                                     border: `1px solid ${ct.status === "active" ? C.greenBd : C.border}`,
+                                     borderRadius: 3, padding: "1px 6px" }}>
+                        {ct.statusLabel.toUpperCase()}
+                      </span>
+                      {ct.contractType && (
+                        <span style={{ fontSize: 11.5, color: C.textMid }}>{ct.contractType}</span>
+                      )}
+                      <a href={ct.netsuiteUrl} target="_blank" rel="noreferrer"
+                         style={{ marginLeft: "auto", fontSize: 11, color: C.purple,
+                                  background: C.purpleBg, border: `1px solid ${C.purpleBd}`,
+                                  borderRadius: 5, padding: "2px 7px",
+                                  textDecoration: "none", fontWeight: 600 }}>
+                        ↗ NetSuite
+                      </a>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 11, marginTop: 11,
+                                  gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))" }}>
+                      <Info label="Term">
+                        <span style={{ fontFamily: C.mono }}>
+                          {ct.startDate ?? "?"} → {ct.endDate ?? "?"}
+                        </span>
+                      </Info>
+                      {ct.annualValue !== null && (
+                        <Info label="Annual value">
+                          <span style={{ fontFamily: C.mono, fontWeight: 700 }}>
+                            ${ct.annualValue.toLocaleString()}
+                          </span>
+                        </Info>
+                      )}
+                      {ct.totalValue !== null && (
+                        <Info label="Total value">
+                          <span style={{ fontFamily: C.mono }}>
+                            ${ct.totalValue.toLocaleString()}
+                          </span>
+                        </Info>
+                      )}
+                      {ct.renewalTermMonths !== null && (
+                        <Info label="Renewal term">{ct.renewalTermMonths} months</Info>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 11, padding: "8px 11px", borderRadius: 7,
+                                  background: band.bg, border: `1px solid ${band.bd}` }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: band.fg }}>
+                        {ct.summary}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textMid, marginTop: 3, lineHeight: 1.5 }}>
+                        {/* Saying WHICH date the countdown runs to is the whole
+                            point. NetSuite holds no notice period — its
+                            days-before-renewal field reads 358 on every contract
+                            in the account, so it is a SuiteApp setting, not a
+                            term. Without an entered period the clock runs to the
+                            end date, and that has to be stated rather than
+                            implied. */}
+                        {ct.noticeIsEstimated
+                          ? "No notice period recorded, so this counts to the end date. Set one on the Renewals view to get the real deadline."
+                          : `Notice deadline ${ct.noticeDeadline} · ${ct.noticePeriodDays} days before end.`}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {contracts.length > 0 && (
+              <p style={{ fontSize: 11, color: C.textSub, marginTop: 11, lineHeight: 1.6 }}>
+                Read live from NetSuite&apos;s Contract Renewals record and not editable here —
+                a second copy would drift from the process the business runs on.
+              </p>
+            )}
           </>
         )}
 

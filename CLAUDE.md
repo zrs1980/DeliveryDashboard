@@ -1444,6 +1444,47 @@ Opportunities / Contacts / Tasks / Activity tabs and stays put across them.
 - Address comes from `BUILTIN.DF(defaultbillingaddress)` — see the field
   reference; there is no address table in this account.
 
+### Contracts and renewals on the account page
+
+A **Contracts** tab, read live from NetSuite's `CUSTOMRECORD_CONTRACTS`, plus a
+renewal chip in the account header that is visible from every tab.
+`/api/crm/contracts` reuses `fetchNsContracts()` and `renewalClock()` — the CS
+layer's, not a second implementation.
+
+- **Session-gated, NOT `cs_layer`-gated, deliberately.** The CS boundary
+  contains JUDGMENTS — scores, bands, churn flags. A contract's dates, term,
+  value and notice deadline are FACTS needed for ordinary commercial work, and
+  CLAUDE.md already draws that line for the Renewals view. **`cs_contracts.notes`
+  is CS-authored commentary and is withheld**: the route selects
+  `source, notice_period_days` only. Never widen it to `*`.
+- **Read-only, linking out to NetSuite** (`rectype=463` — verified via
+  `customrecordtype`; 458 is Contract *Item* and would open the wrong record).
+  A second editable copy would drift from the renewal process the business runs
+  on.
+- **The governing contract is not the first row.** Sortera holds an expired
+  2025-26 term beside the 2026-27 one that replaced it, so the page filters out
+  expired, then prefers Active, then the latest end date — mirroring
+  `currentContractByCustomer()`. Taking row one reports an expired contract as
+  current.
+- **`auto_renew` is passed as `false` because NetSuite does not expose it.**
+  Passing `true` would render "auto-renews in 291d" — a claim about the
+  contract's terms invented from nothing, the same failure
+  `custrecord_swe_days_b4_renewal` already caused once.
+- **With no notice period recorded the clock runs to the END date, and the card
+  says so in words.** NetSuite holds no notice period; its days-before-renewal
+  field reads 358 on every contract in the account, making it a SuiteApp
+  setting rather than a term. An unlabelled countdown would look like a real
+  deadline.
+- **Five contracts on four customers is the whole population**, so "no contract
+  on this account" is the normal answer for ~176 of 180 and the empty state says
+  that rather than implying something is missing.
+- **A local prospect short-circuits before SuiteQL** and says contracts appear
+  once it is linked — an empty list there would read as "no contracts found"
+  when the truth is the account does not exist in NetSuite yet.
+- RAG is licensed on the renewal chip and card for the reason the Renewals view
+  gives: a notice deadline inside 30 days is a hard fact requiring action. "Not
+  due yet" stays neutral — it is not healthy, it is just not due.
+
 ### Gotchas
 
 - **A capable route with no caller is this module's recurring bug.** It has now
