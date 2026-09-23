@@ -103,7 +103,11 @@ export async function POST(req: Request) {
       status:    "open",
       due_date:  /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate ?? "")) ? String(body.dueDate) : null,
       // Unassigned means yours — a task you created for nobody is yours.
-      assigned_to: String(body.assignedTo ?? "").trim() || gate.email,
+      // Lower-cased: assigned_to is an email used as a join key by the "mine"
+      // filter and by name resolution in the UI. Google can hand back a
+      // differently-cased address, and two spellings would split one person
+      // into two assignees.
+      assigned_to: (String(body.assignedTo ?? "").trim() || gate.email).toLowerCase(),
       created_by:  gate.email,
     }).select().single();
 
@@ -128,7 +132,7 @@ export async function PATCH(req: Request) {
   const patch: Record<string, unknown> = {};
   if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim();
   if (typeof body.notes === "string") patch.notes = body.notes.trim() || null;
-  if (typeof body.assignedTo === "string") patch.assigned_to = body.assignedTo.trim() || null;
+  if (typeof body.assignedTo === "string") patch.assigned_to = body.assignedTo.trim().toLowerCase() || null;
   if (["low", "normal", "high"].includes(String(body.priority))) patch.priority = String(body.priority);
   if (typeof body.dueDate === "string") {
     patch.due_date = /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate) ? body.dueDate : null;

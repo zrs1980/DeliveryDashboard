@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
+import { useAppUsers, assigneeName } from "@/lib/use-app-users";
 
 // ─── Tasks ──────────────────────────────────────────────────────────────────
 //
@@ -49,7 +50,12 @@ export default function CrmTasks({
   const [ef, setEf] = useState({ title: "", dueDate: "", priority: "normal", assignedTo: "", notes: "" });
 
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ title: "", dueDate: "", taskType: "todo", priority: "normal", notes: "" });
+  const [draft, setDraft] = useState({
+    title: "", dueDate: "", taskType: "todo", priority: "normal", notes: "", assignedTo: "",
+  });
+
+  // Anyone with a login, plus active staff who have not signed in yet.
+  const { users, me, warnings: userWarnings } = useAppUsers();
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -95,7 +101,9 @@ export default function CrmTasks({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
-      setDraft({ title: "", dueDate: "", taskType: "todo", priority: "normal", notes: "" });
+      setDraft({
+        title: "", dueDate: "", taskType: "todo", priority: "normal", notes: "", assignedTo: "",
+      });
       setAdding(false);
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
@@ -132,6 +140,16 @@ export default function CrmTasks({
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12 }}>{error}</div>
       )}
 
+      {/* An empty or partial assignee list is reported. Silently showing only
+          yourself would read as "there is nobody else to assign to". */}
+      {userWarnings.length > 0 && adding && (
+        <div style={{ background: C.yellowBg, border: `1px solid ${C.yellowBd}`, color: C.yellow,
+                      borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12,
+                      lineHeight: 1.55 }}>
+          {userWarnings.join(" ")}
+        </div>
+      )}
+
       {adding && (
         <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8,
                       padding: 12, marginBottom: 12 }}>
@@ -152,6 +170,18 @@ export default function CrmTasks({
             </select>
             <input type="date" value={draft.dueDate}
                    onChange={e => setDraft({ ...draft, dueDate: e.target.value })} style={inp} />
+            <select value={draft.assignedTo}
+                    onChange={e => setDraft({ ...draft, assignedTo: e.target.value })}
+                    style={{ ...inp, minWidth: 150 }}>
+              {/* Blank = the creator, which is what the route already defaults
+                  to. Spelled out rather than left ambiguous. */}
+              <option value="">Assign to me</option>
+              {users.filter(u => u.email !== me).map(u => (
+                <option key={u.email} value={u.email}>
+                  {u.name}{u.hasSignedIn ? "" : " (not signed in)"}
+                </option>
+              ))}
+            </select>
             <button onClick={create} disabled={busy === "new" || !draft.title.trim()}
                     style={{ ...btn(C.blue, true), opacity: draft.title.trim() ? 1 : 0.5 }}>
               {busy === "new" ? "…" : "Add"}
@@ -209,7 +239,11 @@ export default function CrmTasks({
                     </span>
                   )}
                   {t.assigned_to && (
-                    <span style={{ fontSize: 11, color: C.textSub }}>{t.assigned_to}</span>
+                    <span style={{ fontSize: 11, color: t.assigned_to === me ? C.blue : C.textSub,
+                                   fontWeight: t.assigned_to === me ? 600 : 400 }}
+                          title={t.assigned_to}>
+                      {t.assigned_to === me ? "You" : assigneeName(users, t.assigned_to)}
+                    </span>
                   )}
                 </div>
                 {t.notes && editId !== t.id && (
@@ -231,8 +265,23 @@ export default function CrmTasks({
                         <option value="normal">Normal</option>
                         <option value="high">High</option>
                       </select>
-                      <input value={ef.assignedTo} onChange={e => setEf({ ...ef, assignedTo: e.target.value })}
-                             placeholder="Assigned to" style={{ ...inp, flex: "1 1 160px" }} />
+                      <select value={ef.assignedTo}
+                              onChange={e => setEf({ ...ef, assignedTo: e.target.value })}
+                              style={{ ...inp, flex: "1 1 170px", cursor: "pointer" }}>
+                        <option value="">Unassigned</option>
+                        {/* A value not in the list is kept as its own option, so
+                            opening the editor on a task assigned before this
+                            picker existed does not silently reassign it on
+                            save. */}
+                        {ef.assignedTo && !users.some(u => u.email === ef.assignedTo) && (
+                          <option value={ef.assignedTo}>{ef.assignedTo}</option>
+                        )}
+                        {users.map(u => (
+                          <option key={u.email} value={u.email}>
+                            {u.name}{u.hasSignedIn ? "" : " (not signed in)"}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <textarea value={ef.notes} onChange={e => setEf({ ...ef, notes: e.target.value })}
                               placeholder="Notes" rows={2}

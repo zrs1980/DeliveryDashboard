@@ -1485,6 +1485,56 @@ layer's, not a second implementation.
   gives: a notice deadline inside 30 days is a hard fact requiring action. "Not
   due yet" stays neutral — it is not healthy, it is just not due.
 
+### Assigning a task to a user of the tool
+
+`pm_app_users` + `/api/users` + `useAppUsers()`. CRM tasks are assigned by
+**email**, chosen from a picker, not typed as free text.
+
+**Two sources merged on email, because neither answers the question alone:**
+
+| Source | Answers | Gap |
+|---|---|---|
+| `pm_app_users` | who has actually signed in | empty for a new colleague |
+| `getActiveStaff()` | who works here and could sign in | includes people who never have |
+
+A row is written to `pm_app_users` in the `signIn` callback, and the table is
+backfilled from `google_tokens` (every completed sign-in has written there
+already), so the picker is populated from day one.
+
+- **Recording a user must never block sign-in.** The upsert is wrapped in
+  try/catch: returning false there locks someone out of the entire application,
+  and a missing table is not worth that. Worst case they are briefly absent from
+  a dropdown.
+- **Assigning to someone who has not signed in is allowed**, flagged
+  *(not signed in)*. Refusing would mean you cannot hand work to a new starter
+  until they happen to log in; the task is simply waiting when they do.
+- **The NetSuite name wins over the Google display name**, so an assignee reads
+  the same here as everywhere else — and a backfilled row, which has no name at
+  all, gets one.
+- **Email is lower-cased on every write.** `assigned_to` is the join key for the
+  "mine" filter and for name resolution; Google can return a differently-cased
+  address, and two spellings silently split one person into two assignees.
+- **An unknown `assigned_to` is preserved, not overwritten.** Tasks predating the
+  picker hold free text, so the editor keeps the raw value as its own option
+  rather than silently reassigning on save, and the row falls back to showing it.
+- **`pm_app_users` is NOT an authorisation table.** Presence means "has logged
+  in". What anyone may DO still comes from `AUTH_ALLOWED_DOMAIN` and
+  `lib/cs-permissions.ts`.
+
+> **⚠ `AUTH_ALLOWED_DOMAIN` is `cebasolutions.com, loopservices.co` — it does NOT
+> include `looperp.ai`.** So 7 of 24 active staff (Ron, Merl, Chris, Winny,
+> Jason Riley, Enrique, Andrea) **cannot sign in at all**, and therefore cannot
+> be assigned a task. Note this is narrower than `INTERNAL_EMAIL_DOMAINS` in
+> `lib/constants.ts`, which does include `looperp.ai` — the two serve different
+> purposes and are deliberately not the same list, but the difference surprises
+> people. Adding the domain is a Vercel env change plus a redeploy.
+
+**PM tasks (`pm_tasks`) are a different model and are deliberately untouched.**
+They carry `assignee_ns_id`/`assignee_name` — a NetSuite *employee* reference
+picked via `useStaff()` — because delivery work is assigned to the person whose
+time is booked against the project. CRM tasks are assigned to whoever uses the
+tool. Don't merge them.
+
 ### Gotchas
 
 - **A capable route with no caller is this module's recurring bug.** It has now

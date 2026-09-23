@@ -35,6 +35,32 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (ALLOWED_DOMAINS.length > 0 && !ALLOWED_DOMAINS.some(d => profile?.email?.endsWith(`@${d}`))) {
         return false;
       }
+
+      // Record that this person has a login, for assignee pickers.
+      //
+      // ⚠ THIS MUST NEVER BLOCK SIGN-IN. Returning false here locks someone out
+      // of the whole application, so a bookkeeping failure — a missing table, a
+      // Supabase outage — is logged and swallowed. The worst case is that they
+      // are briefly missing from a dropdown; the alternative is that they
+      // cannot work at all.
+      //
+      // `email` is the join key everywhere (pm_crm_tasks.assigned_to), so it is
+      // lower-cased on the way in. Google can return a differently-cased
+      // address, and "Zabe@..." not matching "zabe@..." would quietly split one
+      // person into two assignees.
+      if (profile?.email) {
+        try {
+          const now = new Date().toISOString();
+          await getSupabaseAdmin().from("pm_app_users").upsert({
+            email:        profile.email.toLowerCase(),
+            name:         profile.name ?? null,
+            image_url:    (profile as { picture?: string }).picture ?? null,
+            last_seen_at: now,
+          }, { onConflict: "email" });
+        } catch (e) {
+          console.error("[auth] Could not record app user:", e);
+        }
+      }
       return true;
     },
     async jwt({ token, account }) {
