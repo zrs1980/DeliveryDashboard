@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsQbr from "@/components/dashboard/CsQbr";
+import CsResearch from "@/components/dashboard/CsResearch";
 
 // ─── Customer profile — view, verify, re-extract ─────────────────────────────
 //
@@ -272,6 +273,13 @@ export default function CustomerProfilePanel({
               section is assembled from manual processes, prior enquiries and
               release matches. */}
           {!pending && <CsQbr customerNsId={customerNsId} />}
+
+          {/* Research sits below the profile because it READS the profile's
+              account, and its findings are a starting point for the QBR and
+              health-check motions above rather than a replacement for them. */}
+          {!pending && (
+            <CsResearch customerNsId={customerNsId} customerName={customerName} />
+          )}
         </>
       )}
     </div>

@@ -290,3 +290,150 @@ export async function folderPath(userEmail: string, folderId: string): Promise<s
   }
   return names.join(" / ");
 }
+
+// ─── Reading, for the research agent ────────────────────────────────────────
+//
+// Everything above this line lists folders or CREATES documents. The research
+// agent has to READ them, which is a different capability and deliberately
+// separate: these functions never write, and the agent is given no tool that
+// does.
+
+export interface DriveFile {
+  id:           string;
+  name:         string;
+  mimeType:     string;
+  modifiedTime: string | null;
+  size:         number | null;
+  webViewLink:  string | null;
+}
+
+/** Google's own formats, which export rather than download. */
+const GOOGLE_DOC   = "application/vnd.google-apps.document";
+const GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet";
+const GOOGLE_SLIDE = "application/vnd.google-apps.presentation";
+
+/** Files worth reading. Images and video are listed but never opened. */
+export const READABLE_MIME = new Set([
+  GOOGLE_DOC, GOOGLE_SHEET, GOOGLE_SLIDE,
+  "application/pdf", "text/plain", "text/markdown", "text/csv",
+]);
+
+/**
+ * Every file under `folderId`, walking subfolders breadth-first.
+ *
+ * `maxDepth` and `maxFiles` are hard stops, not suggestions. A customer folder
+ * can contain years of material and an unbounded walk is both slow and a way to
+ * blow the model's context — the agent is supposed to choose what to read, so
+ * it needs a listing it can survey, not everything that exists.
+ */
+export async function listFilesRecursive(
+  userEmail: string,
+  folderId: string,
+  { maxDepth = 3, maxFiles = 200 }: { maxDepth?: number; maxFiles?: number } = {},
+): Promise<{ files: DriveFile[]; truncated: boolean }> {
+  const drive = await driveFor(userEmail);
+  const files: DriveFile[] = [];
+  let queue: { id: string; depth: number }[] = [{ id: folderId, depth: 0 }];
+  let truncated = false;
+
+  while (queue.length && files.length < maxFiles) {
+    const next: typeof queue = [];
+    for (const { id, depth } of queue) {
+      if (files.length >= maxFiles) { truncated = true; break; }
+      let pageToken: string | undefined;
+      do {
+        const res = await drive.files.list({
+          q: `'${q(id)}' in parents and trashed = false`,
+          fields: "nextPageToken, files(id, name, mimeType, modifiedTime, size, webViewLink)",
+          pageSize: 100,
+          pageToken,
+          // A customer folder routinely lives in a shared drive; without these
+          // the listing silently comes back empty.
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        }).catch((e: unknown) => {
+          throw new DriveError(
+            `Listing folder contents failed: ${e instanceof Error ? e.message : String(e)}`);
+        });
+
+        for (const f of res.data.files ?? []) {
+          if (f.mimeType === FOLDER_MIME) {
+            if (depth + 1 < maxDepth) next.push({ id: f.id!, depth: depth + 1 });
+            continue;
+          }
+          if (files.length >= maxFiles) { truncated = true; break; }
+          files.push({
+            id: f.id!, name: f.name ?? "(untitled)", mimeType: f.mimeType ?? "",
+            modifiedTime: f.modifiedTime ?? null,
+            size: f.size ? Number(f.size) : null,
+            webViewLink: f.webViewLink ?? null,
+          });
+        }
+        pageToken = res.data.nextPageToken ?? undefined;
+      } while (pageToken && files.length < maxFiles);
+    }
+    queue = next;
+  }
+
+  // Newest first: on a live engagement the recent material is what describes
+  // the current state, and the agent reads from the top of the list.
+  files.sort((a, b) => (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? ""));
+  return { files, truncated };
+}
+
+/**
+ * Plain text of one Drive file, capped at `maxChars`.
+ *
+ * Google-native formats are EXPORTED (a Doc has no bytes to download); anything
+ * else is downloaded. A format we cannot turn into text returns null rather
+ * than throwing — one unreadable file must not end a research run, and the
+ * agent is told it was skipped so it can choose something else.
+ */
+export async function readFileText(
+  userEmail: string,
+  fileId: string,
+  { maxChars = 20_000 }: { maxChars?: number } = {},
+): Promise<{ text: string | null; mimeType: string; name: string; truncated: boolean; reason?: string }> {
+  const drive = await driveFor(userEmail);
+
+  const meta = await drive.files.get({
+    fileId, fields: "id, name, mimeType, size", supportsAllDrives: true,
+  }).catch((e: unknown) => {
+    throw new DriveError(`Could not open file: ${e instanceof Error ? e.message : String(e)}`);
+  });
+
+  const mimeType = meta.data.mimeType ?? "";
+  const name     = meta.data.name ?? "(untitled)";
+  const out = (text: string | null, reason?: string) => {
+    if (text === null) return { text: null, mimeType, name, truncated: false, reason };
+    const clipped = text.length > maxChars;
+    return { text: clipped ? text.slice(0, maxChars) : text, mimeType, name, truncated: clipped };
+  };
+
+  try {
+    if (mimeType === GOOGLE_DOC || mimeType === GOOGLE_SLIDE) {
+      const r = await drive.files.export({ fileId, mimeType: "text/plain" }, { responseType: "text" });
+      return out(String(r.data ?? ""));
+    }
+    if (mimeType === GOOGLE_SHEET) {
+      // CSV keeps the grid legible as text; xlsx would be bytes we cannot read.
+      const r = await drive.files.export({ fileId, mimeType: "text/csv" }, { responseType: "text" });
+      return out(String(r.data ?? ""));
+    }
+    if (mimeType.startsWith("text/")) {
+      const r = await drive.files.get({ fileId, alt: "media", supportsAllDrives: true },
+        { responseType: "text" });
+      return out(String(r.data ?? ""));
+    }
+    if (mimeType === "application/pdf") {
+      // Deliberately NOT parsed. Adding a PDF text extractor pulls in a heavy
+      // dependency that runs badly on serverless, and a half-extracted PDF
+      // produces confident nonsense. The agent gets the name and is told to
+      // treat it as a pointer for a person to open.
+      return out(null, "PDF text extraction is not enabled — open it in Drive.");
+    }
+    return out(null, `No text extractor for ${mimeType}.`);
+  } catch (e) {
+    return out(null, `Could not read: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
