@@ -4,7 +4,7 @@ import { C } from "@/lib/constants";
 import CrmPipeline from "@/components/dashboard/CrmPipeline";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
-import CrmCustomerPanel from "@/components/dashboard/CrmCustomerPanel";
+import CrmAccountPage, { type AccountDetail } from "@/components/dashboard/CrmAccountPage";
 import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 
 // ─── CRM ────────────────────────────────────────────────────────────────────
@@ -39,6 +39,10 @@ interface AccountRow {
   inBothSubsidiaries: boolean; stage: string | null;
   entitystatusLabel: string | null; industry: string | null;
   isLocal?: boolean; localId?: string;
+  // Contact details, for the account page's key-information band.
+  billingAddress?: string | null; shippingAddress?: string | null;
+  phone?: string | null; email?: string | null; website?: string | null;
+  salesrepName?: string | null;
 }
 
 const BLANK_PROSPECT = {
@@ -124,10 +128,10 @@ export default function CrmView() {
     }
   }, []);
 
-  useEffect(() => {
-    if (mode !== "accounts" || accounts.length) return;
-    loadAccounts();
-  }, [mode, accounts.length, loadAccounts]);
+  // Loaded once on mount rather than when the Accounts tab is first opened: a
+  // deal reached from the pipeline links straight to its account page, which
+  // needs the detail row immediately.
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
   async function createProspect() {
     if (!np.name.trim()) return;
@@ -187,6 +191,10 @@ export default function CrmView() {
     });
   }, [accounts, q, book]);
 
+  const selectedAccount = useMemo<AccountDetail | undefined>(
+    () => selected ? accounts.find(a => String(a.id) === selected.id) : undefined,
+    [accounts, selected]);
+
   const linkTargets = useMemo(() => {
     const needle = linkQ.trim().toLowerCase();
     return accounts
@@ -234,7 +242,7 @@ export default function CrmView() {
 
       <div style={{ marginTop: 14 }}>
         {deal && (
-          <div style={{ marginBottom: 18 }}>
+          <div>
             <CrmDealPanel
               key={deal}
               dealId={deal}
@@ -247,20 +255,22 @@ export default function CrmView() {
           </div>
         )}
 
-        {mode === "accounts" && (
-          <>
-            {selected && (
-              <div style={{ marginBottom: 18 }}>
-                <CrmCustomerPanel
-                  key={selected.id}
-                  customerNsId={selected.id}
-                  customerName={selected.name}
-                  onClose={() => setSelected(null)}
-                  onOpenDeal={openDeal}
-                />
-              </div>
-            )}
+        {/* An open account REPLACES the list rather than sitting above it — the
+            same drill-down shape as the PM tab. An open deal in turn replaces
+            the account page, so closing it returns you to where you were. */}
+        {mode === "accounts" && selected && !deal && (
+          <CrmAccountPage
+            key={selected.id}
+            customerNsId={selected.id}
+            customerName={selected.name}
+            account={selectedAccount}
+            onClose={() => setSelected(null)}
+            onOpenDeal={openDeal}
+          />
+        )}
 
+        {mode === "accounts" && !selected && !deal && (
+          <>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
               <input
                 value={q} onChange={e => setQ(e.target.value)}
@@ -399,8 +409,11 @@ export default function CrmView() {
                   style={{
                     display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
                     textAlign: "left", width: "100%", flex: 1, minWidth: 0,
-                    background: selected?.id === String(a.id) ? C.blueBg : C.surface,
-                    border: `1px solid ${selected?.id === String(a.id) ? C.blueBd : C.border}`,
+                    // No selected-row highlight: opening an account replaces
+                    // this list entirely, so no row can be selected while it is
+                    // on screen.
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
                     borderRadius: 8, padding: "9px 13px", cursor: "pointer", fontFamily: C.font,
                   }}
                 >
@@ -451,11 +464,11 @@ export default function CrmView() {
           </>
         )}
 
-        {mode === "pipeline" && (
+        {mode === "pipeline" && !deal && (
           <CrmPipeline key={pipelineNonce} onOpenCustomer={openCustomer} onOpenDeal={openDeal} />
         )}
-        {mode === "contacts" && <CrmContacts />}
-        {mode === "tasks"    && <CrmTasks />}
+        {mode === "contacts" && !deal && <CrmContacts />}
+        {mode === "tasks"    && !deal && <CrmTasks />}
       </div>
     </div>
   );

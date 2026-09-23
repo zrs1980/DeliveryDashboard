@@ -29,6 +29,25 @@ export interface CsCustomer {
   email:       string | null;
   phone:       string | null;
 
+  /**
+   * Formatted multi-line address, newline-delimited, first line the addressee.
+   *
+   * WARNING: `defaultbillingaddress` on the customer record is an ID, not text
+   * -- it reads as e.g. "11363". BUILTIN.DF resolves it to the block NetSuite
+   * shows. There is no address TABLE to join to: `customeraddressbook`,
+   * `entityaddress` and `entityaddressbook` all exist and are all EMPTY
+   * account-wide (COUNT(*) = 0), so the usual address-book join returns
+   * nothing at all. BUILTIN.DF is the only route to an address in this account.
+   *
+   * Populated on 90 of 180 active customers; shipping on 86, and the two are
+   * identical on 80 of those -- so the page shows shipping only when it
+   * differs. Verified September 2026 via scripts/probe-customer-address.ts.
+   */
+  billingAddress:  string | null;
+  shippingAddress: string | null;
+  /** Website (customer.url). 94 of 180. */
+  website: string | null;
+
   // ─── Segmentation ─────────────────────────────────────────────────────────
   /** 1 = Parent Company (CEBA / Loop Services), 2 = Loop ERP. Populated on 100%. */
   subsidiaryId:   number | null;
@@ -114,7 +133,11 @@ export const SCORABLE_STAGE = "CUSTOMER";
 export async function fetchCsCustomers(): Promise<CsCustomer[]> {
   const rows = await runSuiteQLAll<Record<string, string | null>>(`
     SELECT
-      c.id, c.entityid, c.companyname, c.email, c.phone,
+      c.id, c.entityid, c.companyname, c.email, c.phone, c.url,
+      -- Both are IDs on the record; BUILTIN.DF gives the formatted block.
+      -- There is no address table to join -- see billingAddress on CsCustomer.
+      BUILTIN.DF(c.defaultbillingaddress)  AS billing_address,
+      BUILTIN.DF(c.defaultshippingaddress) AS shipping_address,
       c.subsidiary,
       BUILTIN.DF(c.subsidiary)    AS subsidiary_name,
       c.subsidiaries,
@@ -140,6 +163,10 @@ export async function fetchCsCustomers(): Promise<CsCustomer[]> {
       companyname: r.companyname || r.entityid || String(r.id),
       email:       r.email ?? null,
       phone:       r.phone ?? null,
+
+      billingAddress:  str(r.billing_address),
+      shippingAddress: str(r.shipping_address),
+      website:         str(r.url),
 
       subsidiaryId:   num(r.subsidiary),
       subsidiaryName: str(r.subsidiary_name),

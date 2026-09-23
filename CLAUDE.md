@@ -252,6 +252,7 @@ Render the response by splitting on newlines: bullet lines (starting with `-`, `
 | `isutilizedtime` / `isproductivetime` | Classify time as Utilized / Productive | Checkbox | **Primary source for the Utilized and Productive classifications** (standard `job` fields, Preferences tab). ✅ Available in SuiteQL on `job` (verified July 2026) — no REST Record call needed. Never derive these from `jobtype`: internal projects like `159 Training/Certification` are Productive but not Utilized, and `268 Managed Services Agreement` is both despite its non-standard type. |
 | `custeventceba_budget_hours` | Budget Hours (task/phase-level) | Number | **Primary source for phase/task budgeted hours** on the `projecttask` record — matches the "Budgeted Hours" column in the NetSuite Project Tasks/Milestones UI. Do NOT use `projecttask.estimatedwork` for this — that field is NetSuite's own scheduling-engine duration estimate and gets silently recalculated whenever a task's start/end dates change, drifting away from the real budget. |
 | `custbody5` | Opportunity Type | List | On the `transaction` (Opportunity) record. Read via `BUILTIN.DF(t.custbody5)` for the label, e.g. `"NetSuite Licenses"`. Drives the Nurturing-pipeline exclusion — see `NURTURING_EXCLUDED_TYPES` in `/api/service-requests`. |
+| `defaultbillingaddress` / `defaultshippingaddress` | Address (customer) | Reference | **An ID, not text** — reads as e.g. `11363`. Wrap in `BUILTIN.DF(...)` for the formatted multi-line block (`"Acme\n1061 Serpentine Ln\nPleasanton CA 94566"`). **There is no address table to join**: `customeraddressbook`, `entityaddress` and `entityaddressbook` all exist and are all EMPTY account-wide. Billing 90/180, shipping 86/180, identical on 80 of those. |
 | `custentity_slack_canvas_id` | Slack Canvas ID | Text | **Per-project Slack canvas** that "Post to Slack" writes to. Queried in `fetchActiveProjects`, surfaced as `Project.slackCanvasId`, passed `TaskCommandCenter` → `PostToSlackModal` → `/api/slack/canvas`. When empty the post silently falls back to the `SLACK_WEEKLY_CANVAS_ID` env var — so a PM can end up writing to the workspace default without realising. |
 
 ### Enum Lookups
@@ -958,6 +959,15 @@ OAuth realm="3550424", oauth_consumer_key="...", oauth_nonce="...", oauth_signat
 - `custentity_project_golive_date` may be null on older or service-type projects — handle gracefully by falling back to `enddate` only as a last resort, and flag the project in the UI if the go-live date is missing. **JGL (18171) is a known example** — go-live date is currently null and needs to be set by the PM.
 - **The `job` record does NOT have a `status` field in SuiteQL.** Using `status` returns "Field not found". Always use `entitystatus = 2` (integer) to filter active projects.
 - **SuiteQL omits checkbox columns entirely when the field was never set.** A never-ticked checkbox comes back as an absent key (not `"F"`), while an explicitly-unticked one returns `"F"` — so always test `=== "T"` rather than `!== "F"`, or unset fields silently read as true. The REST Record API instead coerces both cases to `false`, so null and false are indistinguishable there. Confirmed July 2026 on `custentity_ceba_is_billable`.
+- **`SELECT *` does NOT tell you what columns a record has.** SuiteQL omits any
+  column that is NULL on the returned row, so the result varies by row and reads
+  as a schema. On `customer` it returned 68 columns including neither `phone`
+  nor `email`, both of which query fine — and no address field, which led
+  straight to the wrong conclusion that this account holds no addresses. It
+  holds 90. Same root cause as the checkbox gotcha below. **To find out whether
+  a field exists, name it explicitly** — `SELECT COUNT(<field>) FROM ...` per
+  candidate, which also gives you its coverage. `scripts/probe-customer-address.ts`
+  is the worked example.
 - **Never derive Billable / Utilized / Productive from `jobtype`.** Read `custentity_ceba_is_billable`, `isutilizedtime`, and `isproductivetime` off the `job` record (all available in SuiteQL). The old jobtype heuristic disagreed with NetSuite on 14 of 21 allocated projects. For *logged* time, the per-entry `timebill.isbillable` / `isutilized` / `isproductive` flags are the source instead.
 - **`timebill` uses `customer` (not `job`) to reference the project.** The correct field to filter/group by project is `tb.customer`. Using `tb.job` returns "Field not found".
 - **Cannot JOIN `employee` table in SuiteQL timebill queries.** The `employee` record is not joinable via SuiteQL. Return `tb.employee` as a raw integer ID and map to names using the `EMPLOYEES` constant in code.
@@ -1416,6 +1426,23 @@ budget holder, an IT contact and a quiet objector, three were invisible.
   primary outright.
 - **Cross-account attachment is refused, not warned about.** It would put one
   customer's name on another customer's deal.
+
+### The account page
+
+Opening an account REPLACES the list (`CrmAccountPage`), the same drill-down
+shape the PM tab uses; opening a deal in turn replaces the account page, so
+closing it returns you where you were. A key-information band sits above the
+Opportunities / Contacts / Tasks / Activity tabs and stays put across them.
+
+- **The account row is passed down, not re-fetched.** `CrmView` loads the list
+  on mount (not on first visit to the tab, because a deal reached from the
+  pipeline links straight to its account page and needs the row immediately).
+- **Only populated fields render.** NetSuite has an address for 90 of 180 active
+  customers and a phone for **31**, so a blank band is the common case — it says
+  so in one line rather than showing a column of em-dashes, which reads as a
+  broken page.
+- Address comes from `BUILTIN.DF(defaultbillingaddress)` — see the field
+  reference; there is no address table in this account.
 
 ### Gotchas
 

@@ -69,3 +69,15 @@ CREATE INDEX IF NOT EXISTS pm_crm_accounts_live
 DROP TRIGGER IF EXISTS pm_crm_accounts_touch ON pm_crm_accounts;
 CREATE TRIGGER pm_crm_accounts_touch BEFORE UPDATE ON pm_crm_accounts
   FOR EACH ROW EXECUTE FUNCTION cs_set_updated_at();
+
+-- ─── Address, for parity with the NetSuite account page ────────────────────
+-- Added September 2026 alongside the CRM account drill-down. A local prospect
+-- shows the same key-information band as a NetSuite account, so it needs
+-- somewhere to put an address.
+--
+-- ONE free-text block, not parsed columns, deliberately: NetSuite has no
+-- address table in this account and BUILTIN.DF(defaultbillingaddress) returns
+-- a formatted multi-line string, so parsed columns here would render
+-- differently from every NetSuite account sitting beside it in the same list.
+ALTER TABLE pm_crm_accounts ADD COLUMN IF NOT EXISTS address text;
+ALTER TABLE pm_crm_accounts ADD COLUMN IF NOT EXISTS email   text;

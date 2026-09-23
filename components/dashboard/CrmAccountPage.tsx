@@ -5,7 +5,12 @@ import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
-// ─── One account, everything attached to it ─────────────────────────────────
+// ─── The account page ───────────────────────────────────────────
+//
+// A drill-down, not a panel: opening an account REPLACES the list rather than
+// sitting above it, the same shape the PM tab's project drill-down uses. The
+// key information band stays on screen across the tabs, because an address and
+// a phone number are the things you are usually on this page to read.────
 //
 // The point of the scaffolding: contacts, opportunities, tasks and the
 // correspondence history all key on customer_ns_id, so this is the view where
@@ -14,6 +19,26 @@ import { isLocalAccountId } from "@/lib/crm-accounts";
 // Deliberately NO health score, band or flag. This panel is open to anyone
 // signed in, and risk data reaching the delivery team is self-fulfilling —
 // that lives in the CS tab, behind cs_layer.
+
+/** The subset of CsCustomer (and of a local account) this page displays. */
+export interface AccountDetail {
+  id: number | string;
+  companyname: string;
+  entityid?: string | null;
+  billingAddress?: string | null;
+  shippingAddress?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  stage?: string | null;
+  entitystatusLabel?: string | null;
+  subsidiaryName?: string | null;
+  subsidiaryId?: number | null;
+  inBothSubsidiaries?: boolean;
+  salesrepName?: string | null;
+  isLocal?: boolean;
+}
 
 interface Opp {
   id: string; title: string; stage_name: string | null; status: string | null;
@@ -37,11 +62,17 @@ const KIND_ICON: Record<string, string> = {
 
 type Section = "overview" | "contacts" | "tasks" | "activity";
 
-export default function CrmCustomerPanel({
-  customerNsId, customerName, onClose, onOpenDeal,
+export default function CrmAccountPage({
+  customerNsId, customerName, onClose, onOpenDeal, account,
 }: {
   customerNsId: string; customerName: string; onClose: () => void;
   onOpenDeal?: (dealId: string) => void;
+  /**
+   * The row CrmView already holds. Passed rather than re-fetched: the account
+   * list is loaded before anything can be clicked, so a detail request here
+   * would be a second round trip for data already in memory.
+   */
+  account?: AccountDetail;
 }) {
   const [section, setSection] = useState<Section>("overview");
   const [opps, setOpps] = useState<Opp[]>([]);
@@ -162,7 +193,95 @@ export default function CrmCustomerPanel({
             </a>
           </>
         )}
-        <button onClick={onClose} style={{ marginLeft: "auto", ...btn(C.textSub) }}>Close</button>
+        {account?.stage && account.stage !== "CUSTOMER" && (
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: C.textMid,
+                         background: C.alt, border: `1px solid ${C.border}`,
+                         borderRadius: 3, padding: "2px 6px" }}>
+            {account.stage}
+          </span>
+        )}
+        {(account?.subsidiaryId === 2 || account?.inBothSubsidiaries) && (
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.4, color: C.purple,
+                         background: C.purpleBg, border: `1px solid ${C.purpleBd}`,
+                         borderRadius: 3, padding: "2px 6px" }}>
+            LOOP ERP
+          </span>
+        )}
+        <button onClick={onClose} style={{ marginLeft: "auto", ...btn(C.textSub) }}>
+          ← All accounts
+        </button>
+      </div>
+
+      {/* ── Key information ────────────────────────────────────────────
+          Only fields that are actually set are rendered. An "Address —" row
+          on the 90 of 180 accounts NetSuite has no address for is noise, and
+          it reads as a broken page rather than an empty field. */}
+      <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`,
+                    display: "grid", gap: 13,
+                    gridTemplateColumns: "repeat(auto-fit, minmax(165px, 1fr))" }}>
+        {account?.billingAddress && (
+          <Info label="Address">
+            {/* NetSuite returns one newline-delimited block, addressee first. */}
+            <span style={{ whiteSpace: "pre-line", lineHeight: 1.45 }}>
+              {account.billingAddress}
+            </span>
+          </Info>
+        )}
+        {account?.shippingAddress
+          && account.shippingAddress !== account.billingAddress && (
+          <Info label="Ships to">
+            <span style={{ whiteSpace: "pre-line", lineHeight: 1.45 }}>
+              {account.shippingAddress}
+            </span>
+          </Info>
+        )}
+        {account?.phone && (
+          <Info label="Phone">
+            <a href={`tel:${account.phone.replace(/[^+\d]/g, "")}`}
+               style={{ color: C.blue, textDecoration: "none", fontFamily: C.mono }}>
+              {account.phone}
+            </a>
+          </Info>
+        )}
+        {account?.email && (
+          <Info label="Email">
+            <a href={`mailto:${account.email}`} style={{ color: C.blue, textDecoration: "none" }}>
+              {account.email}
+            </a>
+          </Info>
+        )}
+        {account?.website && (
+          <Info label="Website">
+            <a href={account.website.startsWith("http") ? account.website : `https://${account.website}`}
+               target="_blank" rel="noreferrer"
+               style={{ color: C.blue, textDecoration: "none" }}>
+              {account.website.replace(/^https?:\/\//, "")}
+            </a>
+          </Info>
+        )}
+        {account?.industry   && <Info label="Industry">{account.industry}</Info>}
+        {account?.salesrepName && <Info label="Sales rep">{account.salesrepName}</Info>}
+        {account?.entityid   && (
+          <Info label="Account #"><span style={{ fontFamily: C.mono }}>{account.entityid}</span></Info>
+        )}
+
+        {/* Said plainly rather than left as a gap: on this account NetSuite
+            holds an address for 90 of 180 customers and a phone for just 31,
+            so a blank band is the common case and needs explaining once. */}
+        {account && !account.billingAddress && !account.phone && !account.email && (
+          <Info label="Contact details">
+            <span style={{ color: C.textSub }}>
+              {account.isLocal
+                ? "None recorded — add them with Edit."
+                : "NetSuite holds none for this account."}
+            </span>
+          </Info>
+        )}
+        {!account && (
+          <Info label="Contact details">
+            <span style={{ color: C.textSub }}>Loading…</span>
+          </Info>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 12px" }}>
@@ -357,6 +476,20 @@ const field = (): React.CSSProperties => ({
   padding: "6px 10px", fontSize: 12.5, fontFamily: C.font,
   border: `1px solid ${C.mid}`, borderRadius: 6, background: C.surface, color: C.text,
 });
+function Info({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5,
+                     color: C.textSub, textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 12.5, color: C.text, wordBreak: "break-word" }}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
 const btn = (color: string, filled = false): React.CSSProperties => ({
   background: filled ? C.blueBg : "transparent",
   border: `1px solid ${filled ? C.blueBd : C.border}`,

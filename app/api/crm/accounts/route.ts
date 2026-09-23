@@ -44,9 +44,13 @@ function toRow(a: Record<string, unknown>) {
     stage:              a.stage,
     entitystatusLabel:  "Not in NetSuite",
     industry:           a.industry ?? null,
-    domain:             a.domain ?? null,
+    // Named to match CsCustomer so the account page reads one shape, not two.
+    billingAddress:     a.address ?? null,
+    shippingAddress:    null,
     website:            a.website ?? null,
+    email:              a.email ?? null,
     phone:              a.phone ?? null,
+    domain:             a.domain ?? null,
     notes:              a.notes ?? null,
     ownerEmail:         a.owner_email ?? null,
   };
@@ -103,6 +107,8 @@ export async function POST(req: Request) {
       domain:        String(body.domain ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null,
       website:       String(body.website ?? "").trim() || null,
       phone:         String(body.phone ?? "").trim() || null,
+      email:         String(body.email ?? "").trim().toLowerCase() || null,
+      address:       String(body.address ?? "").trim() || null,
       industry:      String(body.industry ?? "").trim() || null,
       subsidiary_id: subsidiaryId,
       stage,
@@ -139,6 +145,8 @@ export async function PATCH(req: Request) {
   if (typeof body.domain === "string")   patch.domain = body.domain.trim().toLowerCase() || null;
   if (typeof body.website === "string")  patch.website = body.website.trim() || null;
   if (typeof body.phone === "string")    patch.phone = body.phone.trim() || null;
+  if (typeof body.email === "string")    patch.email = body.email.trim().toLowerCase() || null;
+  if (typeof body.address === "string")  patch.address = body.address.trim() || null;
   if (typeof body.industry === "string") patch.industry = body.industry.trim() || null;
   if (typeof body.notes === "string")    patch.notes = body.notes.trim() || null;
   if (["PROSPECT", "LEAD"].includes(String(body.stage))) patch.stage = String(body.stage);
