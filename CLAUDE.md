@@ -1117,7 +1117,7 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 - **⚠ A ClickUp list automation overwrites the phase ~10s AFTER creation.** Setting `custom_fields` on `POST /list/{id}/task` works — reading the task back immediately returns the right option — and then a create-triggered automation silently replaces it. Confirmed July 2026 on the Oxide list: `8. Internal Action Points` became `3. Training & UAT` between t+0s and t+10s. The route therefore creates all tasks, waits `AUTOMATION_SETTLE_MS` (15s), then re-applies the phase via `POST /task/{id}/field/{fieldId}` and verifies. **Re-applying sticks** because the automation is create-triggered and does not re-fire on update — verified stable 30s+ after correction. Tasks whose phase can't be confirmed are named in the wizard's warning rather than passing silently. The clean fix is to exclude these tasks from the list automation in ClickUp; until then the code corrects it.
 - **A labels field is additive — `rem` the automation's option, don't just `add` ours.** `{value: {add: [ours]}}` alone leaves the task carrying *both* phases.
 - **A list with no phase field is not an error.** Verified July 2026: 8 of 9 projects with a ClickUp URL have it; one doesn't. Tasks are created anyway and the wizard warns.
-- **`custentity_slack_channel` holds a bare channel name** (`"oxide"`), not a URL or ID. `/api/projects/folders` prefixes `#`. Only 2 of 11 active projects had it set in July 2026, so the "no Slack channel" path is the common one — say so rather than failing silently. Distinct from `custentity_slack_canvas_id`, which is the *canvas* the weekly task post writes to.
+- **`custentity_slack_channel` holds a bare channel name** (`"oxide"`), not a URL or ID. `/api/projects/folders` prefixes `#`. Coverage has moved: 2 of 11 active projects in July 2026, **12 of 15 in September 2026**, so it is now the common case rather than the rare one. Still handle the empty path, but stop treating it as the default. Distinct from `custentity_slack_canvas_id`, which is the *canvas* the weekly task post writes to.
 - **The project dropdown lists ALL active projects, not just those with a Drive folder.** It used to filter on `hasFolder`, which would now hide 9 of 11 projects from the ClickUp and Slack steps too. Missing destinations are shown inline as `(no ClickUp/Slack/Drive)`.
 - **Action items and the PM summary come from ONE model call.** The transcript is the expensive part; two endpoints would fetch and pay for it twice per meeting. Structured output is via **tool use with forced `tool_choice`**, not `output_config.format` — `claude-sonnet-4-6` (the model the rest of the app standardises on) does not support structured outputs.
 - **Every AI field is re-validated server-side** before it reaches the wizard; a malformed item degrades to a row the PM can fix, not a crash.
@@ -2278,6 +2278,89 @@ twice over.
 be checked in the browser: the allow-list is in `lib/cs-permissions.ts`, which is
 server-only precisely so it does not ship in a bundle the way `PTO_APPROVER_EMAILS` does.
 Hiding the tab is cosmetic — every `/api/cs/*` route enforces `requireCsLayer()` itself.
+
+### Linked resources — they live on the PROJECT, not the customer
+
+`lib/cs-resources.ts` unions both sides, because neither alone is sufficient.
+Measured September 2026 against live NetSuite:
+
+| Source | Coverage |
+|---|---|
+| `customer.custentity_customer_folder` | 8 of 180 customers |
+| `job.custentity_project_folder` | 13 jobs → 6 customers |
+| `job.custentity20` (ClickUp) | 19 jobs → 11 customers |
+| `job.custentity_slack_channel` | 13 jobs → 6 customers |
+| **union of both** | **17 customers**, 12 with a Drive folder |
+
+Reading only the customer record misses Salt and Stone (5 project folders, 4
+ClickUp lists) and Oxide (2 and 2) — the two richest accounts in the book.
+Reading only projects misses HDMI, Liquidpulse, Martin Water, Quora, Sabbel and
+Samara, which have a customer folder and no project links.
+
+**Three fields found while enumerating, previously undocumented:**
+
+| Field | Record | Notes |
+|---|---|---|
+| `custentity_link_lsa` + `custentity_link_name_lsa` | customer | Deep link to the last sales activity, pairing with the known `custentity_date_lsa`. **132 of 180** — by far the best-covered signal on the customer record. The link is a NetSuite-**relative** path (`/app/crm/common/crmmessage.nl?...`), so `nsAbsolute()` exists rather than rendering something broken. |
+| `custentity_internal_pm_link` | job | ClickUp *space* for internal PM work. 2 of 15. |
+| `custentityproduct` | customer | 1 of 180. Not used. |
+
+- **To find out whether a field exists, union the keys across MANY rows.**
+  `SELECT *` omits every column NULL on the row it returns, and the metadata
+  tables (`customfield`, `entitycustomfield`, `othercustomfield`) are **not
+  queryable** in this account — only `customfieldtype`, which lists nothing
+  useful. 180 customer rows and 60 job rows gave the real list.
+- `custentity_user_notes` and `custentity16` return NOT_EXPOSED. Don't retry.
+- **Coverage is narrow and that is the data, not a bug.** 17 of 180 have
+  anything linked, all 17 entitystatus 13. Anything built on this degrades
+  honestly for the other 163.
+
+### The research agent (`/api/cs/research/[customerNsId]`)
+
+`lib/cs-research.ts` · `components/dashboard/CsResearch.tsx` ·
+`supabase/cs-research-schema.sql`. Sits below the profile in the CS panel.
+
+A bounded read-only tool-use loop over Drive documents, ClickUp tasks, NetSuite
+projects and support cases. **This is the only genuinely agentic surface in the
+module and it earns it**: which document matters depends on what the earlier
+ones said, which no fixed query can do. Everything else — scoring, rules, flags,
+the renewal clock, suppression, every PDF — stays deterministic code.
+
+- **Read-only by construction.** There is no write tool defined, so the loop has
+  no way to reach one. Not "a write tool the prompt declines to use".
+- **Bounded in code, not in the prompt.** `MAX_TOOL_CALLS` 14 and
+  `TIME_BUDGET_MS` 240s, enforced in the route. Hitting either forces a submit
+  rather than discarding the run, and the stop reason is stored — the UI labels
+  it **Partial**, because a truncated look at the evidence must never read as a
+  considered conclusion.
+- **A finding citing no evidence is DROPPED, not downgraded**, and the count is
+  reported. Same rule as profile extraction. So "no findings" means the material
+  was thin, and the UI says that rather than letting it read as "the account is
+  fine".
+- **The read log is stored and shown.** "It found little" and "there was little
+  to find" are different claims and only the log separates them.
+- **A tool failure is returned to the model, not thrown** — one unreadable file
+  must not end a run that already read six useful things.
+- **At least one next step must cost the customer nothing.** A set of
+  recommendations that all carry a price tag reads as a sales document; the
+  validator flags a run where every step was chargeable rather than rewriting it.
+- **An account with nothing linked is refused up front**, naming which of the
+  two problems it is, rather than burning a model call to find out.
+- Runs are stored in `cs_research_runs` — a run costs model calls plus a walk
+  over Drive, ClickUp and SuiteQL, and the evidence must stay pinned to what was
+  read at the time.
+- `motion = 'research'` was added to the `cs_outreach_drafts` CHECK so a proposal
+  lands in the **existing** queue behind the **existing** approval, rather than
+  growing a second path with its own rules.
+
+**Drive gained read capability**: `listFilesRecursive()` and `readFileText()`. It
+could previously only list folders and CREATE documents. Google-native formats
+export (a Doc has no bytes to download); **PDFs are deliberately not parsed** —
+an extractor is heavy on serverless and a half-extracted PDF produces confident
+nonsense, so the agent is told to treat it as a pointer for a person.
+
+**Cases are scoped to the customer id AND its job ids**, because
+`supportcase.company` is either — 596 of 1080 are jobs.
 
 ### Two non-negotiables from the spec
 
