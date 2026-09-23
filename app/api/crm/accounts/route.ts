@@ -42,6 +42,9 @@ function toRow(a: Record<string, unknown>) {
     subsidiaryName:     a.subsidiary_id === 2 ? "Loop ERP" : a.subsidiary_id === 1 ? "Parent Company" : null,
     inBothSubsidiaries: false,
     stage:              a.stage,
+    // No NetSuite record, so no entitystatus. Null rather than a stand-in
+    // value, so the Customers filter (entitystatus 13) cannot match one.
+    entitystatusId:     null,
     entitystatusLabel:  "Not in NetSuite",
     industry:           a.industry ?? null,
     // Named to match CsCustomer so the account page reads one shape, not two.

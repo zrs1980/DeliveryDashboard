@@ -38,6 +38,7 @@ interface AccountRow {
   id: number | string; companyname: string; entityid: string | null;
   subsidiaryId: number | null; subsidiaryName: string | null;
   inBothSubsidiaries: boolean; stage: string | null;
+  entitystatusId?: number | null;
   entitystatusLabel: string | null; industry: string | null;
   isLocal?: boolean; localId?: string;
   // Contact details, for the account page's key-information band.
@@ -45,6 +46,16 @@ interface AccountRow {
   phone?: string | null; email?: string | null; website?: string | null;
   salesrepName?: string | null;
 }
+
+/**
+ * NetSuite entitystatus 13, "Customer-Closed Won" — a won customer.
+ *
+ * Verified September 2026 across the 180 active records: 13 Customer-Closed Won
+ * (55) · 14 Prospect-Closed Lost (68) · 16 Customer-Lost Customer (30) · 9
+ * Prospect-Coordinate Discovery (12) · 10 Prospect-Proposal (6) · and a long
+ * tail. The id is matched rather than the label, which is editable in NetSuite.
+ */
+const CLOSED_WON = 13;
 
 const BLANK_PROSPECT = {
   name: "", domain: "", industry: "", subsidiaryId: "", stage: "PROSPECT", notes: "",
@@ -71,6 +82,16 @@ export default function CrmView() {
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [q, setQ] = useState("");
   const [book, setBook] = useState<"all" | "loop" | "parent">("all");
+  /**
+   * Won customers by default — 55 of the 180 active records.
+   *
+   * It is a DEFAULT and not a hard filter on purpose. Restricting the list to
+   * Customer-Closed Won outright would also hide every prospect and lead, and
+   * the pipeline, contacts and tasks all hang off an account — so you could no
+   * longer open a deal on anyone you have not already won. It would also hide
+   * every local prospect, making "+ New prospect" create something invisible.
+   */
+  const [status, setStatus] = useState<"customers" | "pipeline" | "all">("customers");
 
   // Creating a local prospect, and promoting one onto its NetSuite record.
   const [adding, setAdding]   = useState(false);
@@ -145,6 +166,10 @@ export default function CrmView() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
       setNp(BLANK_PROSPECT); setAdding(false);
+      // A local prospect is never Customer-Closed Won, so leaving the default
+      // filter on would make the thing just created disappear from the list it
+      // was created in.
+      setStatus(s => s === "customers" ? "pipeline" : s);
       await loadAccounts();
       // Straight into the new account: the reason you created it is to put
       // something on it.
@@ -180,17 +205,32 @@ export default function CrmView() {
     finally { setLinkBusy(false); }
   }
 
+  const matchesStatus = useCallback((a: AccountRow) => {
+    if (status === "all") return true;
+    if (status === "customers") return a.entitystatusId === CLOSED_WON;
+    // Pipeline: anyone still being sold to, including local prospects, which
+    // have no NetSuite status at all.
+    return Boolean(a.isLocal) || a.stage === "PROSPECT" || a.stage === "LEAD";
+  }, [status]);
+
   const visibleAccounts = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return accounts.filter(a => {
       if (needle && !a.companyname.toLowerCase().includes(needle)) return false;
+      if (!matchesStatus(a)) return false;
       // A customer in both subsidiaries belongs on both books — an equality
       // check would drop Certified Waste and Yaffe off the Loop ERP list.
       if (book === "loop")   return a.subsidiaryId === 2 || a.inBothSubsidiaries;
       if (book === "parent") return a.subsidiaryId === 1 || a.inBothSubsidiaries;
       return true;
     });
-  }, [accounts, q, book]);
+  }, [accounts, q, book, matchesStatus]);
+
+  const statusCounts = useMemo(() => ({
+    customers: accounts.filter(a => a.entitystatusId === CLOSED_WON).length,
+    pipeline:  accounts.filter(a => a.isLocal || a.stage === "PROSPECT" || a.stage === "LEAD").length,
+    all:       accounts.length,
+  }), [accounts]);
 
   const selectedAccount = useMemo<AccountDetail | undefined>(
     () => selected ? accounts.find(a => String(a.id) === selected.id) : undefined,
@@ -280,6 +320,24 @@ export default function CrmView() {
                 style={{ flex: "1 1 220px", maxWidth: 300, padding: "6px 11px", fontSize: 13,
                          border: `1px solid ${C.mid}`, borderRadius: 6, fontFamily: C.font }}
               />
+              <div style={{ display: "flex", gap: 2, background: C.alt,
+                            border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
+                {(["customers", "pipeline", "all"] as const).map(st => (
+                  <button key={st} onClick={() => setStatus(st)} style={{
+                    background: status === st ? C.surface : "transparent",
+                    color: status === st ? C.text : C.textSub,
+                    border: status === st ? `1px solid ${C.border}` : "1px solid transparent",
+                    borderRadius: 5, padding: "3px 10px", fontSize: 11, fontWeight: 600,
+                    cursor: "pointer", fontFamily: C.font,
+                  }}>
+                    {st === "customers" ? "Customers" : st === "pipeline" ? "Pipeline" : "All"}
+                    <span style={{ marginLeft: 5, fontFamily: C.mono, color: C.textSub }}>
+                      {statusCounts[st]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
               <div style={{ display: "flex", gap: 2, background: C.alt,
                             border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
                 {(["all", "loop", "parent"] as const).map(b => (
@@ -394,6 +452,15 @@ export default function CrmView() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {status === "customers" && accounts.length > 0 && (
+              <div style={{ fontSize: 11.5, color: C.textSub, marginBottom: 11, lineHeight: 1.6 }}>
+                Showing <strong>Customer-Closed Won</strong> only.
+                {" "}{accounts.length - statusCounts.customers} other active
+                {" "}record{accounts.length - statusCounts.customers === 1 ? " is" : "s are"} hidden —
+                prospects, leads, lost customers and anything not yet in NetSuite.
               </div>
             )}
 

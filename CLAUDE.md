@@ -1576,6 +1576,38 @@ Not carried over from the homescreen: the KPI cards and phase heatmap. They are
 portfolio-level summaries and would duplicate the Overview rather than add
 anything to an account.
 
+### The account status filter
+
+The Accounts list defaults to **Customer-Closed Won** (entitystatus **13**) — 55
+of the 180 active records. Three settings: Customers · Pipeline · All, each
+showing its count.
+
+Verified September 2026 across all 180: `13` Customer-Closed Won (55) · `14`
+Prospect-Closed Lost (68) · `16` Customer-Lost Customer (30) · `9`
+Prospect-Coordinate Discovery (12) · `10` Prospect-Proposal (6) · `6`/`23` Lead
+(3) · `25`/`11`/`26` Prospect tail (4) · `35` Customer-Non Renewing (1) · `36`
+Customer-Pending (1).
+
+- **It is a DEFAULT, not a hard filter, deliberately.** Restricting the list to
+  Closed Won outright would hide every prospect and lead — and the pipeline,
+  contacts and tasks all hang off an account, so you could no longer open a deal
+  on anyone not already won. It would also hide every local prospect, making
+  "+ New prospect" create something invisible. Creating one therefore switches
+  the filter to Pipeline.
+- **Match the id, not the label.** `entitystatus` labels are editable in
+  NetSuite; 13 is stable.
+- **A local account has `entitystatusId: null`**, not a stand-in, so it can
+  never match the Customers filter by accident.
+- **⚠ The default hides two CUSTOMER-stage accounts that are not lost**, and one
+  is a live renewal risk: **Elis Packet Solutions** (Customer-Non Renewing) and
+  **Fortem Technologies** (Customer-Pending, a Loop ERP account). This is the
+  same trap that made `entitystatus = 13` the wrong universe for the CS layer —
+  see the Customer Success module. The list says how many records it is hiding
+  rather than leaving it implicit.
+- **This filter is CRM-view-only.** `fetchCsCustomers()` still returns all 180,
+  because the CS layer, the Customers tab, PMView and ProjectManagementView all
+  read it and narrowing it there would change five features at once.
+
 ### Gotchas
 
 - **A capable route with no caller is this module's recurring bug.** It has now
