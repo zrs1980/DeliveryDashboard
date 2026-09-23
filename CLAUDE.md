@@ -1535,6 +1535,47 @@ picked via `useStaff()` — because delivery work is assigned to the person whos
 time is booked against the project. CRM tasks are assigned to whoever uses the
 tool. Don't merge them.
 
+### Projects
+
+`CRM → Projects` and a **Projects** tab on the account page. NetSuite is the
+master: nothing here creates or edits a project.
+
+**`ProjectTable` is reused, not reimplemented** — the same component the
+Portfolio Overview renders, so the health badge, progress-vs-burn bar, hours,
+billable split, budget fit, go-live countdown, notes and the row drill-down are
+identical in both places and cannot drift. Same reasoning as `ProjectTaskPanel`
+being shared between Portfolio Overview and the PM tab.
+
+`lib/use-projects.ts` loads `/api/projects` + `/api/reports/phase-rag`.
+
+- **`/api/projects` is the expensive one** — it fans out to ClickUp once per
+  project — so the in-flight promise is cached at module scope. Opening
+  Projects, then an account, then Projects again costs one request. A failure is
+  never cached, or one bad response leaves the view empty for the life of the
+  page.
+- **The homescreen deliberately does NOT use this hook.** `app/page.tsx` owns its
+  own copy, driven by the header's Refresh Data button and interleaved with
+  cases, allocations and the roster. Unifying them means reworking that button's
+  semantics, so the cost is one extra fetch per session if you use both — not
+  one per navigation. If they are ever unified, `use-projects.ts` is where.
+- **A phase-RAG failure degrades the Phase column, it does not blank the table.**
+  Hours, budget and go-live are why the view gets opened.
+- **Account scoping joins on `Project.customerNsId`**, not on the client name.
+  Verified September 2026: 15 active projects, all 15 carry it, across 7
+  customers. `job.companyname` is the PROJECT name in this account and would
+  match nothing.
+- **Internal projects are hidden by default** (as on Portfolio Overview) but the
+  count is shown with a toggle, because "where did 419 go" is a real question.
+- **A local prospect says so rather than rendering an empty table** — "no
+  projects" and "this account does not exist in NetSuite" are different claims,
+  and the second must not read as the first.
+- **Note edits write back into the unfiltered list.** Writing into the filtered
+  one would discard a note the moment a search or toggle changed.
+
+Not carried over from the homescreen: the KPI cards and phase heatmap. They are
+portfolio-level summaries and would duplicate the Overview rather than add
+anything to an account.
+
 ### Gotchas
 
 - **A capable route with no caller is this module's recurring bug.** It has now

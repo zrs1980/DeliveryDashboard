@@ -6,6 +6,7 @@ import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmAccountPage, { type AccountDetail } from "@/components/dashboard/CrmAccountPage";
 import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
+import CrmProjects from "@/components/dashboard/CrmProjects";
 
 // ─── CRM ────────────────────────────────────────────────────────────────────
 //
@@ -30,7 +31,7 @@ import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 // PM does, not the risk data that boundary exists to contain — no health
 // score, band or flag appears anywhere in this view.
 
-type Mode = "accounts" | "pipeline" | "contacts" | "tasks";
+type Mode = "accounts" | "pipeline" | "projects" | "contacts" | "tasks";
 
 interface AccountRow {
   // A NetSuite id is a number; a local one is the synthetic `local:<uuid>`.
@@ -207,12 +208,13 @@ export default function CrmView() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.text }}>CRM</h2>
         <span style={{ fontSize: 12, color: C.textSub }}>
-          Pipeline, contacts and tasks. Customers stay in NetSuite.
+          Accounts, pipeline, projects, contacts and tasks. Customers and projects
+          stay in NetSuite.
         </span>
 
         <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
                       borderRadius: 7, padding: 2 }}>
-          {(["accounts", "pipeline", "contacts", "tasks"] as const).map(m => (
+          {(["accounts", "pipeline", "projects", "contacts", "tasks"] as const).map(m => (
             <button key={m} onClick={() => setMode(m)} style={{
               background: mode === m ? C.blue : "transparent",
               color: mode === m ? "#fff" : C.textMid,
@@ -220,7 +222,7 @@ export default function CrmView() {
               fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
             }}>
               {m === "accounts" ? "Accounts" : m === "pipeline" ? "Pipeline"
-                : m === "contacts" ? "Contacts" : "Tasks"}
+                : m === "projects" ? "Projects" : m === "contacts" ? "Contacts" : "Tasks"}
             </button>
           ))}
         </div>
@@ -467,6 +469,7 @@ export default function CrmView() {
         {mode === "pipeline" && !deal && (
           <CrmPipeline key={pipelineNonce} onOpenCustomer={openCustomer} onOpenDeal={openDeal} />
         )}
+        {mode === "projects" && !deal && <CrmProjects />}
         {mode === "contacts" && !deal && <CrmContacts />}
         {mode === "tasks"    && !deal && <CrmTasks />}
       </div>

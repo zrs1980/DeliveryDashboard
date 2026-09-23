@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "@/lib/constants";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
+import CrmProjects from "@/components/dashboard/CrmProjects";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
 // ─── The account page ───────────────────────────────────────────
@@ -74,7 +75,7 @@ interface Contract {
   summary: string;
 }
 
-type Section = "overview" | "contacts" | "tasks" | "activity" | "contracts";
+type Section = "overview" | "projects" | "contacts" | "tasks" | "activity" | "contracts";
 
 export default function CrmAccountPage({
   customerNsId, customerName, onClose, onOpenDeal, account,
@@ -371,7 +372,7 @@ export default function CrmAccountPage({
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 12px" }}>
-        {(["overview", "contacts", "contracts", "tasks", "activity"] as const).map(s => (
+        {(["overview", "projects", "contacts", "contracts", "tasks", "activity"] as const).map(s => (
           <button key={s} onClick={() => setSection(s)} style={{
             padding: "9px 14px", fontSize: 12,
             fontWeight: section === s ? 700 : 500,
@@ -380,8 +381,9 @@ export default function CrmAccountPage({
             borderBottom: section === s ? `2px solid ${C.blue}` : "2px solid transparent",
             cursor: "pointer", fontFamily: C.font, marginBottom: -1,
           }}>
-            {s === "overview" ? "Opportunities" : s === "contacts" ? "Contacts"
-              : s === "contracts" ? "Contracts" : s === "tasks" ? "Tasks" : "Activity"}
+            {s === "overview" ? "Opportunities" : s === "projects" ? "Projects"
+              : s === "contacts" ? "Contacts" : s === "contracts" ? "Contracts"
+              : s === "tasks" ? "Tasks" : "Activity"}
             {s === "contracts" && contracts.length > 0 && (
               <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{contracts.length}</span>
             )}
@@ -596,6 +598,12 @@ export default function CrmAccountPage({
               </p>
             )}
           </>
+        )}
+
+        {/* Delivery history for this account. Read live from NetSuite — the
+            same table the Portfolio Overview renders, scoped by customer. */}
+        {section === "projects" && (
+          <CrmProjects customerNsId={customerNsId} customerName={customerName} />
         )}
 
         {section === "contacts" && <CrmContacts customerNsId={customerNsId} />}
