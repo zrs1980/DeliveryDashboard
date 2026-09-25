@@ -1,6 +1,7 @@
 {
   "crons": [
-    { "path": "/api/cs/cron/health", "schedule": "0 7 * * *" }
+    { "path": "/api/cs/cron/health", "schedule": "0 7 * * *" },
+    { "path": "/api/cs/cron/agent", "schedule": "*/5 7-8 * * *" }
   ],
   "framework": "nextjs",
   "buildCommand": "npm run build",

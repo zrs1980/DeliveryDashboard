@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCronSecret } from "@/lib/cs-permissions";
+import { enqueueCsmCandidates } from "@/lib/cs-csm-queue";
 import { runHealthScoring } from "@/lib/cs-scoring-run";
 
 export const revalidate  = 0;
@@ -29,7 +30,23 @@ export async function GET(req: Request) {
 
   try {
     const result = await runHealthScoring();
-    return NextResponse.json({ ok: true, ...result });
+
+    // Scoring is what produces the flags the agent triages, so the queue is
+    // filled immediately after — not on its own schedule, where it would run
+    // against yesterday'''s flags half the time.
+    //
+    // ⚠ A FAILURE HERE MUST NOT FAIL THE SCORING RUN. Scoring is the job that
+    // matters; queueing is a convenience on top of it, and reporting the whole
+    // night as broken because the queue could not be filled would hide a
+    // successful scoring pass behind a red light.
+    let enqueued: unknown = null;
+    try {
+      enqueued = await enqueueCsmCandidates();
+    } catch (e) {
+      enqueued = { error: e instanceof Error ? e.message : "Unknown error" };
+    }
+
+    return NextResponse.json({ ok: true, ...result, agentQueue: enqueued });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     console.error("[cs/cron] health run failed:", msg);

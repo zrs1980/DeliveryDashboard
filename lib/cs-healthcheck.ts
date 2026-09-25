@@ -57,7 +57,13 @@ export interface QuotableFacts {
 
 function usable(item: EvidencedItem, profileVerified: boolean): { ok: boolean; reason?: string } {
   if (item.confidence === "low") return { ok: false, reason: "low confidence" };
-  if (item.basis === "inferred" && !profileVerified) return { ok: false, reason: "inferred, profile not verified" };
+  // ⚠ ANYTHING NOT EXPLICITLY "observed" IS TREATED AS INFERRED. The test is
+  // deliberately not `=== "inferred"`: a row written before `basis` existed has
+  // the field undefined, which would slip past that check and let a
+  // high-confidence GUESS become quotable material in a customer email. The
+  // extractor itself defaults an unrecognised basis to "inferred"
+  // (cs-profile-extract.ts), so this just applies the same bias to stored rows.
+  if (item.basis !== "observed" && !profileVerified) return { ok: false, reason: "inferred, profile not verified" };
   if (item.confidence === "medium" && !profileVerified) return { ok: false, reason: "medium confidence, profile not verified" };
   return { ok: true };
 }
