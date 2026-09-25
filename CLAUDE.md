@@ -2391,6 +2391,87 @@ nonsense, so the agent is told to treat it as a pointer for a person.
 **Cases are scoped to the customer id AND its job ids**, because
 `supportcase.company` is either — 596 of 1080 are jobs.
 
+### The CSM agent (Phase D–F)
+
+Decides whether to contact an account, who, and about what, then proposes the
+email into the existing Draft Queue. **It never sends.**
+
+```
+/lib/cs-agent-loop.ts    → the bounded loop, shared with the research agent
+/lib/cs-agent-tools.ts   → the five shared read tools + makeDispatch
+/lib/cs-csm-agent.ts     → tools, motion rules, prompt, output validation
+/lib/cs-csm-run.ts       → ONE run, independent of trigger
+/lib/cs-csm-queue.ts     → nightly candidate selection + the claim
+/app/api/cs/agent/[customerNsId]  → manual run (cs_layer)
+/app/api/cs/cron/agent            → nightly worker (CRON_SECRET)
+/app/api/cs/agent-metrics         → Phase F numbers
+/components/dashboard/CsAgentPanel.tsx · CsAgentMetrics.tsx
+/supabase/cs-agent-runs.sql
+```
+
+- **The prompt describes the rules; `checkProposal` enforces them.** Contact
+  exists and has not opted out · the motion's trigger holds · the contact's role
+  is allowed for that motion · every cited `factId` is real · the body is not
+  eight sentences. A failure is handed **back to the model**, which chooses
+  again — and costs a tool call, so a model that keeps proposing invalid
+  outreach runs out of budget rather than looping.
+- **`role = 'unknown'` is never allowed for any motion.** A role nobody has set
+  is not permission. Expect `no_suitable_contact` skips until roles exist — only
+  14 of 458 closed-won contacts have a job title to infer one from.
+- **Two terminal tools, and the forced one is `skip_account`.** Running out of
+  budget is not a reason to propose contacting a customer.
+- **A skip is an outcome, not a failure.** `nothing_specific_to_say` on a
+  repeatedly-flagged account means the profile is too thin, not that the account
+  is fine, and the UI says so.
+- **`blocked` is distinct from `skipped`.** The agent decided to write and
+  suppression stopped it — that tells you whether the agent or the rules need
+  attention.
+- **No profile → refused up front.** Without one there are no quotable facts, so
+  every motion would skip with nothing_specific_to_say.
+- **It cannot see email, and the prompt says so.** `get_recent_meetings` covers
+  Fireflies only. Absence of a meeting is NOT evidence nobody has been in touch,
+  and the prompt tells it to prefer skipping when it cannot confirm.
+
+**Nightly.** Scoring fills the queue (`enqueueCsmCandidates`), a worker drains it
+**one account per invocation** — a run can use 240s of a 300s function, so
+looping the book inside one request would time out unpredictably and strand rows
+at `running`. **The claim is a conditional update** (`.eq("status","queued")` on
+the UPDATE): two overlapping invocations both select the same row, only one
+matches, the loser does nothing. Without that predicate one reviewer gets two
+drafts for the same account.
+
+> The batch cap of 10 is **not** a performance setting. Review throughput is the
+> bottleneck (`00-PROJECT-BRIEF.md`); forty drafts nobody reads is worse than
+> five that do, because the unread ones expire and the reviewer stops looking.
+
+**Loop extensions made for this**, both of which the research agent must survive
+unchanged (`scripts/verify-agent-loop.ts` is the acceptance test):
+
+- `terminalTool` may be a **set** — a decision agent has more than one way to
+  finish.
+- `isTerminal()` lets a terminal tool **refuse to be terminal**, which is what
+  allows `propose_outreach` to fail its checks without ending the run.
+- `validate()` receives the terminal tool's **name**, so the route does not stash
+  it in module-level state that two concurrent runs would race on.
+
+### Gotchas
+
+- **`quotableFacts` treats anything not explicitly `"observed"` as inferred.**
+  The test is deliberately not `=== "inferred"`: a profile row written before
+  `basis` existed has it undefined, which slipped past that check and let a
+  high-confidence GUESS become quotable material in a customer email. Fixed
+  September 2026.
+- **`lint` is now persisted.** It was computed by the health-check motion from
+  the day it was built and returned in the HTTP response only — so the Draft
+  Queue, the screen whose job is reviewing drafts, never once showed a lint hit.
+- **Cost was not measured at all** until Phase F. The columns existed and nothing
+  wrote them. `RunState` now accumulates usage across every turn.
+- **Anything added under `app/api/cs/cron/` that forgets `requireCronSecret` is
+  fully public** — `proxy.ts` exempts the whole prefix from the login redirect,
+  and the secret check is the only thing behind it.
+- **The agent cron needs a Vercel plan allowing sub-daily schedules**
+  (`*/5 7-8 * * *`). On a plan limited to daily crons it will not run.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a
