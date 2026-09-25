@@ -130,7 +130,52 @@ export async function PATCH(req: Request) {
   if (typeof body.mobile === "string")   patch.mobile = body.mobile.trim() || null;
   if (typeof body.notes === "string")    patch.notes = body.notes.trim() || null;
   if (body.isPrimary !== undefined)      patch.is_primary = Boolean(body.isPrimary);
-  if (ROLES.includes(body.role as typeof ROLES[number])) patch.role = String(body.role);
+  if (ROLES.includes(body.role as typeof ROLES[number])) {
+    patch.role = String(body.role);
+    // Setting a role by hand answers the question the suggestion was asking, so
+    // the suggestion goes. Leaving it would show a stale proposal next to a
+    // decision that has already been made.
+    patch.suggested_role = null;
+    patch.suggested_role_reason = null;
+    patch.suggested_at = null;
+  }
+
+  // ── Suggested roles ──────────────────────────────────────────────────────
+  // Accepting is the ONLY path from `suggested_role` to `role`. The suggester
+  // never writes `role`, because `role` is what authorises emailing someone and
+  // a guess must not be able to grant that.
+  if (body.acceptSuggestion === true) {
+    const { data: existing } = await getSupabaseAdmin()
+      .from("pm_crm_contacts").select("suggested_role").eq("id", id).maybeSingle();
+    const suggested = String(existing?.suggested_role ?? "");
+    if (!ROLES.includes(suggested as typeof ROLES[number])) {
+      return NextResponse.json({ error: "There is no suggestion to accept." }, { status: 409 });
+    }
+    patch.role = suggested;
+    patch.suggested_role = null;
+    patch.suggested_role_reason = null;
+    patch.suggested_at = null;
+  }
+
+  // Rejecting clears the suggestion and leaves `role` alone. The contact stays
+  // unusable for outreach, which is the right outcome for "that guess is wrong
+  // and I don't know the answer".
+  if (body.rejectSuggestion === true) {
+    patch.suggested_role = null;
+    patch.suggested_role_reason = null;
+    patch.suggested_at = null;
+  }
+
+  // ── Opt-out ──────────────────────────────────────────────────────────────
+  // Permanent per 04-DRAFT-QUEUE.md, and per-person rather than per-account:
+  // one contact asking to be left alone must not mute their colleagues.
+  if (body.optedOut !== undefined) {
+    patch.opted_out = Boolean(body.optedOut);
+    patch.opted_out_at = body.optedOut ? new Date().toISOString() : null;
+    patch.opt_out_reason = body.optedOut
+      ? (String(body.optOutReason ?? "").trim() || "Recorded by hand.")
+      : null;
+  }
 
   // Marking someone inactive is how a departure gets recorded, and it is what
   // the champion-lost rule reads.

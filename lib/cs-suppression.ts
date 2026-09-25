@@ -22,6 +22,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 // Fixed September 2026. When adding a check, the test is not "did the query
 // error" but "did I actually learn anything": an empty result from a table
 // nothing writes teaches you nothing.
+//
+// `opted_out` and `active_negotiation` were unconditional skips until the
+// columns existed (supabase/cs-phase-a.sql). They are real checks now — but
+// both still SKIP rather than pass when what they read is absent: no contact
+// means no opt-out state, no profile means no negotiation state.
 
 export type CheckOutcome = "passed" | "blocked" | "skipped";
 
@@ -103,7 +108,7 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
   // is the clearest possible signal that nobody is reading their own notes.
   const { data: profile, error: pErr } = await supabase
     .from("cs_customer_profiles")
-    .select("declined_items")
+    .select("declined_items, active_negotiation, active_negotiation_note")
     .eq("customer_ns_id", input.customerNsId)
     .maybeSingle();
 
@@ -177,17 +182,28 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
   }
 
   // ── Contact liveness and role ────────────────────────────────────────────
+  // Read once here and reused by the opt-out check below — same row, one query.
+  let optOutKnown = false;
+  let contactOptedOut = false;
+  let optOutReason = "";
+
   if (!input.contactId) {
     skip("contact_active", "No contact recorded — cs_contacts is not populated.");
     skip("contact_role",   "No contact recorded — cs_contacts is not populated.");
   } else {
     const { data: contact, error: ctErr } = await supabase
-      .from("pm_crm_contacts").select("is_active, departed_detected_at, role")
+      .from("pm_crm_contacts")
+      .select("is_active, departed_detected_at, role, opted_out, opt_out_reason")
       .eq("id", input.contactId).maybeSingle();
     if (ctErr || !contact) {
       skip("contact_active", "Contact not found.");
       skip("contact_role",   "Contact not found.");
     } else {
+      optOutKnown = true;
+      contactOptedOut = Boolean(contact.opted_out);
+      optOutReason = String(contact.opt_out_reason ?? "").trim();
+
+
       if (!contact.is_active || contact.departed_detected_at) {
         block("contact_active", "Contact is marked inactive or departed.");
       } else pass("contact_active", "Contact is active.");
@@ -211,9 +227,41 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
   else if (flags?.length) block("open_escalation", `Critical flag open: "${flags[0].title}".`);
   else pass("open_escalation", "No critical flag open.");
 
-  // ── Not checkable at all yet ─────────────────────────────────────────────
-  skip("opted_out", "No opt-out field exists on the schema yet.");
-  skip("active_negotiation", "No negotiation state is recorded anywhere.");
+  // ── Opted out ────────────────────────────────────────────────────────────
+  // Permanent, per 04-DRAFT-QUEUE.md. Checked on the CONTACT rather than the
+  // account: one person asking to be left alone does not mute their colleagues.
+  //
+  // ⚠ Without a contact this cannot be evaluated — opting out is a property of
+  // a person, and a draft with no recipient has no person to check. Skip, not
+  // pass.
+  if (!input.contactId) {
+    skip("opted_out", "No contact on the draft, so there is no opt-out state to check.");
+  } else if (!optOutKnown) {
+    skip("opted_out", "Contact not found.");
+  } else if (contactOptedOut) {
+    block("opted_out", `This contact has opted out${optOutReason ? `: ${optOutReason}` : "."}`);
+  } else {
+    pass("opted_out", "This contact has not opted out.");
+  }
+
+  // ── Active negotiation ───────────────────────────────────────────────────
+  // A health check landing mid-negotiation is noise at best and leverage handed
+  // away at worst. Set by a human on the profile; re-extraction never touches it.
+  //
+  // ⚠ No profile is a SKIP. `false` on a row that does not exist is not a
+  // finding, it is the absence of one — and this is the check where that
+  // distinction is most expensive to get wrong.
+  if (pErr) {
+    skip("active_negotiation", `Profile unreadable (${pErr.message}).`);
+  } else if (!profile) {
+    skip("active_negotiation", "No profile for this customer — negotiation state is unrecorded.");
+  } else if (profile.active_negotiation) {
+    const negNote = String(profile.active_negotiation_note ?? "").trim();
+    block("active_negotiation",
+      `A commercial negotiation is marked active${negNote ? `: ${negNote}` : "."}`);
+  } else {
+    pass("active_negotiation", "No negotiation marked active.");
+  }
 
   return { blocked: reasons.length > 0, checks, reasons };
 }

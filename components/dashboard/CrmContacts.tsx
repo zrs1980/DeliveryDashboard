@@ -21,6 +21,8 @@ interface Contact {
   phone: string | null; mobile: string | null;
   role: string; is_primary: boolean; is_active: boolean;
   last_seen_at: string | null; notes: string | null; source: string;
+  suggested_role: string | null; suggested_role_reason: string | null;
+  opted_out: boolean | null; opt_out_reason: string | null;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -66,6 +68,33 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
       name: c.name, jobTitle: c.job_title ?? "", email: c.email ?? "",
       phone: c.phone ?? "", mobile: c.mobile ?? "", notes: c.notes ?? "",
     });
+  }
+
+  // Role suggestions. These write `suggested_role`, never `role` — only a
+  // person accepting one sets the field that decides who may be emailed.
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
+
+  async function suggestRoles() {
+    if (!customerNsId) return;
+    setSuggesting(true); setError(null); setSuggestNote(null);
+    try {
+      const res = await fetch("/api/crm/contacts/suggest-roles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerNsId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.hint ? `${json.error} ${json.hint}` : json?.error);
+      const bits: string[] = [];
+      if (json.written) bits.push(`${json.written} suggested`);
+      // Said plainly: a short list should look short because the titles were
+      // thin, not because the model underperformed.
+      if (json.noTitle) bits.push(`${json.noTitle} skipped for having no job title`);
+      if (json.dropped) bits.push(`${json.dropped} discarded as unusable`);
+      setSuggestNote(json.note ?? (bits.length ? bits.join(" · ") : "Nothing to suggest."));
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setSuggesting(false); }
   }
 
   const [adding, setAdding] = useState(false);
@@ -127,6 +156,12 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   }
 
   const withRole = contacts.filter(c => c.role !== "unknown").length;
+  // The suggester can only work from a job title, and titles are scarce:
+  // 68 of 949 active NetSuite contacts have one, 14 of 458 on closed-won
+  // accounts (measured September 2026). Showing the number BEFORE the button is
+  // clicked stops it looking broken when it labels two people out of thirty.
+  const unroled   = contacts.filter(c => c.role === "unknown" && !c.suggested_role);
+  const suggestable = unroled.filter(c => String(c.job_title ?? "").trim()).length;
 
   return (
     <div>
@@ -149,7 +184,27 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
             {adding ? "Cancel" : "+ Add contact"}
           </button>
         )}
+        {customerNsId && unroled.length > 0 && (
+          <button
+            onClick={suggestRoles}
+            disabled={suggesting || suggestable === 0}
+            style={{ ...btn(C.purple), opacity: suggestable === 0 ? 0.45 : 1 }}
+            title={suggestable === 0
+              ? "A role is inferred from the job title, and none of these contacts has one."
+              : `${suggestable} of ${unroled.length} unroled contacts have a job title to work from.`}
+          >
+            {suggesting ? "Reading titles…" : `⚡ Suggest roles (${suggestable})`}
+          </button>
+        )}
       </div>
+
+      {suggestNote && (
+        <div style={{ background: C.alt, border: `1px solid ${C.border}`, color: C.textMid,
+                      borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12,
+                      lineHeight: 1.6 }}>
+          {suggestNote}
+        </div>
+      )}
 
       {adding && customerNsId && (
         <div style={{ border: `1px solid ${C.blueBd}`, background: C.blueBg, borderRadius: 8,
@@ -187,11 +242,16 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
       {contacts.length > 0 && withRole === 0 && (
         <div style={{ background: C.alt, border: `1px solid ${C.border}`, color: C.textMid,
                       borderRadius: 8, padding: "9px 13px", fontSize: 12, marginBottom: 12, lineHeight: 1.6 }}>
-          No roles are set yet. NetSuite&apos;s own contact role is populated on 26 of 1,014
-          contacts with values whose labels cannot be read, so nothing was imported. Marking
-          the <strong>economic buyer</strong> and the <strong>champion</strong> on your main
-          accounts is the single highest-value thing you can do here — a champion going quiet
-          is one of the strongest churn signals there is, and it cannot be detected without it.
+          No roles are set yet, and they mostly have to be set by hand.
+          NetSuite&apos;s own contact role is populated on 22 of 949 contacts with values whose
+          labels cannot be resolved at all, and <strong>job titles — the only thing a role can
+          be inferred from — exist on 68</strong>. So <em>⚡ Suggest roles</em> helps where there
+          is a title and declines where there is not.
+          <br /><br />
+          Marking the <strong>economic buyer</strong> and the <strong>champion</strong> on your
+          main accounts is still the single highest-value thing you can do here: a champion
+          going quiet is one of the strongest churn signals there is, and it is invisible
+          without this field. It is also what decides who the CSM agent may write to.
         </div>
       )}
 
@@ -233,6 +293,44 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                 </span>
               </div>
 
+              {/* A suggestion is visibly a suggestion. It sits above the role
+                  selector rather than inside it, so nothing about the screen
+                  implies the role has been set. */}
+              {c.suggested_role && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+                              marginTop: 8, padding: "7px 11px", borderRadius: 7,
+                              background: C.purpleBg, border: `1px solid ${C.purpleBd}` }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3, color: C.purple }}>
+                    SUGGESTED
+                  </span>
+                  <strong style={{ fontSize: 12.5, color: C.text }}>
+                    {ROLE_LABEL[c.suggested_role] ?? c.suggested_role}
+                  </strong>
+                  {c.suggested_role_reason && (
+                    <span style={{ fontSize: 11.5, color: C.textMid }}>{c.suggested_role_reason}</span>
+                  )}
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                    <button onClick={() => patch(c.id, { acceptSuggestion: true })}
+                            disabled={busy === c.id} style={mini(C.green)}>
+                      ✓ Accept
+                    </button>
+                    <button onClick={() => patch(c.id, { rejectSuggestion: true })}
+                            disabled={busy === c.id} style={mini(C.textSub)}>
+                      Not right
+                    </button>
+                  </span>
+                </div>
+              )}
+
+              {c.opted_out && (
+                <div style={{ marginTop: 8, padding: "6px 11px", borderRadius: 7,
+                              background: C.redBg, border: `1px solid ${C.redBd}`,
+                              color: C.red, fontSize: 11.5, lineHeight: 1.5 }}>
+                  <strong>Opted out.</strong> Nothing will be sent to this person.
+                  {c.opt_out_reason ? ` ${c.opt_out_reason}` : ""}
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 7, alignItems: "center", marginTop: 7, flexWrap: "wrap" }}>
                 <select
                   value={c.role}
@@ -259,6 +357,24 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                   style={mini(editId === c.id ? C.blue : C.textMid)}
                 >
                   {editId === c.id ? "Cancel" : "Edit"}
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (c.opted_out) { patch(c.id, { optedOut: false }); return; }
+                    const reason = window.prompt(
+                      "Record that this person has asked not to be contacted.\n\n"
+                      + "What did they say? (optional)");
+                    // null = cancelled. An empty string is a deliberate "no reason
+                    // given" and still opts them out.
+                    if (reason === null) return;
+                    patch(c.id, { optedOut: true, optOutReason: reason });
+                  }}
+                  disabled={busy === c.id}
+                  style={mini(c.opted_out ? C.red : C.textSub)}
+                  title="Permanent. Suppression blocks every send to an opted-out contact."
+                >
+                  {c.opted_out ? "Opted out" : "Opt out"}
                 </button>
 
                 <button

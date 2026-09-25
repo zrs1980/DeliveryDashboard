@@ -22,6 +22,8 @@ import { C } from "@/lib/constants";
 interface SuppressionCheck { rule: string; outcome: string; detail: string }
 interface Draft {
   id: string; customer_ns_id: string; contact_id: string | null;
+  contactName: string | null; contactEmail: string | null; contactRole: string | null;
+  contactOptedOut: boolean; contactInactive: boolean;
   motion: string; subject: string; body: string; original_body: string | null;
   rationale: string; evidence: Record<string, unknown>;
   status: string; generated_at: string; expires_at: string | null;
@@ -41,6 +43,15 @@ export default function CsDraftQueue() {
   const [busy, setBusy]       = useState(false);
   const [showChecks, setShowChecks] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Pre-fill the recipient from the draft's own contact. Keyed on the draft id
+  // rather than the cursor so moving through the queue and back re-fills, but a
+  // reviewer who has typed over it is not overwritten mid-edit.
+  const currentId = drafts[cursor]?.id;
+  useEffect(() => {
+    const d = drafts.find(x => x.id === currentId);
+    setTo(d?.contactEmail ?? "");
+  }, [currentId, drafts]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -244,13 +255,29 @@ export default function CsDraftQueue() {
 
           {/* Actions */}
           <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}`, background: C.alt }}>
+            {current.contactName && (
+              <div style={{ fontSize: 11.5, color: C.textMid, marginBottom: 7, lineHeight: 1.5 }}>
+                To <strong style={{ color: C.text }}>{current.contactName}</strong>
+                {current.contactRole && current.contactRole !== "unknown"
+                  ? ` · ${current.contactRole.replace(/_/g, " ")}` : ""}
+                {current.contactOptedOut && (
+                  <strong style={{ color: C.red }}> · OPTED OUT — suppression will block this</strong>
+                )}
+                {current.contactInactive && !current.contactOptedOut && (
+                  <strong style={{ color: C.yellow }}> · marked departed</strong>
+                )}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <input
                 value={to}
                 onChange={e => setTo(e.target.value)}
-                placeholder="Recipient email…"
+                placeholder={current.contact_id && !current.contactEmail
+                  ? "No address recorded for this contact…"
+                  : "Recipient email…"}
                 style={{ flex: "1 1 200px", minWidth: 170, padding: "6px 10px", fontSize: 13,
-                         border: `1px solid ${C.mid}`, borderRadius: 6, fontFamily: C.font }}
+                         border: `1px solid ${current.contactOptedOut ? C.redBd : C.mid}`,
+                         borderRadius: 6, fontFamily: C.font }}
               />
               <button
                 onClick={() => act("approve_send", { to: to.trim() })}

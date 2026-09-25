@@ -41,7 +41,8 @@ export async function GET(req: Request) {
   const customerNsId = url.searchParams.get("customerNsId");
 
   try {
-    let q = getSupabaseAdmin().from("cs_outreach_drafts").select("*");
+    const supabase = getSupabaseAdmin();
+    let q = supabase.from("cs_outreach_drafts").select("*");
     if (status) q = q.eq("status", status);
     else q = q.in("status", ["draft", "approved", "snoozed"]);
     if (customerNsId) q = q.eq("customer_ns_id", customerNsId);
@@ -53,11 +54,43 @@ export async function GET(req: Request) {
     // three weeks stale is worse than no email, and a draft that quietly became
     // sendable again because no cleanup ran would be exactly that.
     const now = Date.now();
-    const rows = (data ?? []).map(d => ({
+    const base = (data ?? []).map(d => ({
       ...d,
       isExpired: Boolean(d.expires_at && new Date(d.expires_at).getTime() < now),
       isSnoozed: Boolean(d.snoozed_until && new Date(d.snoozed_until).getTime() > now),
     }));
+
+    // Resolve the recipient so the queue can pre-fill it. Today the reviewer
+    // retypes an address that is already recorded on the draft, which is both a
+    // wasted step and a way to send to the wrong person.
+    //
+    // ⚠ OPT-OUT AND LIVENESS COME WITH IT. Suppression already blocks on both,
+    // but that runs against the draft's contact_id — if the reviewer is going
+    // to see an address, they should see the same warnings, not a clean-looking
+    // field. One lookup, all of it.
+    const contactIds = [...new Set(base.map(d => d.contact_id).filter(Boolean))];
+    const contacts = new Map<string, Record<string, unknown>>();
+    if (contactIds.length) {
+      const { data: cs } = await supabase
+        .from("pm_crm_contacts")
+        .select("id, name, email, role, is_active, opted_out")
+        .in("id", contactIds as string[]);
+      for (const c of cs ?? []) contacts.set(String(c.id), c);
+    }
+
+    const rows = base.map(d => {
+      const c = d.contact_id ? contacts.get(String(d.contact_id)) : undefined;
+      return {
+        ...d,
+        contactName:     c ? String(c.name ?? "") : null,
+        // Null rather than "" so the client can tell "no contact recorded" from
+        // "contact recorded but we have no address for them".
+        contactEmail:    c ? (c.email ? String(c.email) : null) : null,
+        contactRole:     c ? String(c.role ?? "unknown") : null,
+        contactOptedOut: c ? Boolean(c.opted_out) : false,
+        contactInactive: c ? !c.is_active : false,
+      };
+    });
 
     return NextResponse.json({ drafts: rows });
   } catch (e) {
