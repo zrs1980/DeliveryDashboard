@@ -304,6 +304,14 @@ function Guide() {
           </Text>
         </Dot>
 
+        <View style={s.foot} fixed>
+          <Text>CSM Agent — Testing Guide</Text>
+          <Text render={({ pageNumber, totalPages }) => `${pageNumber} of ${totalPages}`} />
+        </View>
+      </Page>
+
+      {/* ── Page 4 ─────────────────────────────────────────────────────── */}
+      <Page size="A4" style={s.page}>
         <Text style={s.h2}>If something goes wrong</Text>
         <Row header widths={[42, 58]} cells={["Symptom", "Cause"]} />
         <Row widths={[42, 58]} cells={[
