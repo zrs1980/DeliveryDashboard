@@ -2232,10 +2232,29 @@ an outbound email and there must never be one. The architecture enforces it: mai
 the user's own OAuth token, so an unattended job *cannot* send. **Do not add a
 service-account sender to make cron able to email.**
 
-**A skipped suppression check is not a passed one.** Several rules need `cs_contacts` and
+**A skipped suppression check is not a passed one.** Several rules need contact roles and
 `cs_commitments`, both empty — those record `skipped` with the reason, never `passed`.
 Recording them as passed would quietly convert missing data into permission to send. The
 queue shows the split ("4 passed, 4 not evaluated").
+
+> ⚠ **That rule was written here while two checks broke it.** `owed_commitment` and
+> `declined_topic` both returned `passed` on an empty read — and since nothing in the
+> application writes `cs_commitments`, *"No open commitments we owe"* was reported on
+> **every draft ever generated**. That is the exact failure the rule above forbids, on the
+> rule `04-DRAFT-QUEUE.md` singles out as mattering most.
+>
+> Fixed September 2026. `owed_commitment` now probes whether **any** commitment exists
+> before trusting a zero-row answer for one account; `declined_topic` skips when the
+> customer has no profile at all, because `.maybeSingle()` returns null *without* an error
+> and "never profiled" was arriving indistinguishable from "declined nothing".
+>
+> When adding a check, the test is not "did the query error" but **"did I actually learn
+> anything"** — an empty result from a table nothing writes teaches you nothing.
+
+**`cs_contacts` is now `pm_crm_contacts`** (renamed by `supabase/pm-crm-rename.sql`). The
+suppression code follows the rename; several comments in `lib/cs-*.ts` still say the old
+name. Run order on a fresh database is `cs-agent-schema.sql` → `crm-schema.sql` →
+`pm-crm-rename.sql`; the other order leaves two contact tables.
 
 **Suppression re-runs at send time, not only at generation.** A draft may have sat for days,
 and an escalation or a broken promise arriving since is exactly when it must not go out.

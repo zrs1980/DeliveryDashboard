@@ -2,6 +2,13 @@
 -- Run this in the Supabase SQL Editor (Dashboard > SQL Editor > New query).
 -- Safe to re-run: every statement is IF NOT EXISTS / OR REPLACE.
 --
+-- WARNING - RUN ORDER ON A FRESH DATABASE: this file FIRST, then
+--   crm-schema.sql, then pm-crm-rename.sql. This file creates `cs_contacts`;
+--   pm-crm-rename.sql renames it to `pm_crm_contacts`. Run in the other order
+--   and the rename finds nothing to rename, this file then creates
+--   `cs_contacts` fresh, and you end up with TWO contact tables with half the
+--   application reading the empty one.
+--
 -- Spec: docs/01-DATA-MODEL.md. Survey and adaptations: the Phase 0 report.
 --
 -- Required env var to add in Vercel (Production, Preview, Development):
@@ -216,7 +223,15 @@ CREATE INDEX IF NOT EXISTS cs_health_flags_triage ON cs_health_flags(status, sev
 CREATE TABLE IF NOT EXISTS cs_outreach_drafts (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_ns_id     text NOT NULL,
-  contact_id         uuid REFERENCES cs_contacts(id) ON DELETE SET NULL,
+  -- WARNING - NO INLINE FOREIGN KEY, DELIBERATELY. This used to read
+  --   `REFERENCES cs_contacts(id)`, which was correct when written and then
+  --   quietly became a lie: pm-crm-rename.sql renames that table to
+  --   pm_crm_contacts. Postgres carries the FK through a rename so live
+  --   databases were fine, but a fresh database run in the wrong order failed
+  --   outright on a table that no longer gets created.
+  --   The constraint is attached at the end of pm-crm-rename.sql instead,
+  --   where the final table name is actually known.
+  contact_id         uuid,
   motion             text NOT NULL
                        CHECK (motion IN ('health_check','qbr','release','renewal','commitment_followup')),
   subject            text NOT NULL,

@@ -11,10 +11,17 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 //   "Sending an upsell to a customer we owe work to is the fastest way to
 //    damage the relationship."
 //
-// Several rules need tables that are still empty (cs_contacts, cs_commitments).
-// Those return `skipped` with the reason — NEVER `passed`. A check that could
-// not run has not been passed, and recording it as passed would quietly convert
-// missing data into permission to send.
+// Several rules need tables that are still empty (pm_crm_contacts roles,
+// cs_commitments). Those return `skipped` with the reason — NEVER `passed`. A
+// check that could not run has not been passed, and recording it as passed would
+// quietly convert missing data into permission to send.
+//
+// ⚠ THAT RULE WAS STATED HERE FOR MONTHS WHILE TWO CHECKS BROKE IT. Both
+// `owed_commitment` and `declined_topic` returned `passed` on an empty read — a
+// zero-row query and a genuinely clean account produced byte-identical output.
+// Fixed September 2026. When adding a check, the test is not "did the query
+// error" but "did I actually learn anything": an empty result from a table
+// nothing writes teaches you nothing.
 
 export type CheckOutcome = "passed" | "blocked" | "skipped";
 
@@ -102,8 +109,14 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
 
   if (pErr) {
     skip("declined_topic", `Profile unreadable (${pErr.message}).`);
-  } else if (!profile?.declined_items?.length) {
-    pass("declined_topic", "Nothing recorded as declined.");
+  } else if (!profile) {
+    // ⚠ `.maybeSingle()` returns null WITHOUT an error when no profile row
+    // exists, so "this customer has never been profiled" arrived here
+    // indistinguishable from "nothing has been declined" and was reported as a
+    // pass. Nothing was checked, so nothing passed.
+    skip("declined_topic", "No profile for this customer — nothing could be checked.");
+  } else if (!profile.declined_items?.length) {
+    pass("declined_topic", "Profile exists; nothing recorded as declined.");
   } else {
     const haystack = `${input.subject ?? ""} ${input.body ?? ""}`.toLowerCase();
     const hits = (profile.declined_items as Array<{ description?: string }>)
@@ -131,8 +144,28 @@ export async function runSuppressionChecks(input: SuppressionInput): Promise<Sup
   if (cErr) {
     skip("owed_commitment", `Commitments unreadable (${cErr.message}).`);
   } else if (!commitments?.length) {
-    // Honest about which of the two this is: no table content vs genuinely none.
-    pass("owed_commitment", "No open commitments we owe.");
+    // ⚠ THIS BRANCH USED TO `pass`, AND THAT WAS THE WORST BUG IN THE MODULE.
+    //
+    // Nothing in the application writes cs_commitments yet, so the table is
+    // empty for everyone — which meant "No open commitments we owe" was
+    // reported on EVERY draft ever generated. That is precisely the failure the
+    // header rule above forbids: missing data quietly becoming permission to
+    // send. And it is the rule docs/04-DRAFT-QUEUE.md singles out as mattering
+    // "more than it appears", because asking a customer for something while we
+    // owe them work is the fastest way to damage the relationship.
+    //
+    // A zero-row answer for one account is only meaningful if commitments are
+    // being recorded at all, so that is what gets probed. `head: true` fetches
+    // no rows — it is a count, not a scan.
+    const { count, error: anyErr } = await supabase
+      .from("cs_commitments").select("id", { count: "exact", head: true });
+
+    if (anyErr || !count) {
+      skip("owed_commitment",
+        "No commitment has ever been recorded, so this could not be evaluated.");
+    } else {
+      pass("owed_commitment", "No open commitments we owe on this account.");
+    }
   } else {
     const today = new Date().toISOString().slice(0, 10);
     const overdue = commitments.filter(c => c.due_date && c.due_date < today);

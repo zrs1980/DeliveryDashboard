@@ -1,5 +1,7 @@
 -- ─── CRM tables move to the pm_crm_ prefix, and stop syncing ───────────────
--- Run this in the Supabase SQL Editor AFTER crm-schema.sql.
+-- Run this in the Supabase SQL Editor AFTER cs-agent-schema.sql AND
+-- crm-schema.sql - in that order. cs-agent-schema.sql creates `cs_contacts`,
+-- which this file renames; running this first leaves two contact tables.
 -- Safe to re-run: every rename is guarded, every drop is IF EXISTS.
 --
 -- Two changes, both requested:
@@ -266,3 +268,27 @@ SELECT * FROM (VALUES
   ('closed_lost', 'Closed Lost',   'opportunity',   0::numeric, 70, false, true,  false)
 ) AS seed (id, name, entity_type, probability, sort_order, is_won, is_lost, is_open)
 WHERE NOT EXISTS (SELECT 1 FROM pm_crm_stages);
+
+-- cs_outreach_drafts.contact_id -> pm_crm_contacts
+-- The constraint lives here rather than inline in cs-agent-schema.sql because
+-- THIS is the file that decides what the contacts table is finally called.
+--
+-- Guarded three ways so it is safe in every order and on every existing
+-- database: only if both tables exist, and only if the constraint is not
+-- already present (a database that ran the original inline FK already has it,
+-- carried through the rename under its old auto-generated name).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cs_outreach_drafts')
+     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pm_crm_contacts')
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.table_constraints
+       WHERE table_name = 'cs_outreach_drafts'
+         AND constraint_type = 'FOREIGN KEY'
+         AND constraint_name LIKE '%contact_id%'
+     ) THEN
+    ALTER TABLE cs_outreach_drafts
+      ADD CONSTRAINT cs_outreach_drafts_contact_id_fkey
+      FOREIGN KEY (contact_id) REFERENCES pm_crm_contacts(id) ON DELETE SET NULL;
+  END IF;
+END $$;
