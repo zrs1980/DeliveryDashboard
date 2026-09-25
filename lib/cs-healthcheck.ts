@@ -115,15 +115,19 @@ export const HEALTHCHECK_TOOL: Anthropic.Tool = {
   },
 };
 
-const SYSTEM = `You write short check-in emails on behalf of a NetSuite implementation partner, to customers they have delivered work for.
-
-The goal is a REPLY. Not a meeting, not a sale, not a "quick call". A reply.
-
-Rules, in order:
+/**
+ * The writing rules, shared.
+ *
+ * 08-CSM-AGENT.md: both generators must use the SAME rules, or the CSM agent
+ * quietly develops its own voice and the edit data stops being comparable
+ * across motions. Exported so the CSM agent composes its prompt from this
+ * rather than paraphrasing it.
+ */
+export const WRITING_RULES = `Rules, in order:
 
 1. Reference something true and particular about this account. If the email could have been sent to any customer, it is worthless. You will be given a small set of verified facts — use one of them concretely.
 
-2. Never state anything you were not given. You have been handed only verified material; everything unverified was deliberately withheld. If what you have is too thin to say anything specific, write a brief honest note and say so in the rationale rather than inventing detail. A vague email is recoverable; a wrong one is not.
+2. Never state anything you were not given. You have been handed only verified material; everything unverified was deliberately withheld. If what you have is too thin to say anything specific, say so rather than inventing detail. A vague email is recoverable; a wrong one is not.
 
 3. Three to five sentences. Long automated email reads as marketing and gets filed accordingly.
 
@@ -136,6 +140,12 @@ Rules, in order:
 7. Do not thank them for business, do not mention how long it has been in a way that sounds like a reproach, and do not apologise for the silence.
 
 8. Never mention internal metrics. Logged hours, health scores, flags and engagement trends are our instrumentation, not their world — "we noticed our logged hours have been quiet" reads to the customer as "we noticed we haven't billed you lately". The silence is your reason for writing, not your subject. Write about what happened on their side: work that wrapped, a system that went live, a problem that was solved, a process they were left running by hand.`;
+
+const SYSTEM = `You write short check-in emails on behalf of a NetSuite implementation partner, to customers they have delivered work for.
+
+The goal is a REPLY. Not a meeting, not a sale, not a "quick call". A reply.
+
+${WRITING_RULES}`;
 
 export function healthCheckMessages(facts: QuotableFacts, context: {
   daysSinceLastHour: number | null;

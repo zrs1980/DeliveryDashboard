@@ -4,6 +4,7 @@ import { C } from "@/lib/constants";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsQbr from "@/components/dashboard/CsQbr";
 import CsResearch from "@/components/dashboard/CsResearch";
+import CsAgentPanel from "@/components/dashboard/CsAgentPanel";
 
 // ─── Customer profile — view, verify, re-extract ─────────────────────────────
 //
@@ -279,6 +280,12 @@ export default function CustomerProfilePanel({
               health-check motions above rather than a replacement for them. */}
           {!pending && (
             <CsResearch customerNsId={customerNsId} customerName={customerName} />
+          )}
+
+          {/* The agent sits below research because it READS research: its
+              get_latest_research tool picks up anything under 30 days old. */}
+          {!pending && (
+            <CsAgentPanel customerNsId={customerNsId} customerName={customerName} />
           )}
         </>
       )}
