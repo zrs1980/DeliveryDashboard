@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import CsContracts from "@/components/dashboard/CsContracts";
+import CsAgentMetrics from "@/components/dashboard/CsAgentMetrics";
 import CsTriage from "@/components/dashboard/CsTriage";
 import CsDraftQueue from "@/components/dashboard/CsDraftQueue";
 import CsReleases from "@/components/dashboard/CsReleases";
@@ -70,7 +71,7 @@ export default function CustomerSuccessView() {
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
-  const [mode,     setMode]     = useState<"triage" | "drafts" | "releases" | "accounts" | "renewals">("triage");
+  const [mode,     setMode]     = useState<"triage" | "drafts" | "releases" | "accounts" | "renewals" | "agent">("triage");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,7 +146,7 @@ export default function CustomerSuccessView() {
         </span>
         <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
                       borderRadius: 7, padding: 2 }}>
-          {(["triage", "drafts", "releases", "accounts", "renewals"] as const).map(m => (
+          {(["triage", "drafts", "releases", "accounts", "renewals", "agent"] as const).map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -156,7 +157,7 @@ export default function CustomerSuccessView() {
                 fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
               }}
             >
-              {m === "triage" ? "Triage" : m === "drafts" ? "Drafts" : m === "releases" ? "Releases" : m === "accounts" ? "Accounts" : "Renewals"}
+              {m === "triage" ? "Triage" : m === "drafts" ? "Drafts" : m === "releases" ? "Releases" : m === "accounts" ? "Accounts" : m === "renewals" ? "Renewals" : "Agent"}
             </button>
           ))}
         </div>
@@ -198,6 +199,13 @@ export default function CustomerSuccessView() {
       {mode === "releases" && (
         <div style={{ marginTop: 16 }}>
           <CsReleases />
+        </div>
+      )}
+
+      {mode === "agent" && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`,
+                      boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
+          <CsAgentMetrics />
         </div>
       )}
 

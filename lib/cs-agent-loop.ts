@@ -28,6 +28,14 @@ export interface RunState {
   toolCalls: number;
   started: number;
   sources: AgentSource[];
+  /**
+   * Accumulated across every turn, because a run is many calls and only the
+   * total is meaningful. 08 asks for cost per run to be tracked and budgeted
+   * BEFORE the nightly job is enabled — without this, turning on a batch of ten
+   * a night is spending blind.
+   */
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export type StopReason = "done" | "tool_budget" | "time_budget" | "no_submit";
@@ -117,7 +125,10 @@ export interface AgentLoopResult<TOut> {
 export async function runAgentLoop<TCtx, TOut>(
   spec: AgentLoopSpec<TCtx, TOut>,
 ): Promise<AgentLoopResult<TOut>> {
-  const state: RunState = { toolCalls: 0, started: Date.now(), sources: [] };
+  const state: RunState = {
+    toolCalls: 0, started: Date.now(), sources: [],
+    inputTokens: 0, outputTokens: 0,
+  };
   const anthropic = new Anthropic({ apiKey: spec.apiKey });
 
   const messages: Anthropic.MessageParam[] = [
@@ -163,6 +174,9 @@ export async function runAgentLoop<TCtx, TOut>(
         : { type: "auto" },
       messages,
     });
+
+    state.inputTokens  += reply.usage?.input_tokens  ?? 0;
+    state.outputTokens += reply.usage?.output_tokens ?? 0;
 
     messages.push({ role: "assistant", content: reply.content });
 

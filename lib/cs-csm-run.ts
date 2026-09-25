@@ -143,7 +143,7 @@ export async function runCsmAgent(input: CsmRunInput): Promise<CsmRunResult> {
 
   const ctx: CsmCtx = {
     userEmail: runBy, customerNsId, res, projects,
-    state: { toolCalls: 0, started: Date.now(), sources: [] },
+    state: { toolCalls: 0, started: Date.now(), sources: [], inputTokens: 0, outputTokens: 0 },
     snapshot, contacts, contract,
   };
 
@@ -303,6 +303,7 @@ export async function runCsmAgent(input: CsmRunInput): Promise<CsmRunResult> {
     if (!output) {
       await supabase.from("cs_agent_runs").update({
         status: "stopped", stop_reason: stopReason, tool_calls: state.toolCalls,
+        input_tokens: state.inputTokens, output_tokens: state.outputTokens,
         transcript, human_flag: humanFlag, duration_ms: durationMs,
         completed_at: new Date().toISOString(),
         error: "The agent finished without deciding.",
@@ -314,6 +315,7 @@ export async function runCsmAgent(input: CsmRunInput): Promise<CsmRunResult> {
     if (output.kind === "skip") {
       await supabase.from("cs_agent_runs").update({
         status: "complete", outcome: "skipped", stop_reason: stopReason,
+        input_tokens: state.inputTokens, output_tokens: state.outputTokens,
         skip_category: output.category, skip_reason: output.reason,
         tool_calls: state.toolCalls, transcript, human_flag: humanFlag,
         duration_ms: durationMs, completed_at: new Date().toISOString(),
@@ -369,6 +371,7 @@ export async function runCsmAgent(input: CsmRunInput): Promise<CsmRunResult> {
       // what tells you whether the agent or the rules need attention.
       outcome: suppression.blocked ? "blocked" : "proposed",
       stop_reason: stopReason, draft_id: draft?.id ?? null,
+      input_tokens: state.inputTokens, output_tokens: state.outputTokens,
       tool_calls: state.toolCalls, transcript, human_flag: humanFlag,
       duration_ms: durationMs, completed_at: new Date().toISOString(),
       error: dErr ? `Draft not saved: ${dErr.message}` : null,
