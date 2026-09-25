@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { SHARED_TOOL_DEFS, SHARED_SOURCE_KINDS } from "./cs-agent-tools";
 
 /**
  * The account research agent.
@@ -33,72 +34,11 @@ export const MAX_TOOL_CALLS = 14;
 /** Wall-clock stop, comfortably inside the route's maxDuration. */
 export const TIME_BUDGET_MS = 240_000;
 
-export const RESEARCH_TOOLS: Anthropic.Tool[] = [
-  {
-    name: "list_documents",
-    description:
-      "List the Google Drive files for this customer, newest first, across the "
-      + "customer's own folder and every linked project folder. Returns id, name, "
-      + "type and modified date — not content. Call this before reading anything.",
-    input_schema: {
-      type: "object",
-      properties: {
-        folderUrl: {
-          type: "string",
-          description: "Optional. Restrict to one folder URL from the snapshot. Omit to list them all.",
-        },
-      },
-    },
-  },
-  {
-    name: "read_document",
-    description:
-      "Read the text of one Drive file by id, from list_documents. Google Docs, "
-      + "Sheets, Slides and text files return text; PDFs return a note saying a "
-      + "person must open them. Long files are truncated. Read selectively — you "
-      + "have a small budget of calls.",
-    input_schema: {
-      type: "object",
-      properties: {
-        fileId: { type: "string", description: "Drive file id from list_documents." },
-      },
-      required: ["fileId"],
-    },
-  },
-  {
-    name: "list_projects",
-    description:
-      "The customer's NetSuite projects: number, name, status, go-live date, "
-      + "budgeted and actual hours, and which have a ClickUp list.",
-    input_schema: { type: "object", properties: {} },
-  },
-  {
-    name: "list_clickup_tasks",
-    description:
-      "Open and recently-closed ClickUp tasks for one project, with status, "
-      + "assignees and due dates. Use it to see what is actually blocked or "
-      + "waiting on the customer.",
-    input_schema: {
-      type: "object",
-      properties: {
-        projectNsId: { type: "string", description: "NetSuite project id from list_projects." },
-      },
-      required: ["projectNsId"],
-    },
-  },
-  {
-    name: "search_support_cases",
-    description:
-      "Search this customer's support cases by keyword, over title and opening "
-      + "message. Returns case number, title, status, date and an excerpt.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Keyword or phrase, e.g. \"integration\" or \"EDI\"." },
-      },
-      required: ["query"],
-    },
-  },
+/**
+ * The terminal tool. This one IS the motion — everything else the research
+ * agent can do is a shared read tool, defined in lib/cs-agent-tools.ts.
+ */
+const SUBMIT_FINDINGS: Anthropic.Tool =
   {
     name: "submit_findings",
     description:
@@ -158,8 +98,12 @@ export const RESEARCH_TOOLS: Anthropic.Tool[] = [
       },
       required: ["summary", "findings", "nextSteps"],
     },
-  },
-];
+  };
+
+/** Five shared read tools, then the one that ends the run. */
+export const RESEARCH_TOOLS: Anthropic.Tool[] = [...SHARED_TOOL_DEFS, SUBMIT_FINDINGS];
+export const TERMINAL_TOOL = SUBMIT_FINDINGS.name;
+
 
 export const RESEARCH_SYSTEM = `
 You are a customer success analyst at Loop Services, a NetSuite implementation
@@ -210,7 +154,10 @@ export interface ResearchOutput {
 }
 
 const CONFIDENCE = new Set(["high", "medium", "low"]);
-const KINDS = new Set(["document", "project", "clickup", "case"]);
+// Pinned to the kinds the shared tools actually emit — an agent with a
+// different tool set needs its own enum, and this set must match the one in the
+// submit_findings schema above.
+const KINDS = new Set<string>(SHARED_SOURCE_KINDS);
 
 /**
  * Re-validate everything the model returned.
