@@ -34,6 +34,11 @@ export async function GET() {
       return {
         id:          p.id,
         entityId:    p.entityid,
+        // The wizard records commitments against the CUSTOMER, not the project:
+        // "we owe them the revised SOW" outlives the project it was said on, and
+        // cs_commitments keys on customer_ns_id like everything else in the CS
+        // layer.
+        customerNsId: p.customer_ns_id ?? null,
         client,
         projectName,
         // The concatenation shown in the dropdown.

@@ -2251,6 +2251,16 @@ queue shows the split ("4 passed, 4 not evaluated").
 > When adding a check, the test is not "did the query error" but **"did I actually learn
 > anything"** — an empty result from a table nothing writes teaches you nothing.
 
+**`cs_commitments` now has a writer.** The Process-meeting wizard extracts promises from the
+transcript in both directions, a human reviews and keeps them, and `POST /api/cs/commitments`
+records them with `confirmed_by_human` set. So `owed_commitment` can start passing honestly
+instead of skipping.
+
+> The write path is **session-gated, the read path is `cs_layer`-gated** — the same split as
+> `/api/cs/sentiment`, for the same reason. The people who know what was promised are the PMs
+> and consultants on the call, and they must not hold `cs_layer`. They record; they never
+> receive. Reading the book of outstanding obligations is commercial context.
+
 **`cs_contacts` is now `pm_crm_contacts`** (renamed by `supabase/pm-crm-rename.sql`). The
 suppression code follows the rename; several comments in `lib/cs-*.ts` still say the old
 name. Run order on a fresh database is `cs-agent-schema.sql` → `crm-schema.sql` →

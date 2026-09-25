@@ -55,6 +55,45 @@ const ANALYSIS_TOOL: Anthropic.Tool = {
           required: ["name", "description", "owner"],
         },
       },
+      commitments: {
+        type: "array",
+        description: [
+          "Promises made IN THIS MEETING, in BOTH directions, that someone is",
+          "waiting on. This is a different list from actionItems: an action item",
+          "is work for our delivery team to schedule, a commitment is something",
+          "a person said they would do and can be chased for.",
+          "",
+          "Include only things actually promised out loud. Do NOT infer a",
+          "commitment from a topic being discussed, and do NOT restate every",
+          "action item here. If nobody promised anything, return an empty array",
+          "— that is a normal and common outcome.",
+        ].join("\n"),
+        items: {
+          type: "object",
+          properties: {
+            description: {
+              type: "string",
+              description: "What was promised, in one sentence. Concrete enough to chase.",
+            },
+            direction: {
+              type: "string",
+              enum: ["we_owe", "they_owe"],
+              description:
+                "we_owe = Loop Services promised it to the customer. they_owe = the customer promised it to us.",
+            },
+            dueDate: {
+              type: "string",
+              description:
+                "YYYY-MM-DD if a date was actually stated or clearly implied (\"by Friday\" with the meeting date known). Empty string if no date was given — do not invent one.",
+            },
+            saidBy: {
+              type: "string",
+              description: "Who made the promise, as named in the meeting. Empty string if unclear.",
+            },
+          },
+          required: ["description", "direction", "dueDate", "saidBy"],
+        },
+      },
       keyDetails: {
         type: "string",
         description: [
@@ -73,12 +112,20 @@ const ANALYSIS_TOOL: Anthropic.Tool = {
         ].join("\n"),
       },
     },
-    required: ["actionItems", "keyDetails"],
+    required: ["actionItems", "commitments", "keyDetails"],
   },
 };
 
+export interface ExtractedCommitment {
+  description: string;
+  direction: "we_owe" | "they_owe";
+  dueDate: string | null;
+  saidBy: string;
+}
+
 interface AnalysisResult {
   actionItems: { name: string; description: string; owner: string }[];
+  commitments: ExtractedCommitment[];
   keyDetails: string;
 }
 
@@ -157,11 +204,13 @@ export async function POST(req: NextRequest) {
 
     const prompt = `You are a senior NetSuite implementation PM at Loop Services reviewing a client meeting.
 
-Produce two things by calling the record_meeting_analysis tool:
+Produce three things by calling the record_meeting_analysis tool:
 
 1. The internal action items for the Loop delivery team. Use the Fireflies-detected action items as a starting point, but correct and ENRICH them from the transcript — Fireflies' versions are often one terse line with no context. Merge duplicates, drop anything resolved during the call, and add any commitment that was made in the transcript but missed. If the transcript shows no real internal actions, return an empty list rather than inventing work.
 
 2. A narrative briefing for the project manager. This is read by the PM, not by consultants — it goes to the project's Slack channel. Cover only what affects the project's success: timelines, upcoming meetings, decisions, risks, blockers and anything waiting on the client. Leave the task-level detail out of it; that is already captured on the ClickUp tasks in part 1.
+
+3. The commitments made in the call, in both directions. These are NOT the same as part 1: an action item is work for our team to schedule, a commitment is something a person said out loud that they would do and can be chased for — including things the CUSTOMER promised us. Capture only real promises. An empty list is a normal outcome and far better than a padded one.
 
 Base everything on what was actually said. Do not invent owners, dates, or decisions.
 
@@ -217,8 +266,28 @@ ${context}`;
       }))
       .filter(a => a.name);
 
+    // Same treatment as the action items, plus two rules that matter more here
+    // because these rows end up as chaseable obligations:
+    //   - an unrecognised direction is DROPPED, not defaulted. Guessing "we owe
+    //     them" vs "they owe us" inverts the meaning of the row, and the
+    //     owed_commitment suppression rule reads it to decide whether we are
+    //     allowed to email at all.
+    //   - a date that is not a real YYYY-MM-DD becomes null rather than being
+    //     coerced. "No date given" is a truthful state; a wrong due date makes
+    //     something look overdue that never was.
+    const commitments = (Array.isArray(parsed.commitments) ? parsed.commitments : [])
+      .map((c, i) => ({
+        id:          `cm-${i}`,
+        description: String(c?.description ?? "").trim(),
+        direction:   String(c?.direction ?? "").trim(),
+        dueDate:     /^\d{4}-\d{2}-\d{2}$/.test(String(c?.dueDate ?? "")) ? String(c.dueDate) : null,
+        saidBy:      String(c?.saidBy ?? "").trim(),
+      }))
+      .filter(c => c.description && (c.direction === "we_owe" || c.direction === "they_owe"));
+
     return NextResponse.json({
       actionItems,
+      commitments,
       keyDetails: String(parsed.keyDetails ?? "").trim(),
       transcriptLines,
       note,

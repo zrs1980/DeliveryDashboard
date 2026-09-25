@@ -27,6 +27,8 @@ export interface WizardMeeting {
 
 export interface WizardProject {
   id: number; label: string;
+  /** Commitments key on the CUSTOMER, not the project. Null on older rows. */
+  customerNsId?: string | null;
   folderUrl: string | null; hasFolder: boolean;
   clickupUrl: string | null; hasClickUp: boolean;
   slackChannel: string | null; hasSlack: boolean;
@@ -49,9 +51,20 @@ export interface WizardFiledDoc {
 /** What /api/meetings/analysis returns. `error` is set on a handled failure. */
 interface AnalysisResponse {
   actionItems?: { id: string; name: string; description: string; owner: string }[];
+  commitments?: { id: string; description: string; direction: "we_owe" | "they_owe";
+                  dueDate: string | null; saidBy: string }[];
   keyDetails?:  string;
   note?:        string | null;
   error?:       string;
+}
+
+interface Commitment {
+  id: string;
+  description: string;
+  direction: "we_owe" | "they_owe";
+  dueDate: string | null;
+  saidBy: string;
+  selected: boolean;
 }
 
 interface ActionItem {
@@ -89,6 +102,15 @@ export function ProcessMeetingWizard({
 
   const [items, setItems]           = useState<ActionItem[]>([]);
   const [keyDetails, setKeyDetails] = useState("");
+
+  // Commitments are a SEPARATE outcome from action items and go somewhere else:
+  // an action item becomes a ClickUp task for our team, a commitment is a
+  // promise either side made that can be chased. They share one extraction
+  // because the transcript is the expensive part.
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [cmBusy, setCmBusy]     = useState(false);
+  const [cmSaved, setCmSaved]   = useState(0);
+  const [cmError, setCmError]   = useState<string | null>(null);
 
   // Step 1 — ClickUp
   const [cuBusy, setCuBusy]       = useState(false);
@@ -166,6 +188,9 @@ export function ProcessMeetingWizard({
       setItems((data.actionItems ?? []).map((a: { id: string; name: string; description: string; owner: string }) => ({
         ...a, selected: true,
       })));
+      setCommitments((data.commitments ?? []).map((c: Omit<Commitment, "selected">) => ({
+        ...c, selected: true,
+      })));
       setKeyDetails(data.keyDetails ?? "");
       setAnalysisNote(data.note ?? null);
       setStep("actions");
@@ -184,6 +209,32 @@ export function ProcessMeetingWizard({
 
   const patch = (id: string, next: Partial<ActionItem>) =>
     setItems(list => list.map(i => (i.id === id ? { ...i, ...next } : i)));
+
+  async function recordCommitments() {
+    const chosen = commitments.filter(c => c.selected && c.description.trim());
+    if (!chosen.length || !project.customerNsId) return;
+    setCmBusy(true); setCmError(null);
+    try {
+      const res = await fetch("/api/cs/commitments", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerNsId: project.customerNsId,
+          sourceType: "meeting",
+          sourceId: meeting.id,
+          commitments: chosen.map(c => ({
+            description: c.description.trim(), direction: c.direction, dueDate: c.dueDate ?? "",
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.hint ? `${json.error} ${json.hint}` : json?.error);
+      setCmSaved(json.written ?? chosen.length);
+      // Recorded rows leave the list, so pressing the button twice cannot
+      // double-record the same promise.
+      setCommitments(l => l.filter(c => !chosen.some(x => x.id === c.id)));
+    } catch (e) { setCmError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setCmBusy(false); }
+  }
 
   // ── Step 1 → create ClickUp tasks ──────────────────────────────────────────
   const createTasks = async () => {
@@ -481,6 +532,98 @@ export function ProcessMeetingWizard({
               >
                 + Add an action item
               </button>
+
+              {/* ── Commitments ────────────────────────────────────────────
+                  Deliberately below the action items and visually separate:
+                  they are a different kind of thing going to a different place.
+                  Nothing here reaches the database until this button is pressed,
+                  which is what makes `confirmed_by_human` on the row true. */}
+              {commitments.length > 0 && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>
+                    Commitments made in this call
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.textSub, margin: "3px 0 11px", lineHeight: 1.55 }}>
+                    Promises either side made, separate from the tasks above. An overdue one
+                    we owe blocks outreach to this customer until it is closed.
+                  </div>
+
+                  {cmSaved > 0 && (
+                    <Banner tone="green" title={`✓ ${cmSaved} commitment${cmSaved === 1 ? "" : "s"} recorded`}>
+                      They now appear on the customer and are checked before any email is drafted.
+                    </Banner>
+                  )}
+                  {cmError && <Banner tone="red" title="Not recorded">{cmError}</Banner>}
+                  {!project.customerNsId && (
+                    <Banner tone="yellow" title="No customer on this project">
+                      Commitments are recorded against the customer, and this project has none in
+                      NetSuite. Everything else on this meeting still works.
+                    </Banner>
+                  )}
+
+                  <div style={{ display: "grid", gap: 7 }}>
+                    {commitments.map(c => (
+                      <div key={c.id} style={{
+                        display: "flex", gap: 9, alignItems: "flex-start",
+                        border: `1px solid ${C.border}`, borderRadius: 8,
+                        background: C.surface, padding: "9px 12px",
+                        opacity: c.selected ? 1 : 0.5,
+                      }}>
+                        <input type="checkbox" checked={c.selected} style={{ marginTop: 3 }}
+                               onChange={e => setCommitments(l => l.map(x =>
+                                 x.id === c.id ? { ...x, selected: e.target.checked } : x))} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <input
+                            value={c.description}
+                            onChange={e => setCommitments(l => l.map(x =>
+                              x.id === c.id ? { ...x, description: e.target.value } : x))}
+                            style={{ width: "100%", boxSizing: "border-box", padding: "5px 9px",
+                                     fontSize: 12.5, border: `1px solid ${C.border}`,
+                                     borderRadius: 6, fontFamily: C.font }}
+                          />
+                          <div style={{ display: "flex", gap: 7, marginTop: 6, flexWrap: "wrap" }}>
+                            <select
+                              value={c.direction}
+                              onChange={e => setCommitments(l => l.map(x =>
+                                x.id === c.id ? { ...x, direction: e.target.value as Commitment["direction"] } : x))}
+                              style={{ padding: "3px 8px", fontSize: 11.5, fontWeight: 600,
+                                       fontFamily: C.font, borderRadius: 5, cursor: "pointer",
+                                       color: c.direction === "we_owe" ? C.orange : C.blue,
+                                       background: c.direction === "we_owe" ? C.orangeBg : C.blueBg,
+                                       border: `1px solid ${c.direction === "we_owe" ? C.orangeBd : C.blueBd}` }}
+                            >
+                              <option value="we_owe">We owe them</option>
+                              <option value="they_owe">They owe us</option>
+                            </select>
+                            <input
+                              type="date" value={c.dueDate ?? ""}
+                              onChange={e => setCommitments(l => l.map(x =>
+                                x.id === c.id ? { ...x, dueDate: e.target.value || null } : x))}
+                              style={{ padding: "3px 8px", fontSize: 11.5, fontFamily: C.mono,
+                                       border: `1px solid ${C.border}`, borderRadius: 5 }}
+                            />
+                            {c.saidBy && (
+                              <span style={{ fontSize: 11, color: C.textSub, alignSelf: "center" }}>
+                                said by {c.saidBy}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={recordCommitments}
+                    disabled={cmBusy || !project.customerNsId
+                      || commitments.filter(c => c.selected && c.description.trim()).length === 0}
+                    style={{ ...btn(C.blueBg, C.blue, C.blueBd), marginTop: 10 }}
+                  >
+                    {cmBusy ? "Recording…"
+                      : `Record ${commitments.filter(c => c.selected && c.description.trim()).length} commitment(s)`}
+                  </button>
+                </div>
+              )}
             </>
           )}
 
