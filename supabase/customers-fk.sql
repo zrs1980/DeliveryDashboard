@@ -125,9 +125,27 @@ $$;
 -- `pm_crm_opps_touch`, …). Everything else on the table keeps firing. ALTER
 -- TABLE is transactional in Postgres, so a failure rolls the disable back with
 -- everything else — the triggers cannot be left off.
+--
+-- ⚠ SECURITY DEFINER, AND IT IS REQUIRED — NOT A CONVENIENCE.
+--
+-- `ALTER TABLE ... DISABLE TRIGGER` demands table ownership. The SQL editor
+-- runs as `postgres`, which owns these tables, so running this file by hand
+-- works either way. **The nightly job does not**: syncCustomers() reaches this
+-- through supabase.rpc() as the service role, which is not the owner, and the
+-- first real run failed with `must be owner of table pm_crm_contacts`. Without
+-- SECURITY DEFINER the repair pass silently stops running the moment it leaves
+-- the SQL editor — which is the only place it is not needed.
+--
+-- `search_path` is pinned because a SECURITY DEFINER function runs with the
+-- owner's rights, and an unpinned path lets a caller shadow `customers` or
+-- `pg_trigger` with something of their own.
 
 CREATE OR REPLACE FUNCTION customers_relink_all()
-RETURNS TABLE(table_name text, linked bigint) LANGUAGE plpgsql AS $$
+RETURNS TABLE(table_name text, linked bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE t text; n bigint; g text; touch_triggers text[];
 BEGIN
   FOREACH t IN ARRAY customers_linked_tables() LOOP
@@ -201,6 +219,11 @@ BEGIN
       t || '_customer_link', t);
   END LOOP;
 END $$;
+
+-- The service role calls this nightly from syncCustomers(); the function is
+-- SECURITY DEFINER so the body runs as the owner, but EXECUTE still has to be
+-- granted to the roles that invoke it.
+GRANT EXECUTE ON FUNCTION customers_relink_all() TO service_role, authenticated;
 
 SELECT * FROM customers_relink_all();
 

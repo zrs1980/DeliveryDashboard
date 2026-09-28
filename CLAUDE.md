@@ -2587,6 +2587,16 @@ installs a trigger that keeps it filled. Dry-run against production September
   function is `cs_set_updated_at` are touched, found by name at runtime because
   the naming is inconsistent (`cs_contacts_updated_at`, `pm_crm_opps_touch`);
   ALTER TABLE is transactional, so they cannot be left off.
+- **⚠ `customers_relink_all()` must be SECURITY DEFINER, and that is not a
+  convenience.** Disabling a trigger demands table ownership. The SQL editor
+  runs as `postgres`, which owns these tables, so running the file by hand
+  works either way — **the nightly job does not.** `syncCustomers()` reaches it
+  through `supabase.rpc()` as the service role, and the first real run failed
+  with `must be owner of table pm_crm_contacts`. Without SECURITY DEFINER the
+  repair pass silently stops running the moment it leaves the one place it is
+  not needed. `search_path` is pinned for the usual reason. Reproduced and
+  fixed by calling the function under `SET ROLE service_role` in a rolled-back
+  transaction — the only way to see this, since a postgres connection cannot.
 - **`customers_relink_all()` is the repair pass, and re-running IS the fix.**
   The backfill is written as "set it to what it should be", not "set it where
   null", so it is idempotent *and* self-healing: it re-points children of a
