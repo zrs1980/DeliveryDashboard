@@ -5,6 +5,7 @@ import CrmAccountPage from "@/components/dashboard/CrmAccountPage";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsAgentMetrics from "@/components/dashboard/CsAgentMetrics";
 import CsTriage from "@/components/dashboard/CsTriage";
+import CsFocus from "@/components/dashboard/CsFocus";
 import CsDraftQueue from "@/components/dashboard/CsDraftQueue";
 import CsReleases from "@/components/dashboard/CsReleases";
 
@@ -71,7 +72,8 @@ export default function CustomerSuccessView() {
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
-  const [mode,     setMode]     = useState<"triage" | "drafts" | "releases" | "accounts" | "renewals" | "agent">("triage");
+  const [mode,     setMode]     = useState<
+    "focus" | "triage" | "drafts" | "releases" | "accounts" | "renewals" | "agent">("focus");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,7 +148,7 @@ export default function CustomerSuccessView() {
         </span>
         <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
                       borderRadius: 7, padding: 2 }}>
-          {(["triage", "drafts", "releases", "accounts", "renewals", "agent"] as const).map(m => (
+          {(["focus", "triage", "drafts", "releases", "accounts", "renewals", "agent"] as const).map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -157,7 +159,7 @@ export default function CustomerSuccessView() {
                 fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
               }}
             >
-              {m === "triage" ? "Triage" : m === "drafts" ? "Drafts" : m === "releases" ? "Releases" : m === "accounts" ? "Accounts" : m === "renewals" ? "Renewals" : "Agent"}
+              {m === "focus" ? "Focus" : m === "triage" ? "Triage" : m === "drafts" ? "Drafts" : m === "releases" ? "Releases" : m === "accounts" ? "Accounts" : m === "renewals" ? "Renewals" : "Agent"}
             </button>
           ))}
         </div>
@@ -182,6 +184,18 @@ export default function CustomerSuccessView() {
         }}>
           Could not load customers: {error}
         </div>
+      )}
+
+      {/* ⚠ FOCUS IS THE DEFAULT, TRIAGE IS NO LONGER.
+          Triage answers "which accounts have a flag", which is one of the six
+          reasons to act and not usually the most urgent — a renewal notice
+          inside 30 days and a draft that has been waiting a week never appeared
+          on it at all. Focus covers all six, says why each is there, and hands
+          flags back to Triage below high severity rather than being a second,
+          worse copy of it. Opening a row lands on the same customer page the
+          CRM tab opens. */}
+      {mode === "focus" && (
+        <CsFocus onOpenCustomer={(id, name) => { setSelected({ id, name }); setMode("accounts"); }} />
       )}
 
       {mode === "triage" && (

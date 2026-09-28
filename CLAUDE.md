@@ -2703,6 +2703,56 @@ tabs land on the identical page.
 - **"No flags" does not say "healthy"** — several rules ship disabled for want
   of data, so the empty state says what was actually evaluated.
 
+### Focus — the default CS view (slice 6)
+
+`lib/cs-focus.ts` · `app/api/cs/focus/route.ts` ·
+`components/dashboard/CsFocus.tsx` · `scripts/try-cs-focus.ts`
+
+"Which customers should I open this morning, and why." Six sections: renewal
+decision due · drafts waiting · we owe them, overdue · serious flags · quiet
+under an active contract · never health-checked. **It replaced Triage as the CS
+tab's default.**
+
+- **Grouped by reason to act, never ranked into one list.** A single ranked list
+  forces a comparison the data cannot support — is a notice due in 20 days more
+  urgent than a draft waiting three? There is no honest answer, and a composite
+  score invented to produce one is confident and wrong. Each section states its
+  own reason, in its own words, always visible rather than in a tooltip.
+- **Triage is still the flags view and Focus does not duplicate it.** Every open
+  flag put **23 accounts** here on the first run, most banded `healthy` with one
+  or two low-severity flags — a list nobody would work. Focus now shows **high
+  and critical only**, names the flag's own title rather than a count, and says
+  how many lower-severity ones are waiting in Triage. Triage ranks by severity,
+  holds the evidence and owns dismiss-with-reason; this section exists to
+  interrupt you.
+- **⚠ A section where EVERY eligible account qualifies is a fact about a
+  process, not a list.** 87 of 87 customers have no health check recorded; that
+  does not mean "open 87 accounts", it means the quarterly call is not being
+  recorded at all. `FocusSection.summary` says it in one sentence and the list
+  is dropped. Not a display cap — the test is literally "all of them".
+- **Three empty states that must never look alike**: genuinely nothing to do;
+  a source that could not be read (amber — an unevaluated check is not a passed
+  one); and **a source nothing has ever written to**. The third is the dangerous
+  one — "no overdue commitments" reads as reassurance when the truth is that no
+  commitment has ever been recorded, the exact failure `lib/cs-suppression.ts`
+  had to be fixed for. `cs_commitments` is probed for ANY row before a zero is
+  trusted.
+- **The quiet-account section is gated on an active contract**, the same
+  load-bearing clause as the `silent_account` rule. Without it, most of the book
+  appears, because most accounts are finished implementations rather than live
+  relationships going quiet.
+- **RAG only where a section earned it** — notice deadlines and serious flags
+  are dated facts or defended judgments. "Quiet 200 days" and "a draft is
+  waiting" get no colour, and a neutral row gets no dot at all rather than a
+  grey one: decorative colour is what stops real colour meaning anything.
+- **`cs_outreach_drafts` has `generated_at`, not `created_at`**, and the waiting
+  statuses are `draft` · `edited` · `approved`. `snoozed` is parked on purpose,
+  `expired` is regenerated rather than sent late, and expiry is filtered on read
+  here as everywhere else in the queue.
+- `scripts/try-cs-focus.ts` prints the whole thing and **warns when any section
+  exceeds 20 rows** — "a section that long is a list to ignore". That check
+  caught both problems above on the first run; the item count went 110 → 24 → 1.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to
