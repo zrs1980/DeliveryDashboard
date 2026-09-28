@@ -127,8 +127,17 @@ CREATE INDEX IF NOT EXISTS customers_stage_idx  ON customers (stage);
 -- syncCustomers() in lib/customers.ts, run at the start of the nightly job and
 -- reachable on demand. Two sources, matching the two shapes of `key`:
 --
---   netsuite → fetchCsCustomers()  — customer where isinactive = 'F' (180)
---   local    → pm_crm_accounts     — where linked_ns_id IS NULL
+--   netsuite → EVERY customer record, active or not (445; 265 inactive)
+--   local    → pm_crm_accounts — where linked_ns_id IS NULL
+--
+-- ⚠ THE UNIVERSE HERE IS WIDER THAN `fetchCsCustomers()`, WHICH FILTERS
+-- `isinactive = 'F'` (180 rows) AND IS RIGHT TO. Measured September 2026: the
+-- CRM holds 295 deals and 815 contacts imported before the NetSuite sync was
+-- retired, and 67 of the customers they reference have since been deactivated.
+-- Against the active-only list, 23 contact keys and 59 opportunity keys
+-- resolved to nothing — so the foreign key below would have rejected real,
+-- wanted history. Being in this table is not a claim that a customer is live;
+-- it is a claim that something references them. `is_active` says which.
 --
 -- There is no seed SQL here on purpose. A seed and a builder that both write
 -- the same table drift, and the builder is the one that has to keep running.

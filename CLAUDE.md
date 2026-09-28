@@ -2503,6 +2503,17 @@ this customer" and no referential integrity anywhere.
   the NetSuite row that took over, and `customerIdByKey()` resolves the old
   `local:` key to it — so CRM history written before the link shows up on the
   real account instead of on a shell nobody opens.
+- **⚠ The universe is EVERY customer record, inactive ones included — wider
+  than `fetchCsCustomers()`, which filters `isinactive = 'F'` and is right to.**
+  445 rows, 265 of them inactive, against the scoring universe's 180. Measured:
+  the CRM holds 295 deals and 815 contacts imported before the NetSuite sync was
+  retired, and **67 of the customers they reference have since been deactivated**
+  — so against the active-only list, 23 contact keys and 59 opportunity keys
+  resolved to nothing and slice 2's foreign key would have rejected real, wanted
+  history. Being in this table is not a claim that a customer is live; it is a
+  claim that something references them, and `is_active` (NetSuite's own flag,
+  not "did we see it this run") says which. Verified: of those 67, zero were
+  active, zero were missing from NetSuite, zero were local.
 - **`syncCustomers()` runs FIRST in the nightly job**, where `buildCustomerIndex()`
   runs last. Opposite ends for opposite reasons: the index caches the scores the
   run just produced; the identity table has to exist before anything writes a row
@@ -2518,7 +2529,19 @@ this customer" and no referential integrity anywhere.
   half of that script is the gate on slice 2: it counts, per table, how many
   distinct keys fail to resolve to a customer row. Anything non-zero has to be
   explained before a foreign key is added, because "it should be fine" is not a
-  number.
+  number — and on the first real run it was 82, which is how the universe above
+  got widened. **As of 28 September 2026 every key in every deployed table
+  resolves.**
+- **There are no Supabase credentials in `.env.local`.** `npx vercel env pull
+  .env.vercel --environment=production` gets them; the file is gitignored
+  because it carries `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS on
+  everything. Run the scripts with `--env-file=.env.vercel`.
+- **⚠ `pm_crm_accounts` in production is missing `email` and `address`** — the
+  two ALTERs at the BOTTOM of `supabase/pm-crm-accounts.sql` never ran. **This
+  breaks `POST /api/crm/accounts` outright**, so creating a local prospect
+  currently fails; `pm_crm_accounts` holds zero rows. The sync degrades to a
+  warning rather than refusing, because identity must not break over an optional
+  contact field, but the warning is the fix instruction. Run those ALTERs.
 
 ### The customer timeline — `pm_crm_activities` is the one feed
 

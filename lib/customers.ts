@@ -13,7 +13,7 @@
 // and stays there.
 
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { fetchCsCustomers } from "@/lib/cs-customers";
+import { runSuiteQLAll } from "@/lib/netsuite";
 import { LOCAL_PREFIX, localAccountId } from "@/lib/crm-accounts";
 
 export interface CustomerRow {
@@ -39,10 +39,59 @@ export interface CustomerRow {
 
 export interface SyncResult {
   netsuite:     number;
+  /** Of `netsuite`, how many are inactive in NetSuite and carried for history only. */
+  netsuiteInactive: number;
   local:        number;
   deactivated:  number;
   merged:       number;
   warnings:     string[];
+}
+
+/**
+ * ⚠ THE IDENTITY UNIVERSE IS EVERY CUSTOMER, INACTIVE ONES INCLUDED — and it is
+ * deliberately WIDER than `fetchCsCustomers()`, which filters `isinactive = 'F'`
+ * and is right to.
+ *
+ * Measured September 2026: the CRM holds 295 deals and 815 contacts imported
+ * before the NetSuite sync was retired, and **67 distinct customers they
+ * reference have since been deactivated in NetSuite**. Against the active-only
+ * list, 23 contact keys and 59 opportunity keys resolved to nothing — so slice
+ * 2's foreign key would have rejected them and the migration would have failed
+ * on real, wanted history. (Verified: of those 67, zero are active, zero are
+ * missing from NetSuite, zero are local.)
+ *
+ * This is exactly what `is_active` is for. Being in this table is not a claim
+ * that a customer is live; it is a claim that something references them. The
+ * scoring universe stays 180 and stays elsewhere.
+ */
+async function fetchAllCustomersForIdentity() {
+  const rows = await runSuiteQLAll<Record<string, string | null>>(`
+    SELECT
+      c.id, c.entityid, c.companyname, c.email, c.phone, c.url,
+      c.isinactive,
+      c.subsidiary,
+      c.stage,
+      BUILTIN.DF(c.custentity_esc_industry) AS industry
+    FROM customer c
+    ORDER BY c.companyname ASC
+  `);
+
+  return (rows ?? [])
+    .map(r => ({
+      id:         String(r.id),
+      entityid:   r.entityid || null,
+      name:       r.companyname || r.entityid || String(r.id),
+      email:      r.email || null,
+      phone:      r.phone || null,
+      website:    r.url || null,
+      industry:   r.industry || null,
+      // SuiteQL omits a never-set checkbox entirely, so test for "T" — the
+      // repo-wide rule. An absent key here means active, which is correct.
+      isActive:   r.isinactive !== "T",
+      subsidiaryId: r.subsidiary ? parseInt(String(r.subsidiary)) : null,
+      stage:      r.stage || null,
+    }))
+    .filter(c => c.name);
 }
 
 /**
@@ -62,22 +111,42 @@ export async function syncCustomers(): Promise<SyncResult> {
   const warnings: string[] = [];
   const supabase = getSupabaseAdmin();
 
-  // ─── Source 1: NetSuite ───────────────────────────────────────────────────
-  // Same universe as the index — every active customer record, prospects and
-  // leads included. `stage` is what separates someone to score from someone to
-  // sell to; being in this table is not a judgment about either.
-  const nsCustomers = await fetchCsCustomers();
+  // ─── Source 1: NetSuite, ALL of it ────────────────────────────────────────
+  // Including inactive records — see fetchAllCustomersForIdentity() for the
+  // measurement that forced this. Prospects and leads are here too; `stage` is
+  // what separates someone to score from someone to sell to, and being in this
+  // table is not a judgment about either.
+  const nsCustomers = await fetchAllCustomersForIdentity();
 
   // ─── Source 2: the local holding pen ──────────────────────────────────────
   // Only rows still waiting for NetSuite. A linked row is handled below: it is
   // retired and pointed at the NetSuite account that took it over, rather than
   // being resurrected here every night.
-  const { data: locals, error: localErr } = await supabase
-    .from("pm_crm_accounts")
-    .select("id, name, domain, website, phone, email, industry, subsidiary_id, stage, linked_ns_id");
+  // `email` and `address` are added by ALTERs at the BOTTOM of
+  // supabase/pm-crm-accounts.sql, and a database where only the CREATE ran
+  // does not have them — which is the state production was in when this was
+  // written. Identity sync must not be the thing that breaks over an optional
+  // contact field, so a missing column degrades to a warning and the base
+  // columns. It is a WARNING and not silence because the same gap breaks
+  // `POST /api/crm/accounts`, which inserts both.
+  const BASE_COLS = "id, name, domain, website, phone, industry, subsidiary_id, stage, linked_ns_id";
+  let { data: locals, error: localErr } = await supabase
+    .from("pm_crm_accounts").select(`${BASE_COLS}, email`);
+
+  if (localErr && /column .* does not exist/i.test(localErr.message)) {
+    warnings.push(
+      `pm_crm_accounts is missing a column (${localErr.message}) — local prospects ` +
+      `synced without it. Run the ALTER statements at the end of ` +
+      `supabase/pm-crm-accounts.sql; until you do, creating a prospect fails outright.`,
+    );
+    ({ data: locals, error: localErr } = await supabase
+      .from("pm_crm_accounts").select(BASE_COLS));
+  }
+
   if (localErr) {
-    // Not fatal, but it must be said out loud: without this read every local
-    // prospect would look like it had vanished and get deactivated.
+    // Not fatal to the database, but fatal to this run, and it must be said out
+    // loud: carrying on would read as "every local prospect has vanished" and
+    // deactivate all of them.
     throw new Error(
       `Could not read pm_crm_accounts: ${localErr.message}. ` +
       `Refusing to sync customers, because every local prospect would be ` +
@@ -92,11 +161,11 @@ export async function syncCustomers(): Promise<SyncResult> {
 
   const rows = [
     ...nsCustomers.map(c => ({
-      key:           String(c.id),
-      ns_id:         String(c.id),
+      key:           c.id,
+      ns_id:         c.id,
       local_id:      null,
-      name:          c.companyname,
-      entityid:      c.entityid || null,
+      name:          c.name,
+      entityid:      c.entityid,
       email:         c.email,
       phone:         c.phone,
       website:       c.website,
@@ -104,8 +173,10 @@ export async function syncCustomers(): Promise<SyncResult> {
       subsidiary_id: c.subsidiaryId,
       stage:         c.stage,
       source:        "netsuite" as const,
-      is_active:     true,
-      deactivated_at: null,
+      // NetSuite's own flag, not "did we see it in this run". A row still
+      // resolves when inactive — that is the point — it just says so.
+      is_active:      c.isActive,
+      deactivated_at: c.isActive ? null : now,
       refreshed_at:  now,
     })),
     ...liveLocals.map(a => ({
@@ -114,7 +185,7 @@ export async function syncCustomers(): Promise<SyncResult> {
       local_id:      a.id,
       name:          a.name,
       entityid:      null,
-      email:         a.email ?? null,
+      email:         ("email" in a ? a.email : null) ?? null,
       phone:         a.phone ?? null,
       website:       a.website ?? a.domain ?? null,
       industry:      a.industry ?? null,
@@ -141,9 +212,10 @@ export async function syncCustomers(): Promise<SyncResult> {
   }
 
   // ─── Retire what is no longer there ───────────────────────────────────────
-  // Soft, and only for rows that were active. A customer reappearing in
-  // NetSuite comes back through the upsert above with is_active = true, so this
-  // is reversible by itself.
+  // Now a genuinely rare path: the query above returns every customer record in
+  // the account, so this only fires for one DELETED outright in NetSuite. Soft,
+  // and only for rows that were active. A customer reappearing comes back
+  // through the upsert with is_active = true, so this is reversible by itself.
   let deactivated = 0;
   const keep = rows.map(r => r.key);
   if (keep.length) {
@@ -183,6 +255,7 @@ export async function syncCustomers(): Promise<SyncResult> {
 
   return {
     netsuite: nsCustomers.length,
+    netsuiteInactive: nsCustomers.filter(c => !c.isActive).length,
     local:    liveLocals.length,
     deactivated,
     merged,

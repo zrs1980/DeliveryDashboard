@@ -34,6 +34,8 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+# Pulled from Vercel — carries SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS
+.env.vercel
 # .env.example is intentionally tracked
 
 # vercel

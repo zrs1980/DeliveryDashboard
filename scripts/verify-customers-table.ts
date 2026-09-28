@@ -38,7 +38,7 @@ async function main() {
   console.log("── Syncing customers ──────────────────────────────────────────\n");
 
   const r = await syncCustomers();
-  console.log(`  NetSuite customers : ${r.netsuite}`);
+  console.log(`  NetSuite customers : ${r.netsuite}  (${r.netsuiteInactive} inactive, carried for history)`);
   console.log(`  Local prospects    : ${r.local}`);
   console.log(`  Retired this run   : ${r.deactivated}`);
   console.log(`  Merged this run    : ${r.merged}`);
