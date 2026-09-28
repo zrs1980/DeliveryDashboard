@@ -2587,6 +2587,59 @@ installs a trigger that keeps it filled. Dry-run against production September
   and strips `sslmode` from the connection string, because pg now reads
   `require` as `verify-full` and Supabase serves a self-signed chain.
 
+### `GET /api/customers/[id]` — the whole customer (slice 3)
+
+`lib/customer-record.ts` · `app/api/customers/[id]/route.ts` ·
+`scripts/try-customer-record.ts`
+
+Identity, people, deals, tasks, timeline, projects and contracts for ONE
+customer, in one request. Nothing could answer "everything about this customer"
+before: `CrmAccountPage` assembled an account from four routes, the CS panel
+assembled the same account from four different ones, and the only thing
+rendered twice was the contract — by two different components.
+
+- **⚠ The `cs_layer` boundary is a TYPE boundary here.** `CustomerRecord.cs` is
+  optional and is **absent** for a reader without `cs_layer` — not zeroed, not
+  nulled, not sent-and-hidden. A component handed a record without it cannot
+  leak a health band because it was never given one. Same reasoning as
+  `CustomerFacingPack` in `lib/cs-qbr.ts`: "remember not to render that field"
+  is not a safeguard.
+- **The route is session-gated, not `cs_layer`-gated.** The difference is in the
+  RESPONSE, not the access check. Identity, people, deals and projects are
+  ordinary commercial work. Health, flags, profile and drafts are judgments.
+- **Contracts sit OUTSIDE the boundary, deliberately** — dates, term, value and
+  notice deadline are facts needed for ordinary commercial work, the line the
+  CRM module already draws. `cs_contracts.notes` is CS-authored commentary and
+  stays in: the overlay read selects `source, notice_period_days` **only**.
+  Never widen it to `*`.
+- **`id` accepts three forms** — a NetSuite id, a `local:<uuid>` key, or a
+  `customers.id` uuid — because the callers genuinely hold different things.
+  A merged local key resolves to the account that took it over, so an old
+  bookmark lands on the live customer rather than a retired shell.
+- **A missing `customers` row is not a 404.** `supabase/customers.sql` may not
+  have been run; a NetSuite id is still a usable key, so `resolveCustomerKey`
+  falls through with `id: null`.
+- **Projects come from a direct `job` query, not `/api/projects`** — that route
+  fans out to ClickUp once per project across the whole portfolio, far too heavy
+  for one account. Same reasoning as `/api/projects/folders`.
+- **A local account returns empty projects and contracts and flags itself
+  `isLocal`.** "No projects found" and "this account does not exist in NetSuite"
+  are different claims and the caller must not render the second as the first.
+  It also gets `netsuiteUrl: null` — never link `custjob.nl?id=local:<uuid>`.
+- **`scripts/try-customer-record.ts` prints the record TWICE**, as a `cs_layer`
+  reader and as a consultant, and greps the consultant copy for any health-
+  shaped key. The claim being made is about ABSENCE, and the only way to check
+  one is to look at both. Verified September 2026 on Salt and Stone (health 83,
+  profile, 10 projects) and Sortera (picks the Active 2027 term over the expired
+  2025–26 one, and labels the countdown "END (no notice period recorded)"
+  rather than inventing a notice deadline).
+
+> **Not done in this slice: the two LIST shapes still differ.** `/api/customers`
+> returns `CsCustomer` and `/api/cs/customers` returns its own flattened index
+> row, and six components read one or the other. Retiring that split means
+> moving those components, which belongs with the unified page — doing it here
+> would have been a rewrite with nothing to show for it.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to
