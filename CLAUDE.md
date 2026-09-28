@@ -2472,6 +2472,54 @@ unchanged (`scripts/verify-agent-loop.ts` is the acceptance test):
 - **The agent cron needs a Vercel plan allowing sub-daily schedules**
   (`*/5 7-8 * * *`). On a plan limited to daily crons it will not run.
 
+### `customers` — the identity table (slice 1 of the CRM+CS merge)
+
+`supabase/customers.sql` · `lib/customers.ts` · `scripts/verify-customers-table.ts`
+
+A thin table holding who a customer IS. Every module already agreed on a join
+key — `customer_ns_id text`, on 22 deployed tables, with **zero foreign keys** —
+but there was no row to point at, so there was no way to ask "everything about
+this customer" and no referential integrity anywhere.
+
+- **It is NOT `cs_customer_index`, and the difference is load-bearing.** That
+  one says in capitals that it is a cache, safe to drop and rebuild, and it
+  prunes rows that vanish. You cannot hang foreign keys off something you are
+  allowed to truncate. `customers` is never truncated and **never deletes**: a
+  customer going inactive in NetSuite gets `is_active = false`. Health, hours,
+  contracts and flags stay in the index, which stays droppable.
+- **Nothing judgmental lives in it.** No score, no band, no flag count — not
+  tidiness, but the `cs_layer` boundary: this is the one table every module
+  joins to, so a risk field landing here would mean every route that touches it
+  suddenly has to think about who is asking. Keep it identity-only.
+- **`key` is the migration's whole safety argument.** It holds *verbatim* what
+  the existing `customer_ns_id` columns hold, heterogeneity included — a
+  NetSuite id as text, **or** a `local:<uuid>` for a prospect NetSuite has never
+  heard of (`lib/crm-accounts.ts`). `ns_id` / `local_id` decompose it, a CHECK
+  makes `key` derivable rather than hand-editable, and a CHECK enforces exactly
+  one origin. So slice 2 backfills `customer_id` on `key = customer_ns_id` with
+  **no existing value rewritten anywhere** — and no local prospect orphaned,
+  which a naive FK to a NetSuite-keyed table would have done to all of them.
+- **A linked local prospect is retired, not deleted.** `merged_into` points at
+  the NetSuite row that took over, and `customerIdByKey()` resolves the old
+  `local:` key to it — so CRM history written before the link shows up on the
+  real account instead of on a shell nobody opens.
+- **`syncCustomers()` runs FIRST in the nightly job**, where `buildCustomerIndex()`
+  runs last. Opposite ends for opposite reasons: the index caches the scores the
+  run just produced; the identity table has to exist before anything writes a row
+  that references it. A sync failure warns and lets scoring continue — scoring
+  reads NetSuite directly — but slice 2's foreign keys will not be so relaxed.
+- **`first_seen_at` is deliberately absent from the upsert payload.** Supabase
+  writes every column it is given, so including it would reset "we have known
+  about this customer since…" to today, every night.
+- **A failed `pm_crm_accounts` read throws rather than continuing.** Carrying on
+  would read as "every local prospect has vanished" and deactivate all of them.
+- Run `supabase/customers.sql` by hand, then
+  `npx tsx --env-file=.env.local scripts/verify-customers-table.ts`. The second
+  half of that script is the gate on slice 2: it counts, per table, how many
+  distinct keys fail to resolve to a customer row. Anything non-zero has to be
+  explained before a foreign key is added, because "it should be fine" is not a
+  number.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to

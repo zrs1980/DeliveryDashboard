@@ -4,6 +4,7 @@ import { computeAllSignals, applySupabaseSignals } from "@/lib/cs-signals";
 import { evaluateRules, scoreFrom, STARTER_RULES, RULES_VERSION, type FiredFlag } from "@/lib/cs-rules";
 import { fetchNsContracts, currentContractByCustomer } from "@/lib/cs-ns-contracts";
 import { buildCustomerIndex } from "@/lib/cs-customer-index";
+import { syncCustomers } from "@/lib/customers";
 
 // ─── The nightly run ────────────────────────────────────────────────────────
 //
@@ -26,6 +27,8 @@ export interface ScoringRunResult {
   scored:         number;
   /** Rows written to cs_customer_index. 0 means the rebuild failed — see warnings. */
   indexed:        number;
+  /** Rows in the `customers` identity table after the sync at the start of the run. */
+  customers:      number;
   flagsRaised:    number;
   flagsUpdated:   number;
   flagsResolved:  number;
@@ -46,6 +49,32 @@ export async function runHealthScoring(): Promise<ScoringRunResult> {
   const startedAt = new Date().toISOString();
   const warnings: string[] = [];
   const supabase = getSupabaseAdmin();
+
+  // ─── The identity table comes FIRST ────────────────────────────────────
+  //
+  // `customers` is what ~20 tables hang a foreign key off, so a customer that
+  // appeared in NetSuite today needs a row before anything in this run writes
+  // a record that references it. That is the opposite end of the job from the
+  // index rebuild, which runs LAST because it caches the scores this run
+  // produces.
+  //
+  // A failure here does not stop the run: scoring reads NetSuite directly and
+  // does not depend on this table. But it is loud, because every foreign key
+  // added in slice 2 does.
+  let customerCount = 0;
+  try {
+    const synced = await syncCustomers();
+    customerCount = synced.netsuite + synced.local;
+    warnings.push(...synced.warnings);
+    if (synced.deactivated) warnings.push(`${synced.deactivated} customer(s) retired — no longer active in NetSuite.`);
+    if (synced.merged)      warnings.push(`${synced.merged} local prospect(s) merged into their NetSuite account.`);
+  } catch (e) {
+    warnings.push(
+      `Customer identity table not synced: ${e instanceof Error ? e.message : "unknown"}. ` +
+      `Scoring continues — it reads NetSuite directly — but anything joining on ` +
+      `customers.id is working from the previous sync.`,
+    );
+  }
 
   const index = await fetchCustomerProjectIndex();
 
@@ -243,6 +272,7 @@ export async function runHealthScoring(): Promise<ScoringRunResult> {
   return {
     scored: snapshots.length,
     indexed,
+    customers: customerCount,
     flagsRaised: toInsert.length,
     flagsUpdated: toUpdate.length,
     flagsResolved: toResolve.length,
