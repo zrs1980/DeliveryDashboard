@@ -19,7 +19,7 @@ import { WikiView } from "@/components/dashboard/WikiView";
 import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView";
 import { SRDashboardView } from "@/components/dashboard/SRDashboardView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
-import { CustomersView } from "@/components/dashboard/CustomersView";
+import CustomersArea from "@/components/dashboard/CustomersArea";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
@@ -61,16 +61,22 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "wiki",             label: "Company Wiki",    icon: "📚" },
   { id: "service-requests", label: "Service Requests", icon: "💼" },
   { id: "employee",         label: "My Leave",         icon: "🌴" },
+  // ⚠ ONE CUSTOMERS TAB, NOT THREE. It used to sit beside "Customer Success"
+  // and "CRM", each with its own account list reached from its own nav entry,
+  // so "where do I look for this customer?" had three answers. CustomersArea
+  // owns one bar over the same three views; the CS entries in it appear only
+  // for a cs_layer holder, and only as a courtesy — every /api/cs/* route
+  // enforces the boundary itself.
   { id: "customers",        label: "Customers",        icon: "🏢" },
   { id: "projectMgmt",      label: "PM",               icon: "📋" },
   { id: "mgr-pto",          label: "Manager PTO",      icon: "🗓️" },
-  // Visible only to cs_layer holders — gated on /api/cs/access, not on a
-  // hardcoded list here. See the filter below.
-  { id: "cs",               label: "Customer Success", icon: "💚" },
-  // Unlike the CS tab, CRM is open to anyone signed in — pipeline, contacts
-  // and tasks are ordinary commercial work, not the risk data cs_layer exists
-  // to contain.
-  { id: "crm",              label: "CRM",              icon: "🤝" },
+  // "cs" and "crm" are gone from the nav — they are entries in the Customers
+  // bar now, and their render branches were removed with them. Unlike
+  // "meetings" and "utilization", which keep their ids so restoring them is a
+  // one-line change, there is nothing to restore here: the views are still
+  // mounted, just from CustomersArea. The ids stay on the Tab union only
+  // because `tab` is plain component state and narrowing the union buys
+  // nothing.
 ];
 
 interface DataState {
@@ -617,24 +623,13 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Customers */}
+        {/* Customers — the CRM, the CS layer and the health-check grid, under
+            one bar. Self-loading; independent of the header's Refresh Data
+            button, like the Meetings tabs. `csLayer` decides which entries are
+            OFFERED, never what any route will actually serve. */}
         {tab === "customers" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
-            <CustomersView />
-          </div>
-        )}
-
-        {/* Customer Success — cs_layer only. Self-loading; independent of the
-            header's Refresh Data button, like the Meetings tabs. */}
-        {tab === "cs" && csLayer && (
-          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
-            <CustomerSuccessView />
-          </div>
-        )}
-
-        {tab === "crm" && (
-          <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "24px 28px" }}>
-            <CrmView />
+            <CustomersArea csLayer={csLayer} />
           </div>
         )}
 

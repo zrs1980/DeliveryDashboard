@@ -2753,6 +2753,47 @@ tab's default.**
   exceeds 20 rows** — "a section that long is a list to ignore". That check
   caught both problems above on the first run; the item count went 110 → 24 → 1.
 
+### One Customers tab, not three (slice 7)
+
+`components/dashboard/CustomersArea.tsx`
+
+🏢 Customers, 🤝 CRM and 💚 Customer Success were three top-level tabs about the
+same thing, each with its own account list reached from its own nav entry. They
+are now one tab with one bar, grouped **Act** (Focus · Triage · Drafts) ·
+**Book** (Accounts · Pipeline · Contacts · Tasks · Projects) · **Cadence**
+(Health checks · Renewals · Releases · Agent). 18 nav entries became 16.
+
+- **The three views are unchanged components.** `CustomersArea` owns the bar and
+  drives their mode through new optional `mode` / `onModeChange` /
+  `hideModeBar` props; left undefined, each still owns its own state and works
+  standalone. Rewriting 1,800 lines of working view code to merge a navigation
+  concern would have meant re-proving all of it.
+- **The bar is hidden, not removed, when a parent drives it.** Two mode bars
+  stacked is exactly the "which of these am I in" confusion this slice removes.
+- **`onModeChange` flows back up**, because a view can still change its own mode
+  — opening a deal from the pipeline, say — and the bar must not then disagree
+  with the page about where you are.
+- **⚠ `csLayer` here decides what is OFFERED, never what is served.** It comes
+  from `/api/cs/access` and hides entries that would 403. Every `/api/cs/*`
+  route enforces `requireCsLayer()` itself and `/api/customers/[id]` omits its
+  `cs` block server-side. `lib/cs-permissions.ts` is server-only precisely so
+  the allow-list cannot reach a client component — hiding a tab is a courtesy,
+  not the boundary, and must never be mistaken for one.
+- **A consultant's default entry is Accounts, not Focus.** Focus is not in their
+  bar at all, and defaulting to an entry that does not exist renders an empty
+  page.
+- **Each view is mounted only while selected.** They are self-loading and
+  several are expensive — the health-check grid, the CS index reads — so keeping
+  all three alive would run every fetch on every visit to the area.
+- **The `tab === "cs"` and `tab === "crm"` render branches were deleted, not
+  left behind a `false &&`.** `tab` is plain `useState` with no URL or storage
+  behind it, so they were unreachable; an earlier draft of this note claimed a
+  bookmarked state would still resolve, which was wrong. The ids stay on the
+  `Tab` union only because narrowing it buys nothing. This is NOT the same as
+  `meetings` / `utilization`, which keep their ids so restoring them is a
+  one-line change — there is nothing to restore here, the views are still
+  mounted.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to

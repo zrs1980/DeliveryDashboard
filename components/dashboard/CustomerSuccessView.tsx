@@ -63,7 +63,17 @@ function fmtQuiet(days: number | null): string {
   return `${Math.floor(days / 365)} yr`;
 }
 
-export default function CustomerSuccessView() {
+export type CsMode =
+  "focus" | "triage" | "drafts" | "releases" | "accounts" | "renewals" | "agent";
+
+export default function CustomerSuccessView({
+  mode: modeProp, onModeChange, hideModeBar = false,
+}: {
+  /** Controlled by CustomersArea; undefined means this component owns it. */
+  mode?: CsMode;
+  onModeChange?: (m: CsMode) => void;
+  hideModeBar?: boolean;
+} = {}) {
   const [data,    setData]    = useState<CsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
@@ -72,8 +82,11 @@ export default function CustomerSuccessView() {
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
-  const [mode,     setMode]     = useState<
-    "focus" | "triage" | "drafts" | "releases" | "accounts" | "renewals" | "agent">("focus");
+  const [ownMode,  setOwnMode]  = useState<CsMode>("focus");
+  const mode = modeProp ?? ownMode;
+  const setMode = useCallback((m: CsMode) => {
+    if (onModeChange) onModeChange(m); else setOwnMode(m);
+  }, [onModeChange]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,8 +159,8 @@ export default function CustomerSuccessView() {
         <span style={{ fontSize: 12, color: C.textSub }}>
           Who needs attention, what is drafted, and when contracts fall due.
         </span>
-        <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
-                      borderRadius: 7, padding: 2 }}>
+        <div style={{ display: hideModeBar ? "none" : "flex", gap: 2, background: C.alt,
+                      border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
           {(["focus", "triage", "drafts", "releases", "accounts", "renewals", "agent"] as const).map(m => (
             <button
               key={m}

@@ -66,11 +66,30 @@ const fld: React.CSSProperties = {
   border: `1px solid ${C.mid}`, borderRadius: 6, background: C.surface, color: C.text,
 };
 
-export default function CrmView() {
+export default function CrmView({
+  mode: modeProp, onModeChange, hideModeBar = false,
+}: {
+  /**
+   * Controlled mode, supplied by CustomersArea. Left undefined the component
+   * owns its own, so it still works standalone.
+   *
+   * ⚠ The bar is hidden rather than removed when the parent drives it, because
+   * CustomersArea renders ONE bar covering CRM and CS together. Two bars
+   * stacked is precisely the "which of these am I in" confusion this slice
+   * exists to remove.
+   */
+  mode?: Mode;
+  onModeChange?: (m: Mode) => void;
+  hideModeBar?: boolean;
+} = {}) {
   // Accounts first: the account is the thing everything else hangs off, and
   // opening one is how contacts, deals, tasks and correspondence stop being
   // four separate lists.
-  const [mode, setMode] = useState<Mode>("accounts");
+  const [ownMode, setOwnMode] = useState<Mode>("accounts");
+  const mode = modeProp ?? ownMode;
+  const setMode = useCallback((m: Mode) => {
+    if (onModeChange) onModeChange(m); else setOwnMode(m);
+  }, [onModeChange]);
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
   // The open deal, held at this level rather than inside the board: a deal is
   // reachable from the board AND from its account, and both must land on the
@@ -252,8 +271,8 @@ export default function CrmView() {
           stay in NetSuite.
         </span>
 
-        <div style={{ display: "flex", gap: 2, background: C.alt, border: `1px solid ${C.border}`,
-                      borderRadius: 7, padding: 2 }}>
+        <div style={{ display: hideModeBar ? "none" : "flex", gap: 2, background: C.alt,
+                      border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
           {(["accounts", "pipeline", "projects", "contacts", "tasks"] as const).map(m => (
             <button key={m} onClick={() => setMode(m)} style={{
               background: mode === m ? C.blue : "transparent",
