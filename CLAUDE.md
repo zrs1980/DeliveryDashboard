@@ -2472,6 +2472,51 @@ unchanged (`scripts/verify-agent-loop.ts` is the acceptance test):
 - **The agent cron needs a Vercel plan allowing sub-daily schedules**
   (`*/5 7-8 * * *`). On a plan limited to daily crons it will not run.
 
+### The customer timeline — `pm_crm_activities` is the one feed
+
+Anything this application does *with* a customer writes a row to
+`pm_crm_activities`, whichever module did it. Before September 2026 only the CRM
+wrote there, so a CS email that genuinely reached a customer, a health-check
+call that was actually held and a meeting that was actually processed all left
+no trace on that customer's own page — and the silence signals counted those
+accounts as quiet. The CRM account page meanwhile claimed "anything from here on
+is what gets logged or sent in this app", which was untrue for three paths.
+
+| Writer | `kind` | `source` |
+|---|---|---|
+| `POST /api/crm/activities`, CRM email send | `email` · `note` · `call` · `meeting` | `app` |
+| CS draft `approve_send` (`app/api/cs/drafts`) | `email` | `cs:<motion>` |
+| Health check marked complete (`app/api/healthchecks/[id]`) | `call` | `healthcheck` |
+| Meeting processed (`lib/meeting-processing.ts`) | `meeting` | `meeting:<firefliesId>` |
+
+- **Every one of these writes is best-effort and returns a warning, never an
+  error.** The email is already sent, the call already happened, the tasks
+  already exist. Failing the request because the bookkeeping failed reports work
+  that happened as work that did not — the worse of the two errors. The CS and
+  health-check routes return `logWarning` alongside their success.
+- **`source` carries the provenance and, where it matters, the identity.**
+  `meeting:<firefliesId>` is what makes the meeting write idempotent: the wizard
+  upserts three times (ClickUp, Slack, Doc) and each upsert reaches
+  `recordMeetingActivity`, so it short-circuits on an existing row. **A failed
+  existence read is not "no row" — it returns rather than inserting**, or you
+  get three copies of one meeting.
+- **A send also touches `pm_crm_contacts.last_seen_at`**, as the CRM path does.
+  Without it the champion-silence rule counts someone as quiet on the day we
+  emailed them, and that rule is one of the strongest churn signals here.
+- **Meetings record a project, not a customer.** `recordMeetingActivity`
+  resolves it with `customerOfProject()` and backfills
+  `meeting_processing.customer_ns_id` — the column added for this join and NULL
+  on every row until now. A meeting with no project writes nothing: guessing the
+  account would put a wrong fact on a timeline, which is worse than a thin one.
+- **A health check writes only on the transition to `completed`**, compared
+  against the row as it was before the update. Re-saving a completed check must
+  not add a second "call held" row. Its `occurred_at` is `completed_at`, and its
+  body is topics + notes — the point of reading a timeline back is remembering
+  what was said, not that a box was ticked.
+- `kind` is a CHECK constraint (`email`, `note`, `call`, `meeting`,
+  `stage_change`, `task_done`). Adding a row type means a migration, so prefer
+  an existing kind with a distinguishing `source`.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a

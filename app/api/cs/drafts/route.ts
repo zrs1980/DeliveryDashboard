@@ -17,6 +17,12 @@ const MOTIONS = ["health_check", "qbr", "release", "renewal", "commitment_follow
  * land and be inspected. It is built first here for that reason: nothing
  * generates drafts yet.
  *
+ * ⚠ A SEND ALSO WRITES THE TIMELINE. `pm_crm_activities` gets an `email` row
+ * and the contact's `last_seen_at` is touched, exactly as the CRM email path
+ * does. Before September 2026 neither happened, so a CS email that reached a
+ * customer was invisible on that customer's own account page and did not reset
+ * the champion-silence clock.
+ *
  * ⚠ DRAFT, NEVER AUTOSEND. Permanent, not a v1 safety measure. Sending happens
  * on an explicit PATCH from a signed-in reviewer, through THEIR mailbox — see
  * lib/gmail-send.ts. There is no code path from the nightly job to an outbound
@@ -279,14 +285,50 @@ export async function PATCH(req: Request) {
         })
         .eq("id", id).select().single();
 
+      // ── The timeline ──────────────────────────────────────────────────
+      // ⚠ THIS WAS MISSING, AND IT MADE THE APP LIE. A CS email that actually
+      // reached a customer left no trace on that customer's activity timeline,
+      // so the account still read as quiet — while the CRM account page told
+      // you "anything from here on is what gets logged or sent in this app".
+      //
+      // Best-effort on purpose: the mail is already gone by the time we get
+      // here. Failing the request because the log failed would report a send
+      // that happened as a send that did not, which is the worse error of the
+      // two. The failure comes back as a warning instead.
+      let logWarning: string | null = null;
+      const { error: actErr } = await supabase.from("pm_crm_activities").insert({
+        customer_ns_id: draft.customer_ns_id,
+        contact_id:     draft.contact_id,
+        kind:           "email",
+        direction:      "outbound",
+        subject:        draft.subject,
+        body:           draft.body,
+        occurred_at:    now,
+        actor_email:    reviewer,
+        // Distinguishable from a hand-written email on the timeline: this one
+        // came through the draft queue, and which motion produced it is the
+        // useful part when reading back why an account was contacted.
+        source:         `cs:${draft.motion}`,
+      });
+      if (actErr) logWarning = `Sent, but not added to the timeline: ${actErr.message}`;
+
+      // Liveness, the same touch the CRM email path makes. Without it the
+      // champion-silence rule counts someone as quiet on the day we emailed
+      // them — and that rule is one of the strongest churn signals here.
+      if (draft.contact_id) {
+        await supabase.from("pm_crm_contacts")
+          .update({ last_seen_at: now }).eq("id", draft.contact_id);
+      }
+
       if (error) {
         // The mail is already gone. Say so plainly rather than implying it failed.
         return NextResponse.json({
           ok: true, sent: true, messageId: sent.messageId,
           warning: `Email sent, but the record was not updated: ${error.message}`,
+          logWarning,
         });
       }
-      return NextResponse.json({ draft: data, messageId: sent.messageId });
+      return NextResponse.json({ draft: data, messageId: sent.messageId, logWarning });
     }
 
     return NextResponse.json({ error: "action must be approve_send, reject, snooze or save_edit" }, { status: 400 });

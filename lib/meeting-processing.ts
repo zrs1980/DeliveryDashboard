@@ -8,6 +8,7 @@
 // didn't happen when it did, which is the more damaging error.
 
 import { getSupabaseAdmin } from "./supabase";
+import { customerOfProject } from "./cs-customers";
 
 export interface ProcessingRow {
   fireflies_id:       string;
@@ -84,6 +85,7 @@ export async function recordProcessingStep(
       console.error("[meeting_processing upsert]", error.message);
       return missingTableHint(error.message);
     }
+    await recordMeetingActivity(ctx);
     return null;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
@@ -102,4 +104,70 @@ function missingTableHint(message: string): string {
     return `The work completed, but recording it failed: the meeting_processing table is missing. Run supabase/meeting-processing-schema.sql in the Supabase SQL editor, or processed meetings will keep looking unprocessed after a refresh. (${message})`;
   }
   return `The work completed, but recording it failed (${message}), so this meeting may still look unprocessed after a refresh.`;
+}
+
+
+/**
+ * Put the meeting on its customer's timeline.
+ *
+ * ⚠ A processed meeting used to be invisible outside this table. It is a real
+ * conversation with a real customer — the single most useful thing on an
+ * account's timeline — and neither the CRM account page nor any silence signal
+ * knew it had happened.
+ *
+ * Three things make this awkward, and all three are handled here rather than at
+ * the call sites:
+ *
+ *  1. **It runs three times.** Each wizard step upserts separately, so this is
+ *     reached once per step. `source = "meeting:<firefliesId>"` is the identity
+ *     and an existing row short-circuits, which also spares NetSuite two
+ *     lookups per meeting.
+ *  2. **There is no customer on the meeting.** The wizard records a PROJECT.
+ *     `meeting_processing.customer_ns_id` was added for exactly this join and
+ *     has been 100% NULL since; it gets written here too, so the column finally
+ *     means something.
+ *  3. **A meeting with no project cannot be attributed.** No row is written —
+ *     guessing which customer a call belonged to would put a wrong fact on a
+ *     timeline, which is worse than a thin one.
+ *
+ * Never throws, like everything else in this file.
+ */
+async function recordMeetingActivity(ctx: ProcessingContext): Promise<void> {
+  if (!ctx.projectNsId) return;
+
+  const source = `meeting:${ctx.firefliesId}`;
+  try {
+    const db = getSupabaseAdmin();
+
+    const { data: existing, error: readErr } = await db
+      .from("pm_crm_activities")
+      .select("id")
+      .eq("source", source)
+      .limit(1);
+    // A failed read is NOT "no row exists". Inserting on a read failure is how
+    // you get three copies of the same meeting on a timeline.
+    if (readErr || existing?.length) return;
+
+    const customer = await customerOfProject(ctx.projectNsId);
+    if (!customer) return;
+
+    await db.from("pm_crm_activities").insert({
+      customer_ns_id: customer.customerNsId,
+      kind:           "meeting",
+      direction:      "outbound",
+      subject:        ctx.meetingTitle || "Meeting",
+      body:           ctx.meetingType ? `${ctx.meetingType} · ${ctx.projectLabel ?? ""}`.trim() : (ctx.projectLabel ?? null),
+      // The meeting happened when it happened, not when someone got round to
+      // processing it. A timeline ordered by processing time reads as fiction.
+      occurred_at:    ctx.meetingDate || new Date().toISOString(),
+      actor_email:    ctx.processedBy ?? null,
+      source,
+    });
+
+    await db.from("meeting_processing")
+      .update({ customer_ns_id: customer.customerNsId })
+      .eq("fireflies_id", ctx.firefliesId);
+  } catch (e) {
+    console.error("[meeting activity]", e instanceof Error ? e.message : e);
+  }
 }
