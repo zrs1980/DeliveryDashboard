@@ -2664,6 +2664,45 @@ rendered twice was the contract — by two different components.
 > moving those components, which belongs with the unified page — doing it here
 > would have been a rewrite with nothing to show for it.
 
+### One customer page, reached from both tabs (slice 4)
+
+`components/dashboard/CrmAccountPage.tsx` · `CustomerCsPanel.tsx`
+
+The CRM account page and the CS profile panel described the same customer
+through two components that could not see each other. The CS side had no
+contacts, deals, tasks or timeline; the only thing both rendered was the
+contract, separately. `CustomerSuccessView` now opens `CrmAccountPage`, so both
+tabs land on the identical page.
+
+- **The page gained Health and Profile tabs, and they appear because the SERVER
+  sent a `cs` block** — not because of which tab you arrived from, and not from
+  any permission list in the browser. `CustomerCsPanel` reports `"cs" in json`
+  upward and the tab list follows. The old comment on this page said it carries
+  no health data because it is open to anyone signed in; that reasoning is
+  unchanged, but the boundary now runs through `/api/customers/[id]` instead of
+  through which page you are on. A consultant is handed nothing to render.
+- **`CustomerCsPanel` is mounted even when its tab is closed** (hidden, not
+  unmounted) because it is what decides whether the tab exists — a tab that only
+  appears after you click something you cannot see is not a tab. `Profile` is
+  the opposite: mounted only when opened, since extraction state is expensive
+  and nobody needs it until they ask.
+- **`CustomerProfilePanel` takes an `embedded` prop** that drops its own name
+  heading, Close button and top rule. Without it the page renders two headings
+  and two Close buttons, which reads as two pages stacked.
+- **⚠ The `account` prop is optional and the fallback is load-bearing.**
+  `CrmView` passes the row it already holds, so the CRM tab costs no extra
+  request. The CS tab has no such row — its table carries rollups, not an
+  address — and the first version of this left the key-information band on
+  "Loading…" forever for those callers, which reads as a hung page rather than
+  a missing prop. Identity now falls back to `/api/customers/[id]`, skipped
+  entirely when the prop is supplied.
+- **Health band and flag severity ARE RAG-coloured here** — a judgment the
+  system made and must defend with evidence. **Profile verification is tinted
+  blue, never RAG**: it decides whether a claim may be quoted to a customer, and
+  a red chip would read as "this customer is in trouble".
+- **"No flags" does not say "healthy"** — several rules ship disabled for want
+  of data, so the empty state says what was actually evaluated.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to

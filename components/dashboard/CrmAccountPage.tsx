@@ -4,6 +4,8 @@ import { C } from "@/lib/constants";
 import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmProjects from "@/components/dashboard/CrmProjects";
+import CustomerCsPanel from "@/components/dashboard/CustomerCsPanel";
+import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
 // ─── The account page ───────────────────────────────────────────
@@ -17,9 +19,23 @@ import { isLocalAccountId } from "@/lib/crm-accounts";
 // correspondence history all key on customer_ns_id, so this is the view where
 // that stops being a schema fact and becomes useful.
 //
-// Deliberately NO health score, band or flag. This panel is open to anyone
-// signed in, and risk data reaching the delivery team is self-fulfilling —
-// that lives in the CS tab, behind cs_layer.
+// ─── Health lives here now, for readers who are allowed it ─────────────────
+//
+// This page used to carry NO health score, band or flag, because it is open to
+// anyone signed in and risk data reaching the delivery team is self-fulfilling.
+// That reasoning still holds exactly; what changed is that the boundary now
+// runs through the SERVER rather than through which page you are on.
+//
+// `GET /api/customers/[id]` attaches its `cs` block only for a cs_layer reader
+// and omits the key entirely for everyone else, so `CustomerCsPanel` is handed
+// nothing to render rather than being hidden. The tab itself only appears once
+// that panel reports a block actually arrived — this component never consults a
+// permission list, because it has no way to and must not appear to.
+//
+// The gain: a CSM reads contacts, deals, contracts, health and flags on ONE
+// page. Before, the CRM account page and the CS profile panel described the
+// same customer and could not see each other, and the only thing rendered twice
+// was the contract.
 
 /** The subset of CsCustomer (and of a local account) this page displays. */
 export interface AccountDetail {
@@ -75,21 +91,35 @@ interface Contract {
   summary: string;
 }
 
-type Section = "overview" | "projects" | "contacts" | "tasks" | "activity" | "contracts";
+type Section =
+  | "overview" | "projects" | "contacts" | "tasks" | "activity" | "contracts"
+  | "health" | "profile";
 
 export default function CrmAccountPage({
-  customerNsId, customerName, onClose, onOpenDeal, account,
+  customerNsId, customerName, onClose, onOpenDeal, account: accountProp,
 }: {
   customerNsId: string; customerName: string; onClose: () => void;
   onOpenDeal?: (dealId: string) => void;
   /**
-   * The row CrmView already holds. Passed rather than re-fetched: the account
-   * list is loaded before anything can be clicked, so a detail request here
-   * would be a second round trip for data already in memory.
+   * The row CrmView already holds. Passed rather than re-fetched WHERE THE
+   * CALLER HAS IT: that list is loaded before anything can be clicked, so a
+   * detail request would be a second round trip for data already in memory.
+   *
+   * ⚠ OPTIONAL, AND THE FALLBACK IS NOT DECORATION. The CS tab opens this same
+   * page and holds no such row — its table carries rollups, not an address. An
+   * earlier version simply rendered "Loading…" in the key-information band
+   * forever for those callers, which reads as a hung page rather than a missing
+   * prop. When it is absent, identity is fetched from /api/customers/[id].
    */
   account?: AccountDetail;
 }) {
   const [section, setSection] = useState<Section>("overview");
+  // Identity fetched only when the caller did not supply it — see `account`.
+  const [fetchedAccount, setFetchedAccount] = useState<AccountDetail | null>(null);
+  const account = accountProp ?? fetchedAccount ?? undefined;
+  // Set by CustomerCsPanel from the server's response, never decided here.
+  const [hasCs, setHasCs] = useState(false);
+  const onHasCs = useCallback((v: boolean) => setHasCs(v), []);
   const [opps, setOpps] = useState<Opp[]>([]);
   const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -173,6 +203,37 @@ export default function CrmAccountPage({
   }, [customerNsId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The identity fallback. Skipped entirely when the caller passed a row, so
+  // the CRM tab still costs nothing extra.
+  useEffect(() => {
+    if (accountProp) return;
+    let live = true;
+    (async () => {
+      try {
+        const res  = await fetch(`/api/customers/${encodeURIComponent(customerNsId)}`);
+        const json = await res.json();
+        if (!live || !res.ok) return;
+        const c = json.customer;
+        setFetchedAccount({
+          id: c.key,
+          companyname: c.name,
+          entityid: c.entityid,
+          billingAddress: c.billingAddress,
+          shippingAddress: c.shippingAddress,
+          phone: c.phone,
+          email: c.email,
+          website: c.website,
+          industry: c.industry,
+          stage: c.stage,
+          entitystatusLabel: c.entitystatusLabel,
+          subsidiaryId: c.subsidiaryId,
+          isLocal: c.isLocal,
+        });
+      } catch { /* the band stays empty; the rest of the page is unaffected */ }
+    })();
+    return () => { live = false; };
+  }, [customerNsId, accountProp]);
 
   async function log() {
     if (!logText.trim()) return;
@@ -372,7 +433,11 @@ export default function CrmAccountPage({
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 12px" }}>
-        {(["overview", "projects", "contacts", "contracts", "tasks", "activity"] as const).map(s => (
+        {([
+          "overview", "projects", "contacts", "contracts", "tasks", "activity",
+          // Appears only once the server has actually sent a cs block.
+          ...(hasCs ? ["health" as const, "profile" as const] : []),
+        ] as readonly Section[]).map(s => (
           <button key={s} onClick={() => setSection(s)} style={{
             padding: "9px 14px", fontSize: 12,
             fontWeight: section === s ? 700 : 500,
@@ -383,7 +448,8 @@ export default function CrmAccountPage({
           }}>
             {s === "overview" ? "Opportunities" : s === "projects" ? "Projects"
               : s === "contacts" ? "Contacts" : s === "contracts" ? "Contracts"
-              : s === "tasks" ? "Tasks" : "Activity"}
+              : s === "tasks" ? "Tasks" : s === "health" ? "Health"
+              : s === "profile" ? "Profile" : "Activity"}
             {s === "contracts" && contracts.length > 0 && (
               <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{contracts.length}</span>
             )}
@@ -604,6 +670,27 @@ export default function CrmAccountPage({
             same table the Portfolio Overview renders, scoped by customer. */}
         {section === "projects" && (
           <CrmProjects customerNsId={customerNsId} customerName={customerName} />
+        )}
+
+        {/* Mounted always, not only when its tab is open: it is what decides
+            whether the tab exists at all, and a tab that only appears after you
+            click something you cannot see is not a tab. Hidden rather than
+            unmounted so switching away does not refetch. */}
+        <div hidden={section !== "health"}>
+          <CustomerCsPanel customerNsId={customerNsId} onHasCs={onHasCs} />
+        </div>
+
+        {/* Mounted only when open: extraction state is expensive to build and
+            nobody needs it until they ask. The Health panel above is the
+            opposite case — it has to be mounted to report whether the cs block
+            exists at all. */}
+        {section === "profile" && (
+          <CustomerProfilePanel
+            embedded
+            customerNsId={customerNsId}
+            customerName={customerName}
+            onClose={() => setSection("overview")}
+          />
         )}
 
         {section === "contacts" && <CrmContacts customerNsId={customerNsId} />}

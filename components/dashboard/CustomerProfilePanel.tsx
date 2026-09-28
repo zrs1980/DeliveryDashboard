@@ -57,8 +57,17 @@ interface ExtractMeta {
 }
 
 export default function CustomerProfilePanel({
-  customerNsId, customerName, onClose,
-}: { customerNsId: string; customerName: string; onClose: () => void }) {
+  customerNsId, customerName, onClose, embedded = false,
+}: {
+  customerNsId: string; customerName: string; onClose: () => void;
+  /**
+   * True when this sits inside the customer page as one of its tabs, rather
+   * than standing alone under the CS table. It drops the panel's own name
+   * heading, Close button and top rule — the page already carries all three,
+   * and repeating them reads as two pages stacked on top of each other.
+   */
+  embedded?: boolean;
+}) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [pending, setPending] = useState<Profile | null>(null);   // dry-run awaiting a decision
   const [meta,    setMeta]    = useState<ExtractMeta | null>(null);
@@ -143,9 +152,13 @@ export default function CustomerProfilePanel({
   const shown = pending ?? profile;
 
   return (
-    <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 18, paddingTop: 16 }}>
+    <div style={embedded
+      ? { padding: 14 }
+      : { borderTop: `1px solid ${C.border}`, marginTop: 18, paddingTop: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{customerName}</h3>
+        {!embedded && (
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{customerName}</h3>
+        )}
         {profile && (
           <span style={{ fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
             extracted {new Date(profile.extracted_at).toLocaleDateString()} · {profile.extraction_version}
@@ -157,7 +170,7 @@ export default function CustomerProfilePanel({
             ✓ Verified
           </span>
         )}
-        <button onClick={onClose} style={btn(C.textSub)}>Close</button>
+        {!embedded && <button onClick={onClose} style={btn(C.textSub)}>Close</button>}
       </div>
 
       {error && (

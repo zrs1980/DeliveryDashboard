@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
-import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
+import CrmAccountPage from "@/components/dashboard/CrmAccountPage";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsAgentMetrics from "@/components/dashboard/CsAgentMetrics";
 import CsTriage from "@/components/dashboard/CsTriage";
@@ -333,8 +333,18 @@ export default function CustomerSuccessView() {
             </table>
           </div>
 
+          {/* ⚠ ONE CUSTOMER PAGE, REACHED FROM BOTH TABS.
+              This used to render CustomerProfilePanel under the table, so the
+              CS tab and the CRM tab showed the same customer through two
+              different components that could not see each other — contacts,
+              deals, tasks and the timeline were simply unavailable here, and
+              the contract was the one thing both rendered, separately.
+              Opening a customer now lands on exactly the page the CRM tab
+              opens; the profile and its extraction tools are a tab on it, and
+              the CS tabs appear because the SERVER sent a cs block, not because
+              of which tab you arrived from. */}
           {selected && (
-            <CustomerProfilePanel
+            <CrmAccountPage
               key={selected.id}
               customerNsId={selected.id}
               customerName={selected.name}
