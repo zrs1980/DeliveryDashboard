@@ -103,13 +103,50 @@ $$;
 -- rows whose customer was merged after they were written, and rows inserted
 -- while the trigger was briefly absent. `syncCustomers()` calls it nightly for
 -- exactly that reason.
+--
+-- ⚠ IT SUSPENDS THE `updated_at` TRIGGERS WHILE IT WRITES, AND THAT IS THE
+-- POINT OF THE EXTRA COMPLEXITY HERE.
+--
+-- Four of these tables carry a `cs_set_updated_at()` trigger — pm_crm_contacts,
+-- pm_crm_opportunities, cs_customer_profiles, cs_health_flags. Without this,
+-- the backfill stamps `updated_at = now()` on **1,149 rows**: every contact and
+-- every deal in the CRM would read as having been edited today, by a schema
+-- migration that changed nothing anyone typed. Measured, not assumed — a
+-- before/after column digest against production found exactly these four
+-- columns changing and nothing else.
+--
+-- It is not data loss and nothing currently makes a decision on the value (deal
+-- inactivity derives from `pm_crm_activities.occurred_at`, not from this), but
+-- `updated_at` answers "when did a person last change this record" and a
+-- migration must not claim authorship of 815 contacts.
+--
+-- Only the triggers whose function is `cs_set_updated_at` are touched, found by
+-- name at runtime because the naming is inconsistent (`cs_contacts_updated_at`,
+-- `pm_crm_opps_touch`, …). Everything else on the table keeps firing. ALTER
+-- TABLE is transactional in Postgres, so a failure rolls the disable back with
+-- everything else — the triggers cannot be left off.
 
 CREATE OR REPLACE FUNCTION customers_relink_all()
 RETURNS TABLE(table_name text, linked bigint) LANGUAGE plpgsql AS $$
-DECLARE t text; n bigint;
+DECLARE t text; n bigint; g text; touch_triggers text[];
 BEGIN
   FOREACH t IN ARRAY customers_linked_tables() LOOP
     CONTINUE WHEN to_regclass('public.' || t) IS NULL;
+
+    SELECT coalesce(array_agg(tg.tgname), '{}')
+      INTO touch_triggers
+      FROM pg_trigger tg
+      JOIN pg_class  c ON c.oid = tg.tgrelid
+      JOIN pg_proc   p ON p.oid = tg.tgfoid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = t
+       AND p.proname = 'cs_set_updated_at'
+       AND NOT tg.tgisinternal
+       AND tg.tgenabled <> 'D';   -- leave one already disabled on purpose alone
+
+    FOREACH g IN ARRAY touch_triggers LOOP
+      EXECUTE format('ALTER TABLE %I DISABLE TRIGGER %I', t, g);
+    END LOOP;
 
     EXECUTE format($f$
       UPDATE %I AS x
@@ -119,6 +156,10 @@ BEGIN
          AND x.customer_id IS DISTINCT FROM COALESCE(c.merged_into, c.id)
     $f$, t);
     GET DIAGNOSTICS n = ROW_COUNT;
+
+    FOREACH g IN ARRAY touch_triggers LOOP
+      EXECUTE format('ALTER TABLE %I ENABLE TRIGGER %I', t, g);
+    END LOOP;
 
     table_name := t; linked := n; RETURN NEXT;
   END LOOP;
@@ -162,6 +203,21 @@ BEGIN
 END $$;
 
 SELECT * FROM customers_relink_all();
+
+-- ─── What this does NOT do ──────────────────────────────────────────────────
+--
+-- Verified against production September 2026 by running the whole file in a
+-- transaction and comparing a per-column MD5 digest of every affected table
+-- before and after (scripts/dry-run-sql.ts is the harness):
+--
+--   * no row inserted, no row deleted, in any of the 23 tables
+--   * no existing column value altered, `updated_at` included
+--   * the only write is to the new `customer_id` column
+--
+-- The file contains no DELETE, no TRUNCATE, no DROP TABLE and no DROP COLUMN.
+-- Its two destructive-looking lines are `ON DELETE RESTRICT` — a rule that
+-- BLOCKS deletes rather than performing one — and `DROP TRIGGER IF EXISTS` on
+-- a per-table trigger name this same file creates two lines later.
 
 -- ─── After running ──────────────────────────────────────────────────────────
 --

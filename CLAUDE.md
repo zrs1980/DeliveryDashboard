@@ -2573,6 +2573,20 @@ installs a trigger that keeps it filled. Dry-run against production September
   NULL rather than failing the insert**: a customer going inactive in NetSuite
   must not break an unrelated feature at 3am, and a NULL is visible to the
   verify script while a rejected insert is lost work.
+- **It writes ONLY the new column — verified, not assumed.** Running the whole
+  file in a transaction and comparing a per-column MD5 digest of all 23 tables
+  before and after found no row added, none removed and no existing value
+  altered. The file holds no DELETE, TRUNCATE, DROP TABLE or DROP COLUMN; its
+  two destructive-looking lines are `ON DELETE RESTRICT` (a rule that BLOCKS
+  deletes) and `DROP TRIGGER IF EXISTS` on a name it recreates two lines later.
+- **⚠ The backfill suspends the `updated_at` triggers, and must.** Four tables
+  carry `cs_set_updated_at()`; without suppressing it the backfill stamps
+  `updated_at = now()` on **1,149 rows**, so every contact and deal in the CRM
+  would read as edited today by a migration that changed nothing anyone typed.
+  Caught by that same digest, not by reading the SQL. Only triggers whose
+  function is `cs_set_updated_at` are touched, found by name at runtime because
+  the naming is inconsistent (`cs_contacts_updated_at`, `pm_crm_opps_touch`);
+  ALTER TABLE is transactional, so they cannot be left off.
 - **`customers_relink_all()` is the repair pass, and re-running IS the fix.**
   The backfill is written as "set it to what it should be", not "set it where
   null", so it is idempotent *and* self-healing: it re-points children of a
