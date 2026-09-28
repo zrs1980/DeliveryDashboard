@@ -38,6 +38,8 @@ export interface CustomerRow {
 }
 
 export interface SyncResult {
+  /** Rows relinked by customers_relink_all(). null = the slice-2 SQL has not run. */
+  relinked:     number | null;
   netsuite:     number;
   /** Of `netsuite`, how many are inactive in NetSuite and carried for history only. */
   netsuiteInactive: number;
@@ -253,7 +255,31 @@ export async function syncCustomers(): Promise<SyncResult> {
     }
   }
 
+  // ─── Keep the foreign keys pointing at the right row ──────────────────────
+  // `customers_link_from_key()` fills customer_id as rows are written, so this
+  // is the repair pass, not the main path: it catches a row inserted while the
+  // trigger was absent, and re-points children of a local prospect that was
+  // merged into its NetSuite account since. Both are exactly the cases a write
+  // -time trigger cannot see.
+  //
+  // Best-effort. A database where supabase/customers-fk.sql has not been run
+  // has no such function, and that must not fail a sync whose actual job —
+  // writing the identity table — already succeeded.
+  let relinked: number | null = null;
+  const { data: relinkRows, error: relinkErr } = await supabase.rpc("customers_relink_all");
+  if (relinkErr) {
+    warnings.push(
+      /does not exist|schema cache|function/i.test(relinkErr.message)
+        ? `customer_id links not refreshed — run supabase/customers-fk.sql. (${relinkErr.message})`
+        : `customer_id links not refreshed: ${relinkErr.message}`,
+    );
+  } else {
+    relinked = (relinkRows ?? []).reduce(
+      (n: number, r: { linked: number | string }) => n + Number(r.linked ?? 0), 0);
+  }
+
   return {
+    relinked,
     netsuite: nsCustomers.length,
     netsuiteInactive: nsCustomers.filter(c => !c.isActive).length,
     local:    liveLocals.length,

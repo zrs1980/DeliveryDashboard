@@ -6,13 +6,18 @@
  * Two jobs:
  *
  *  1. Run syncCustomers() for real and print what it did.
- *  2. For every table that references a customer by loose text today, count
- *     how many of its distinct keys resolve to a `customers` row — because a
- *     key that does not resolve is a row slice 2's foreign key would reject.
+ *  2. For every table that references a customer, report two numbers:
  *
- * The second half is the point. Adding a FK to 20 tables is only safe if every
+ *       UNRESOLVED — distinct keys with no `customers` row. A foreign key
+ *                    would reject these. Must be 0 before slice 2 is applied.
+ *       UNLINKED   — rows carrying a key but no `customer_id`. Must be 0 after
+ *                    slice 2 is applied; before that it is simply the row
+ *                    count, because the column does not exist yet.
+ *
+ * The second half is the point. Adding a FK to 22 tables is only safe if every
  * value already present can be resolved, and "it should be fine" is not a
- * number. Anything reported as UNRESOLVED has to be explained before slice 2.
+ * number — on the first real run it was 82, all of them customers that had
+ * gone inactive in NetSuite, which is how the identity universe got widened.
  */
 
 import { syncCustomers, customerIdByKey } from "@/lib/customers";
@@ -39,6 +44,7 @@ async function main() {
 
   const r = await syncCustomers();
   console.log(`  NetSuite customers : ${r.netsuite}  (${r.netsuiteInactive} inactive, carried for history)`);
+  console.log(`  customer_id relinks: ${r.relinked === null ? "— (customers-fk.sql not run)" : r.relinked}`);
   console.log(`  Local prospects    : ${r.local}`);
   console.log(`  Retired this run   : ${r.deactivated}`);
   console.log(`  Merged this run    : ${r.merged}`);
@@ -48,29 +54,46 @@ async function main() {
   console.log(`\n  Resolvable keys    : ${byKey.size}\n`);
 
   console.log("── Foreign-key readiness ──────────────────────────────────────\n");
-  console.log("  table                         rows   keys   unresolved");
-  console.log("  ─────────────────────────────────────────────────────────");
+  console.log("  table                         rows   keys  unresolved  unlinked");
+  console.log("  ──────────────────────────────────────────────────────────────────");
 
   const supabase = getSupabaseAdmin();
   const problems: string[] = [];
 
+  let fkApplied = true;
+
   for (const t of TABLES) {
-    const { data, error } = await supabase.from(t).select("customer_ns_id");
-    if (error) {
+    const { data, error } = await supabase.from(t).select("customer_ns_id, customer_id");
+    // No customer_id column means the slice-2 SQL has not run on this table.
+    const { data: keyOnly, error: keyErr } = error
+      ? await supabase.from(t).select("customer_ns_id")
+      : { data: null, error: null };
+    if (error && !keyErr) fkApplied = false;
+
+    if (error && keyErr) {
       // A missing table is information, not a failure: several of these are
       // specced but never deployed, and slice 2 must not try to alter them.
-      console.log(`  ${t.padEnd(28)}  ${/does not exist|schema cache/i.test(error.message) ? "— not deployed" : "ERROR: " + error.message}`);
+      console.log(`  ${t.padEnd(28)}  ${/does not exist|schema cache/i.test(keyErr.message) ? "— not deployed" : "ERROR: " + keyErr.message}`);
       continue;
     }
 
-    const rows = data ?? [];
+    const rows: { customer_ns_id: string | null; customer_id?: string | null }[] =
+      (data ?? keyOnly ?? []) as never;
     const keys = new Set(rows.map(x => x.customer_ns_id).filter(Boolean) as string[]);
     const unresolved = [...keys].filter(k => !byKey.has(k));
+    const unlinked = error
+      ? null   // no customer_id column yet
+      : rows.filter(x => x.customer_ns_id && !x.customer_id).length;
 
     console.log(
       `  ${t.padEnd(28)} ${String(rows.length).padStart(5)}  ${String(keys.size).padStart(5)}  ` +
-      `${unresolved.length ? String(unresolved.length).padStart(6) + "  ⚠" : "     0"}`,
+      `${unresolved.length ? String(unresolved.length).padStart(9) + " ⚠" : "        0 "}  ` +
+      `${unlinked === null ? "     —" : unlinked ? String(unlinked).padStart(6) + " ⚠" : "     0"}`,
     );
+
+    if (unlinked) {
+      problems.push(`${t}: ${unlinked} row(s) carry a key but no customer_id — re-run customers_relink_all()`);
+    }
 
     if (unresolved.length) {
       const local = unresolved.filter(isLocalAccountId);
@@ -83,8 +106,13 @@ async function main() {
   }
 
   console.log("");
+  if (!fkApplied) {
+    console.log("  ℹ customer_id is missing on at least one table — run supabase/customers-fk.sql.\n");
+  }
   if (!problems.length) {
-    console.log("  ✅ Every key in every deployed table resolves. Slice 2 can add the FKs.");
+    console.log(fkApplied
+      ? "  ✅ Every key resolves and every row is linked."
+      : "  ✅ Every key in every deployed table resolves. Slice 2 can add the FKs.");
   } else {
     console.log("  ⚠ Slice 2 is NOT safe yet. Each of these has to be explained first:\n");
     for (const p of problems) console.log(`    · ${p}`);

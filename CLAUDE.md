@@ -2543,6 +2543,50 @@ this customer" and no referential integrity anywhere.
   warning rather than refusing, because identity must not break over an optional
   contact field, but the warning is the fix instruction. Run those ALTERs.
 
+### `customer_id` + foreign keys (slice 2 of the CRM+CS merge)
+
+`supabase/customers-fk.sql` · `scripts/dry-run-sql.ts`
+
+Adds a **nullable** `customer_id uuid REFERENCES customers(id)` to all 23
+customer-referencing tables, backfills it from `key = customer_ns_id`, and
+installs a trigger that keeps it filled. Dry-run against production September
+2026: 23 tables, **2,316 rows linked, zero unlinked**.
+
+- **`customer_ns_id` stays and nothing is rewritten.** Every read path still
+  speaks in keys; this migration is purely additive, and reverting it by
+  dropping the column would go unnoticed by the app. Dropping the text column
+  is a later slice, once the reads have moved.
+- **Nullable on purpose.** `meeting_processing.customer_ns_id` is NULL on every
+  pre-September row, `pm_projects` can hold a native project with no NetSuite
+  customer, and a row whose key does not resolve must still be insertable. NOT
+  NULL would turn each of those into a failed write on a working feature. The
+  guarantee is narrower but real: **`customer_id` is either NULL or a genuine
+  customer — a join on it can be empty, never wrong.**
+- **`ON DELETE RESTRICT`, not CASCADE.** `customers` documents that nothing is
+  ever deleted from it; RESTRICT is that sentence enforced by the database
+  rather than by convention, so an accidental DELETE fails loudly instead of
+  taking 815 contacts with it.
+- **A trigger, not 23 edited writers.** `customers_link_from_key()` fills the
+  column on INSERT/UPDATE for every listed table. Editing each call site and
+  hoping the 24th is never written is a bet this codebase has already lost four
+  times — see "a capable route with no caller". **An unresolvable key leaves
+  NULL rather than failing the insert**: a customer going inactive in NetSuite
+  must not break an unrelated feature at 3am, and a NULL is visible to the
+  verify script while a rejected insert is lost work.
+- **`customers_relink_all()` is the repair pass, and re-running IS the fix.**
+  The backfill is written as "set it to what it should be", not "set it where
+  null", so it is idempotent *and* self-healing: it re-points children of a
+  local prospect merged since they were written, and rows inserted while the
+  trigger was briefly absent — the two cases a write-time trigger cannot see.
+  `syncCustomers()` calls it nightly via `supabase.rpc()`, best-effort.
+- **`scripts/dry-run-sql.ts` runs any hand-applied SQL file in a transaction
+  and rolls back.** There is deliberately **no `--commit` flag**: this repo's
+  convention is that `supabase/*.sql` is applied by hand in the SQL editor, and
+  a script that could apply one would quietly become a second, untracked
+  migration path. It needs `POSTGRES_URL_NON_POOLING` (from `vercel env pull`)
+  and strips `sslmode` from the connection string, because pg now reads
+  `require` as `verify-full` and Supabase serves a self-signed chain.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to
