@@ -66,6 +66,22 @@ export default function CustomersArea({ csLayer }: { csLayer: boolean }) {
   const [active, setActive] = useState(entries[0]?.id ?? "accounts");
   const entry = entries.find(e => e.id === active) ?? entries[0];
 
+  /**
+   * A mode the underlying view asked for that has NO entry in the bar.
+   *
+   * ⚠ WITHOUT THIS, CLICKING A ROW IN FOCUS DID NOTHING. Focus opens a customer
+   * by setting the CS view's mode to "accounts" — but "Accounts" in this bar is
+   * the CRM view, so the lookup found nothing and the mode never changed. The
+   * customer was selected and then not rendered, on the primary interaction of
+   * the default screen.
+   *
+   * Adding a second "Accounts" entry for the CS side would put two entries with
+   * one label in one bar, which is the confusion this whole slice removes. So an
+   * unmatched mode is honoured without appearing in the bar; the page it lands
+   * on carries its own Close, which clears it.
+   */
+  const [csOverride, setCsOverride] = useState<CsMode | null>(null);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -89,10 +105,13 @@ export default function CustomersArea({ csLayer }: { csLayer: boolean }) {
                                          background: C.border, margin: "2px 6px" }} />
             )}
             <button
-              onClick={() => setActive(e.id)}
+              onClick={() => { setActive(e.id); setCsOverride(null); }}
               style={{
-                background: active === e.id ? C.blue : "transparent",
-                color: active === e.id ? "#fff" : C.textMid,
+                // Nothing is highlighted while an override is showing: the bar
+                // would otherwise say you are on Focus while a customer page is
+                // open, which is a small lie about where you are.
+                background: active === e.id && !csOverride ? C.blue : "transparent",
+                color: active === e.id && !csOverride ? "#fff" : C.textMid,
                 border: "none", borderRadius: 5, padding: "4px 12px",
                 fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
               }}
@@ -107,9 +126,16 @@ export default function CustomersArea({ csLayer }: { csLayer: boolean }) {
           several are expensive — CustomersView builds a quarterly grid, the CS
           views fetch the index — so keeping all three alive would run every
           fetch on every visit to the area. */}
+      {/* ⚠ STABLE KEYS, NOT `crm-${mode}` / `cs-${mode}`.
+          Keying by mode remounts the view on every bar click, which discards
+          the account or deal it had open — click Accounts, open a customer,
+          glance at Pipeline, come back, and you are at the top of the list
+          again. It also discarded the customer Focus had just selected, which
+          is half of the bug described above. One mount per view, mode passed as
+          a prop. */}
       {entry?.view === "crm" && (
         <CrmView
-          key={`crm-${entry.crmMode}`}
+          key="crm"
           mode={entry.crmMode}
           hideModeBar
           onModeChange={m => {
@@ -124,12 +150,13 @@ export default function CustomersArea({ csLayer }: { csLayer: boolean }) {
 
       {entry?.view === "cs" && (
         <CustomerSuccessView
-          key={`cs-${entry.csMode}`}
-          mode={entry.csMode}
+          key="cs"
+          mode={csOverride ?? entry.csMode}
           hideModeBar
           onModeChange={m => {
             const match = entries.find(x => x.view === "cs" && x.csMode === m);
-            if (match) setActive(match.id);
+            if (match) { setActive(match.id); setCsOverride(null); }
+            else setCsOverride(m);
           }}
         />
       )}

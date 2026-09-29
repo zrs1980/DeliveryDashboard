@@ -2779,6 +2779,20 @@ are now one tab with one bar, grouped **Act** (Focus · Triage · Drafts) ·
   `cs` block server-side. `lib/cs-permissions.ts` is server-only precisely so
   the allow-list cannot reach a client component — hiding a tab is a courtesy,
   not the boundary, and must never be mistaken for one.
+- **⚠ Stable keys on the mounted views — NOT `crm-${mode}`.** Keying by mode
+  remounts the view on every bar click, discarding the account or deal it had
+  open: click Accounts, open a customer, glance at Pipeline, come back, and you
+  are at the top of the list again. It also discarded the customer Focus had
+  just selected, which made **clicking a row in Focus do nothing** — the primary
+  interaction of the default screen, dead on arrival in the first version of
+  this slice.
+- **`csOverride` honours a mode with no bar entry.** Focus opens a customer by
+  setting the CS view to `accounts`, but "Accounts" in this bar is the CRM view,
+  so the lookup found nothing and the mode never changed. A second "Accounts"
+  entry would put one label on two buttons, which is the confusion this slice
+  removes — so an unmatched mode renders without appearing in the bar, and
+  **nothing is highlighted while it does**, since the bar would otherwise claim
+  you are on Focus with a customer page open.
 - **A consultant's default entry is Accounts, not Focus.** Focus is not in their
   bar at all, and defaulting to an entry that does not exist renders an empty
   page.
