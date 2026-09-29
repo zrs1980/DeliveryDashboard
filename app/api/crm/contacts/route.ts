@@ -123,7 +123,35 @@ export async function PATCH(req: Request) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   const patch: Record<string, unknown> = {};
-  if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim();
+  // ⚠ `name` AND ITS PARTS MOVE TOGETHER, ALWAYS.
+  //
+  // `name` is what everything else reads — the list ordering, the search, the
+  // Loop-vs-customer split on the status report, the CSM agent's addressee. If
+  // a PATCH set first_name without recomputing it, the contact would still
+  // render, search and get emailed under the old spelling, which is the worst
+  // kind of half-rename: invisible until it matters.
+  //
+  // So whichever the caller sends, the other side is brought into line:
+  // sending parts recomputes `name`; sending `name` alone leaves the parts
+  // untouched rather than guessing where to split it.
+  const hasFirst = typeof body.firstName === "string";
+  const hasLast  = typeof body.lastName === "string";
+  if (hasFirst) patch.first_name = String(body.firstName).trim() || null;
+  if (hasLast)  patch.last_name  = String(body.lastName).trim()  || null;
+
+  if (hasFirst || hasLast) {
+    // Fall back to what is already stored for the half that was not sent.
+    const { data: cur } = await getSupabaseAdmin()
+      .from("pm_crm_contacts").select("first_name, last_name, name").eq("id", id).maybeSingle();
+    const first = hasFirst ? String(body.firstName).trim() : (cur?.first_name ?? "");
+    const last  = hasLast  ? String(body.lastName).trim()  : (cur?.last_name  ?? "");
+    const joined = [first, last].filter(Boolean).join(" ").trim();
+    // Never blank the display name. A contact with no name is unfindable, and
+    // clearing both parts is far more likely a mistake than an intention.
+    if (joined) patch.name = joined;
+  } else if (typeof body.name === "string" && body.name.trim()) {
+    patch.name = body.name.trim();
+  }
   if (typeof body.email === "string")    patch.email = body.email.trim().toLowerCase() || null;
   if (typeof body.jobTitle === "string") patch.job_title = body.jobTitle.trim() || null;
   if (typeof body.phone === "string")    patch.phone = body.phone.trim() || null;

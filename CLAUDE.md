@@ -3019,6 +3019,36 @@ looking at them.
 - The empty state says no check has been *recorded*, not that none happened —
   only what was booked or logged in this app appears.
 
+### Contact names — first and last, with `name` still the display field
+
+`pm_crm_contacts` has carried `first_name` / `last_name` since it was created,
+and **nothing wrote them**: POST accepted `firstName`/`lastName` and derived
+`name`, PATCH ignored both, and the form only ever showed one "Full name" box.
+The fifth instance of this module's recurring bug — a capable route with no
+caller. Both forms now have two fields and PATCH accepts them.
+
+- **⚠ `name` AND ITS PARTS MOVE TOGETHER, ALWAYS.** `name` is what everything
+  else reads: the list ordering, the search, the Loop-vs-customer split on the
+  status report, the CSM agent's addressee. A PATCH that set `first_name`
+  without recomputing `name` would leave the contact rendering, searching and
+  being emailed under the old spelling — invisible until it matters. Sending
+  parts recomputes `name`; sending `name` alone leaves the parts untouched
+  rather than guessing where to split it.
+- **A rename can never blank the display name.** If both parts are cleared the
+  recomputation is skipped: a contact with no name is unfindable, and clearing
+  both is far more likely a slip than an intention.
+- **⚠ 815 contacts predate the columns and were NOT backfilled.** `splitName()`
+  pre-fills the two boxes in the editor so a human sees the proposal and can
+  fix it before saving — the same shape as the role suggestions. It is a
+  suggestion, not a rule: "van der Berg" and anything with a suffix will split
+  wrongly, which is exactly why it fills a form rather than writing to the
+  database.
+- **The API is camelCase** (`firstName`, `lastName`), matching `customerNsId`
+  and `jobTitle` on the same route. The columns are snake_case; the boundary is
+  the route.
+- Search still matches on `name` only, which is correct now that the two are
+  kept in step — a last name is inside it.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a

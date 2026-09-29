@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { C } from "@/lib/constants";
+import { splitName } from "@/lib/crm-accounts";
 
 // ─── Contacts ───────────────────────────────────────────────────────────────
 //
@@ -17,7 +18,8 @@ import { C } from "@/lib/constants";
 
 interface Contact {
   id: string; ns_contact_id: string | null; customer_ns_id: string;
-  name: string; email: string | null; job_title: string | null;
+  name: string; first_name: string | null; last_name: string | null;
+  email: string | null; job_title: string | null;
   phone: string | null; mobile: string | null;
   role: string; is_primary: boolean; is_active: boolean;
   last_seen_at: string | null; notes: string | null; source: string;
@@ -60,12 +62,18 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   // phone, mobile and notes; the UI only ever sent role/primary/departed, so a
   // typo in a name or a changed email could not be corrected at all.
   const [editId, setEditId] = useState<string | null>(null);
-  const [ef, setEf] = useState({ name: "", jobTitle: "", email: "", phone: "", mobile: "", notes: "" });
+  const [ef, setEf] = useState({ firstName: "", lastName: "", jobTitle: "", email: "", phone: "", mobile: "", notes: "" });
 
   function startEdit(c: Contact) {
     setEditId(c.id);
     setEf({
-      name: c.name, jobTitle: c.job_title ?? "", email: c.email ?? "",
+      // ⚠ 815 contacts predate these columns and carry only `name`. Rather than
+      // backfill them with a guess, the split pre-fills the boxes so whoever is
+      // editing sees the proposal and can correct it before saving — the same
+      // shape as the role suggestions.
+      firstName: c.first_name ?? splitName(c.name).first,
+      lastName:  c.last_name  ?? splitName(c.name).last,
+      jobTitle: c.job_title ?? "", email: c.email ?? "",
       phone: c.phone ?? "", mobile: c.mobile ?? "", notes: c.notes ?? "",
     });
   }
@@ -100,11 +108,11 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState({
-    name: "", email: "", jobTitle: "", phone: "", role: "unknown",
+    firstName: "", lastName: "", email: "", jobTitle: "", phone: "", role: "unknown",
   });
 
   async function create() {
-    if (!draft.name.trim() || !customerNsId) return;
+    if ((!draft.firstName.trim() && !draft.lastName.trim()) || !customerNsId) return;
     setSaving(true); setError(null);
     try {
       const res = await fetch("/api/crm/contacts", {
@@ -113,7 +121,7 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
-      setDraft({ name: "", email: "", jobTitle: "", phone: "", role: "unknown" });
+      setDraft({ firstName: "", lastName: "", email: "", jobTitle: "", phone: "", role: "unknown" });
       setAdding(false);
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
@@ -210,8 +218,10 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
         <div style={{ border: `1px solid ${C.blueBd}`, background: C.blueBg, borderRadius: 8,
                       padding: "11px 13px", marginBottom: 12, display: "grid", gap: 8 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}
-                   placeholder="Full name" autoFocus style={{ ...fld, flex: "1 1 170px" }} />
+            <input value={draft.firstName} onChange={e => setDraft({ ...draft, firstName: e.target.value })}
+                   placeholder="First name" autoFocus style={{ ...fld, flex: "1 1 120px" }} />
+            <input value={draft.lastName} onChange={e => setDraft({ ...draft, lastName: e.target.value })}
+                   placeholder="Last name" style={{ ...fld, flex: "1 1 120px" }} />
             <input value={draft.jobTitle} onChange={e => setDraft({ ...draft, jobTitle: e.target.value })}
                    placeholder="Job title" style={{ ...fld, flex: "1 1 170px" }} />
           </div>
@@ -226,8 +236,10 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                 <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>
               ))}
             </select>
-            <button onClick={create} disabled={saving || !draft.name.trim()}
-                    style={{ ...btn(C.blue, true), opacity: draft.name.trim() ? 1 : 0.5 }}>
+            <button onClick={create}
+                    disabled={saving || (!draft.firstName.trim() && !draft.lastName.trim())}
+                    style={{ ...btn(C.blue, true),
+                             opacity: (draft.firstName.trim() || draft.lastName.trim()) ? 1 : 0.5 }}>
               {saving ? "Saving…" : "Create"}
             </button>
           </div>
@@ -397,8 +409,10 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                 <div style={{ display: "grid", gap: 7, marginTop: 9, paddingTop: 9,
                               borderTop: `1px solid ${C.border}` }}>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    <input value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })}
-                           placeholder="Full name" style={{ ...fld, flex: "1 1 160px" }} />
+                    <input value={ef.firstName} onChange={e => setEf({ ...ef, firstName: e.target.value })}
+                           placeholder="First name" style={{ ...fld, flex: "1 1 110px" }} />
+                    <input value={ef.lastName} onChange={e => setEf({ ...ef, lastName: e.target.value })}
+                           placeholder="Last name" style={{ ...fld, flex: "1 1 110px" }} />
                     <input value={ef.jobTitle} onChange={e => setEf({ ...ef, jobTitle: e.target.value })}
                            placeholder="Job title" style={{ ...fld, flex: "1 1 160px" }} />
                   </div>
@@ -416,8 +430,9 @@ export default function CrmContacts({ customerNsId }: { customerNsId?: string })
                   <div>
                     <button
                       onClick={async () => { await patch(c.id, ef); setEditId(null); }}
-                      disabled={busy === c.id || !ef.name.trim()}
-                      style={{ ...btn(C.blue, true), opacity: ef.name.trim() ? 1 : 0.5 }}
+                      disabled={busy === c.id || (!ef.firstName.trim() && !ef.lastName.trim())}
+                      style={{ ...btn(C.blue, true),
+                               opacity: (ef.firstName.trim() || ef.lastName.trim()) ? 1 : 0.5 }}
                     >
                       {busy === c.id ? "Saving\u2026" : "Save"}
                     </button>
