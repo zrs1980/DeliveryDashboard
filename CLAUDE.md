@@ -2794,6 +2794,41 @@ are now one tab with one bar, grouped **Act** (Focus · Triage · Drafts) ·
   one-line change — there is nothing to restore here, the views are still
   mounted.
 
+### Contact roles — why the CSM agent does nothing
+
+`scripts/suggest-contact-roles.ts` (the whole book) ·
+`app/api/crm/contacts/suggest-roles` (one account) · `lib/cs-contact-roles.ts`
+
+Measured September 2026, and it explains the agent's behaviour completely:
+
+```
+815 contacts, every one role = 'unknown'
+ 68 have a job title — the only thing a role can be inferred from
+  0 of 87 scored customers have a contact the agent may write to
+```
+
+`role = 'unknown'` is never allowed for any motion, deliberately: a role nobody
+set is not permission. So the CSM agent is built, tested, and reaches
+`no_suitable_contact` on every account in the book. **Nothing is wrong with the
+agent. The field it depends on has never been populated.**
+
+- **The bulk script writes `suggested_role`, never `role` — even with
+  `--write`.** Only a human accepting a suggestion writes the field that
+  authorises contacting someone. A bulk pass is exactly where that guarantee
+  would be most tempting to skip, so it does not; the update is additionally
+  guarded on `role = 'unknown'` so a run that takes minutes cannot overwrite a
+  decision someone made while it was running. Verified after the first real run:
+  58 suggestions stored, `role` still `unknown` on all 815.
+- **⚠ It only unblocks 9 of 87 accounts, and more inference will not help.**
+  57 of the 68 titled contacts got a suggestion, but most belong to prospects
+  and closed-lost accounts rather than scored customers. **747 of 815 contacts
+  have no job title at all**, and no title means no suggestion — inventing roles
+  for them would make the column untrustworthy far faster than leaving it empty.
+  The remaining constraint is data entry in the CRM, not a model.
+- Roles cannot be imported. NetSuite's `contactrole` is set on 22 of 949
+  contacts and its values are built-in negative ids whose labels SuiteQL cannot
+  resolve.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to
