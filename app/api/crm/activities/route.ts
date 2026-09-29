@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { sendAsUser } from "@/lib/gmail-send";
+import { fetchCustomerMeetings } from "@/lib/customer-meetings";
 
 export const revalidate = 0;
 
@@ -65,8 +66,32 @@ export async function GET(req: Request) {
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
 
     const activities = data ?? [];
+
+    // ── Meetings that happened but were never processed ───────────────────
+    //
+    // `meeting_processing` only has a row once someone runs the Process
+    // wizard: 7 of 100 meetings in the last 120 days. So the stored timeline
+    // alone showed a fraction of the calls, and an account with weekly cadence
+    // meetings read as quiet.
+    //
+    // These are matched by external attendee domain and merged at READ time —
+    // never written to pm_crm_activities, because they are derived rather than
+    // something this app did. See lib/customer-meetings.ts.
+    //
+    // Customer scope only: a meeting belongs to an account, not to one contact
+    // or one deal, and attaching it to either would be a claim the data does
+    // not support.
+    let meetings: Awaited<ReturnType<typeof fetchCustomerMeetings>> | null = null;
+    if (customerNsId) {
+      // Never throws — a Fireflies outage must not blank the stored history,
+      // which is the half that matters.
+      meetings = await fetchCustomerMeetings(customerNsId);
+    }
+
     return NextResponse.json({
       activities,
+      meetings: meetings?.meetings ?? [],
+      meetingsUnavailable: meetings?.unavailable ?? null,
       counts: {
         total: activities.length,
         email: activities.filter(a => a.kind === "email").length,

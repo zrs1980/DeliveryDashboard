@@ -2920,6 +2920,68 @@ is what gets logged or sent in this app", which was untrue for three paths.
   `stage_change`, `task_done`). Adding a row type means a migration, so prefer
   an existing kind with a distinguishing `source`.
 
+### Meetings on the customer timeline
+
+`lib/customer-meetings.ts` · `scripts/verify-customer-meetings.ts` ·
+`scripts/backfill-meeting-activities.ts` · `supabase/activity-links.sql`
+
+The Activity tab shows every meeting held with a customer, not only the ones
+somebody filed. Measured 29 September 2026 over 120 days: **100 meetings, 7
+processed**. A timeline built from `meeting_processing` alone showed 7% of the
+calls, so an account with weekly cadence meetings read as quiet.
+
+**Two kinds of row, and the difference is visible.**
+
+| Row | Source | Stored? |
+|---|---|---|
+| A processed meeting | `meeting_processing` → `pm_crm_activities` | Yes — filing one is something the app DID |
+| A matched meeting | Fireflies, matched by attendee domain | **No** — merged at read time, chipped `NOT PROCESSED` |
+
+- **⚠ Derived rows are never written to `pm_crm_activities`.** That table is
+  what the whole app trusts. A contact moving accounts would silently change
+  which customer a stored inference belonged to, and the row would not know.
+- **This does NOT contradict "the PM meetings list is processed only."** That
+  rule is about matching a meeting to a **project** — one of several a customer
+  may have running, with nothing in the meeting to say which. A **customer** is
+  coarser and the evidence is direct.
+- **`pm_crm_activities` gained `link_url` / `link_label`** (`activity-links.sql`)
+  so a processed meeting links to the Google Doc the wizard filed. Two plain
+  columns, not a jsonb bag: a timeline row has at most one thing worth opening.
+  `recordMeetingActivity` reads `doc_url` off the `meeting_processing` row
+  rather than the current step's patch, because **the Drive step usually runs
+  last** — the first call through writes the row before any doc exists, and a
+  later step fills the link in.
+
+**The domain map needs three sources, and contacts alone are not enough.**
+
+| Source | Strength |
+|---|---|
+| A processed meeting's external attendees | Strongest — a human picked that project in the wizard |
+| `customer.url` in NetSuite | Maintained by whoever owns the record |
+| `pm_crm_contacts.email` | An address a human filed |
+
+- **Contacts alone matched 2 customers out of the book.** Oxide, Certified Waste
+  Solutions and Strategic Telecom — the three accounts with the most meetings —
+  were all absent, because none has a contact recorded with its own email
+  domain. With all three sources: 187 domains, 44 meetings across 5 customers.
+- **It is self-bootstrapping.** Processing one meeting for an account teaches
+  the domain for every other meeting with that customer, past and future.
+- **⚠ A domain claimed by two customers is DROPPED**, whichever source claimed
+  it. A wrong timeline row gets believed; a missing one does not.
+- **⚠ `PARTNER_DOMAINS` exists because of a real false positive.**
+  `myersholum.com` was learned as Certified Waste Solutions: Myers-Holum is a
+  NetSuite partner whose people attended three CWS meetings and nobody else's,
+  so the ambiguity rule saw nothing wrong. **Nothing in the data tells a partner
+  from a customer** — both are external people in the room — so it cannot be
+  derived and has to be stated. `verify-customer-meetings.ts` prints every
+  domain learned **only** from meetings (one today) for exactly this review.
+- **Fireflies is rate-limited per DAY** (Free 50, Pro 500), so the meeting list
+  is cached at module scope for 10 minutes and shared across every customer —
+  a fetch per page view would burn the quota in an afternoon. Worst case ~144
+  fetches a day.
+- A Fireflies failure returns `unavailable` with a reason and the stored history
+  still renders. "We could not look" and "there were none" must not look alike.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a

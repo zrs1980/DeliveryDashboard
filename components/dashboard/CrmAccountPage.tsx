@@ -73,6 +73,22 @@ interface Activity {
    * produces and used to be unreachable from the customer.
    */
   link_url: string | null; link_label: string | null;
+  /**
+   * True for a row DERIVED at read time rather than stored — a Fireflies
+   * meeting matched to this customer by attendee domain. It is marked in the
+   * UI because it is a different kind of claim: the app did not do it, it
+   * worked out that it happened.
+   */
+  derived?: boolean;
+  /** Set on a derived meeting nobody has run through the Process wizard. */
+  unprocessed?: boolean;
+}
+
+interface MatchedMeeting {
+  firefliesId: string; title: string; date: string | null;
+  durationMin: number | null; matchedOn: string[];
+  externalAttendees: string[]; processed: boolean;
+  docUrl: string | null; transcriptUrl: string | null;
 }
 
 const money = (n: number | null) =>
@@ -130,6 +146,7 @@ export default function CrmAccountPage({
   const [opps, setOpps] = useState<Opp[]>([]);
   const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [meetingNote, setMeetingNote] = useState<string | null>(null);
   const [activityNote, setActivityNote] = useState<string | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractNote, setContractNote] = useState<string | null>(null);
@@ -191,8 +208,43 @@ export default function CrmAccountPage({
       if (!aRes.ok) throw new Error(aJson?.error ?? `Activity failed (${aRes.status})`);
       setOpps(oJson.opportunities ?? []);
       setStages(oJson.stages ?? []);
-      setActivities(aJson.activities ?? []);
+      // One feed. A matched meeting becomes an Activity-shaped row so the
+      // timeline has a single render path — the alternative is two lists on one
+      // tab, which is the thing this page exists to stop doing.
+      //
+      // A meeting the wizard HAS processed already has a stored row, so it is
+      // dropped here rather than appearing twice.
+      const stored: Activity[] = aJson.activities ?? [];
+      const storedMeetingIds = new Set(
+        stored.map(a => a.source).filter(s => s?.startsWith("meeting:"))
+              .map(s => s.slice("meeting:".length)));
+
+      const derived: Activity[] = (aJson.meetings ?? [])
+        .filter((m: MatchedMeeting) => !storedMeetingIds.has(m.firefliesId))
+        .map((m: MatchedMeeting) => ({
+          id: `ff:${m.firefliesId}`,
+          kind: "meeting",
+          direction: null,
+          subject: m.title,
+          body: [
+            m.durationMin ? `${Math.round(m.durationMin)} min` : null,
+            m.externalAttendees.length
+              ? `${m.externalAttendees.length} external: ${m.externalAttendees.slice(0, 4).join(", ")}`
+              : null,
+          ].filter(Boolean).join(" · ") || null,
+          occurred_at: m.date ?? new Date().toISOString(),
+          actor_email: null,
+          source: "fireflies",
+          link_url: m.docUrl ?? m.transcriptUrl,
+          link_label: m.docUrl ? "Summary doc" : m.transcriptUrl ? "Transcript" : null,
+          derived: true,
+          unprocessed: !m.processed,
+        }));
+
+      setActivities([...stored, ...derived].sort(
+        (a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at))));
       setActivityNote(aJson.note ?? null);
+      setMeetingNote(aJson.meetingsUnavailable ?? null);
 
       // A contracts failure must not blank the page — the account's deals and
       // contacts are still worth showing, and NetSuite being unreachable is a
@@ -726,6 +778,16 @@ export default function CrmAccountPage({
               </button>
             </div>
 
+            {/* "We could not look" must not render as "there were none" —
+                the same rule the Focus sections follow. */}
+            {meetingNote && (
+              <div style={{ fontSize: 11.5, color: C.yellow, background: C.yellowBg,
+                            border: `1px solid ${C.yellowBd}`, borderRadius: 6,
+                            padding: "7px 9px", marginBottom: 10, lineHeight: 1.5 }}>
+                {meetingNote}
+              </div>
+            )}
+
             {activityNote && (
               <div style={{ fontSize: 11, color: C.textSub, marginBottom: 10, lineHeight: 1.5 }}>
                 {activityNote}
@@ -750,8 +812,23 @@ export default function CrmAccountPage({
                   {KIND_ICON[a.kind] ?? "·"}
                 </span>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12.5, color: C.text, fontWeight: 500 }}>
-                    {a.subject ?? a.kind}
+                  <div style={{ fontSize: 12.5, color: C.text, fontWeight: 500,
+                                display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                    <span>{a.subject ?? a.kind}</span>
+                    {/* Teal marks provenance, never health — the same use the
+                        LOCAL account chip makes of it. This row was matched,
+                        not recorded, and the reader is entitled to know. */}
+                    {a.unprocessed && (
+                      <span title={"Matched to this customer from the meeting's attendees. "
+                                 + "Nobody has run it through the Process wizard, so there is "
+                                 + "no summary doc, no ClickUp tasks and no Slack post."}
+                            style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+                                     color: C.teal, background: C.tealBg,
+                                     border: `1px solid ${C.tealBd}`, borderRadius: 3,
+                                     padding: "1px 5px" }}>
+                        NOT PROCESSED
+                      </span>
+                    )}
                   </div>
                   {a.body && (
                     <div style={{ fontSize: 11.5, color: C.textMid, marginTop: 2, lineHeight: 1.5,
