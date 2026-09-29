@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { useStaff } from "@/lib/use-staff";
 import type { Project } from "@/lib/types";
+import { useCustomers } from "@/lib/use-customers";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -114,15 +115,14 @@ function fmtH(h: number | null): string | null {
 function InviteModal({
   projectId, projectName, onClose, onInvited,
 }: { projectId: number; projectName: string; onClose: () => void; onInvited: () => void }) {
-  const [customers, setCustomers] = useState<{ id: number; companyname: string }[]>([]);
+
   const [selectedCustomer, setSel] = useState("");
   const [email, setEmail]         = useState("");
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/customers").then(r => r.json()).then(d => setCustomers(d.customers ?? []));
-  }, []);
+  // Shared with the three other views that need this list — see lib/use-customers.
+  const { customers } = useCustomers();
 
   const selCust = customers.find(c => String(c.id) === selectedCustomer);
 

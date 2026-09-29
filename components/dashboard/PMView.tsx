@@ -9,6 +9,7 @@ import { ProjectSummaryHeader } from "./ProjectSummaryHeader";
 import { ProjectClickUpTasks } from "./ProjectClickUpTasks";
 import { ProjectMeetings } from "./ProjectMeetings";
 import { ProjectTaskPanel } from "./ProjectTaskPanel";
+import { useCustomers } from "@/lib/use-customers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ function CreateProjectModal({
   const [clientNsId, setClientNsId]   = useState<number | null>(null);
   const [clientSearch, setClientSearch] = useState("");
   const [showClientDrop, setShowClientDrop] = useState(false);
-  const [customers, setCustomers]     = useState<{ id: number; companyname: string }[]>([]);
+
   const [projectType, setType]        = useState("Implementation");
   const [pmName, setPm]               = useState("");
   const [goLiveDate, setGoLive]       = useState("");
@@ -53,9 +54,9 @@ function CreateProjectModal({
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/customers").then(r => r.json()).then(d => setCustomers(d.customers ?? []));
-  }, []);
+  // Shared with the three other views that need this list — one live SuiteQL
+  // query per session instead of one per component mount. See lib/use-customers.
+  const { customers } = useCustomers();
 
   const filteredCustomers = clientSearch.length > 0
     ? customers.filter(c => c.companyname.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 8)

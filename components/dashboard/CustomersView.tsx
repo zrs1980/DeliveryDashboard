@@ -5,6 +5,7 @@ import { useStaff } from "@/lib/use-staff";
 import type { NSCustomer } from "@/app/api/customers/route";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 import type { MSAProject } from "@/app/api/msa/route";
+import { fetchCustomers } from "@/lib/use-customers";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -597,10 +598,13 @@ export function CustomersView() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const [cRes, hRes] = await Promise.all([fetch("/api/customers"), fetch("/api/healthchecks")]);
-      const [cData, hData] = await Promise.all([cRes.json(), hRes.json()]);
-      if (cData.error) throw new Error(cData.error);
-      setCustomers(cData.customers ?? []);
+      // Customers come from the shared cache — a live SuiteQL query four views
+      // want, so the second asker gets the first's result. Health checks do
+      // not: this view writes them, and load() re-runs after every schedule or
+      // completion, which is exactly when a cached copy would be wrong.
+      const [cRows, hRes] = await Promise.all([fetchCustomers(), fetch("/api/healthchecks")]);
+      const hData = await hRes.json();
+      setCustomers(cRows);
       setHealthchecks(hData.healthchecks ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");

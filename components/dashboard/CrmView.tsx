@@ -7,6 +7,7 @@ import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmAccountPage, { type AccountDetail } from "@/components/dashboard/CrmAccountPage";
 import CrmDealPanel from "@/components/dashboard/CrmDealPanel";
 import CrmProjects from "@/components/dashboard/CrmProjects";
+import { fetchCustomers } from "@/lib/use-customers";
 
 // ─── CRM ────────────────────────────────────────────────────────────────────
 //
@@ -137,15 +138,20 @@ export default function CrmView({
   // Two sources, one list. The local ones are fetched separately rather than
   // merged into /api/customers, because that route's response shape is consumed
   // by CustomersView, PMView and ProjectManagementView and must not change.
+  //
+  // The NetSuite half goes through the shared cache in lib/use-customers: it is
+  // a live SuiteQL query over ~180 customers and four views want it, so the
+  // second one to ask gets the first one's result. Local accounts are NOT
+  // cached — they change from inside this very view, and a stale holding pen
+  // reads as "my prospect vanished".
   const loadAccounts = useCallback(async () => {
     setAccountsLoading(true);
     try {
-      const [nsRes, localRes] = await Promise.all([
-        fetch("/api/customers"),
+      const [nsRows, localRes] = await Promise.all([
+        fetchCustomers(),
         fetch("/api/crm/accounts"),
       ]);
-      const ns = await nsRes.json();
-      const rows: AccountRow[] = [...(ns.customers ?? [])];
+      const rows: AccountRow[] = [...nsRows];
 
       // A failure here is surfaced, not swallowed. Silently dropping the local
       // accounts would read as "my prospect vanished", which is the one thing

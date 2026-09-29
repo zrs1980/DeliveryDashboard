@@ -2843,6 +2843,38 @@ agent. The field it depends on has never been populated.**
   contacts and its values are built-in negative ids whose labels SuiteQL cannot
   resolve.
 
+### One customer list, fetched once — `lib/use-customers.ts`
+
+Four components fetched `/api/customers` independently on mount: `CrmView`,
+`CustomersView`, `PMView`, `ProjectManagementView`. A session touching all four
+paid for the same list four times, and each held a copy that could disagree
+with the others.
+
+`useCustomers()` for components, `fetchCustomers()` for imperative callers
+(CrmView and CustomersView merge it with something else inside their own
+`load`), both over one module-scope promise cache. Same pattern and same
+reasoning as `lib/use-projects.ts`.
+
+- **⚠ `/api/customers` is a LIVE SuiteQL query** over ~180 customers with
+  several `BUILTIN.DF()` resolutions per row. It is not the index and it is not
+  cheap.
+- **⚠ It is deliberately NOT served from the `customers` table.** That table has
+  the right shape and one indexed SELECT would be far faster — but it syncs
+  nightly, and three of these four views are **pickers**. A customer created in
+  NetSuite this morning must appear in the dropdown this morning; "it will be
+  there tomorrow" is not an answer when someone is filing work against a new
+  account. Freshness beats speed, and the cache buys back most of the cost.
+- **A failure is never cached**, or one bad response leaves every consumer
+  empty for the life of the page.
+- **Only the NetSuite half is cached in CrmView.** Local prospects are re-read
+  every time, because they change from inside that very view and a stale
+  holding pen reads as "my prospect vanished". Same in `CustomersView`: health
+  checks are re-read on every `load()` because it writes them.
+- **Neither linking nor creating a prospect invalidates the cache**, and that is
+  correct — linking targets a NetSuite account that already exists, and a
+  prospect is local only. `invalidateCustomers()` exists for when that stops
+  being true.
+
 ### The customer timeline — `pm_crm_activities` is the one feed
 
 Anything this application does *with* a customer writes a row to
