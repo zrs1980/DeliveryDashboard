@@ -5,6 +5,7 @@ import CrmContacts from "@/components/dashboard/CrmContacts";
 import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmProjects from "@/components/dashboard/CrmProjects";
 import CustomerCsPanel from "@/components/dashboard/CustomerCsPanel";
+import CustomerHealthChecks from "@/components/dashboard/CustomerHealthChecks";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
@@ -116,7 +117,7 @@ interface Contract {
 
 type Section =
   | "overview" | "projects" | "contacts" | "tasks" | "activity" | "contracts"
-  | "health" | "profile";
+  | "checks" | "health" | "profile";
 
 export default function CrmAccountPage({
   customerNsId, customerName, onClose, onOpenDeal, account: accountProp,
@@ -493,7 +494,7 @@ export default function CrmAccountPage({
 
       <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, padding: "0 12px" }}>
         {([
-          "overview", "projects", "contacts", "contracts", "tasks", "activity",
+          "overview", "projects", "contacts", "contracts", "tasks", "checks", "activity",
           // Appears only once the server has actually sent a cs block.
           ...(hasCs ? ["health" as const, "profile" as const] : []),
         ] as readonly Section[]).map(s => (
@@ -507,8 +508,8 @@ export default function CrmAccountPage({
           }}>
             {s === "overview" ? "Opportunities" : s === "projects" ? "Projects"
               : s === "contacts" ? "Contacts" : s === "contracts" ? "Contracts"
-              : s === "tasks" ? "Tasks" : s === "health" ? "Health"
-              : s === "profile" ? "Profile" : "Activity"}
+              : s === "tasks" ? "Tasks" : s === "checks" ? "Health checks"
+              : s === "health" ? "Health" : s === "profile" ? "Profile" : "Activity"}
             {s === "contracts" && contracts.length > 0 && (
               <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{contracts.length}</span>
             )}
@@ -750,6 +751,16 @@ export default function CrmAccountPage({
             customerName={customerName}
             onClose={() => setSection("overview")}
           />
+        )}
+
+        {/* ⚠ Health CHECKS, not the health SCORE — and the two tabs sitting
+            near each other makes the distinction worth restating. This is the
+            quarterly customer call: booking it, holding it, recording it. It is
+            open to anyone signed in, because PMs and consultants are the people
+            who run these calls; the `Health` tab beside it is the CS layer's
+            judgment about the account and only appears for cs_layer. */}
+        {section === "checks" && (
+          <CustomerHealthChecks customerNsId={customerNsId} customerName={customerName} />
         )}
 
         {section === "contacts" && <CrmContacts customerNsId={customerNsId} />}

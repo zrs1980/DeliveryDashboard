@@ -6,59 +6,23 @@ import type { NSCustomer } from "@/app/api/customers/route";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 import type { MSAProject } from "@/app/api/msa/route";
 import { fetchCustomers } from "@/lib/use-customers";
+import {
+  currentQuarter, quarterList, hcStatus, lastCompleted,
+  HC_STATUS_STYLE, fmtHcDate, type HCStatus,
+} from "@/lib/healthchecks";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function currentQuarter(): string {
-  const d = new Date();
-  return `Q${Math.ceil((d.getMonth() + 1) / 3)} ${d.getFullYear()}`;
-}
 
-function quarterList(): string[] {
-  const d = new Date();
-  const cur = Math.ceil((d.getMonth() + 1) / 3);
-  const yr  = d.getFullYear();
-  const qs: string[] = [];
-  for (let i = 0; i < 8; i++) {
-    let q = cur + i, y = yr;
-    if (q > 4) { q -= 4; y += 1; }
-    qs.push(`Q${q} ${y}`);
-  }
-  return qs;
-}
 
-function fmtDate(s: string | null | undefined) {
-  if (!s) return "—";
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-type HCStatus = "completed" | "scheduled" | "overdue" | "unscheduled";
-
-function getStatus(customerId: number, quarter: string, hcs: Healthcheck[]): HCStatus {
-  const mine = hcs.filter(h => h.customer_ns_id === String(customerId) && h.quarter === quarter);
-  if (mine.some(h => h.status === "completed")) return "completed";
-  const sched = mine.find(h => h.status === "scheduled");
-  if (sched) {
-    if (sched.scheduled_date && new Date(sched.scheduled_date) < new Date()) return "overdue";
-    return "scheduled";
-  }
-  return "unscheduled";
-}
-
-function lastHealthcheck(customerId: number, hcs: Healthcheck[]): Healthcheck | null {
-  const mine = hcs
-    .filter(h => h.customer_ns_id === String(customerId) && h.status === "completed")
-    .sort((a, b) => (b.completed_at ?? b.updated_at).localeCompare(a.completed_at ?? a.updated_at));
-  return mine[0] ?? null;
-}
-
-const STATUS_STYLE: Record<HCStatus, { label: string; bg: string; color: string; bd: string }> = {
-  completed:   { label: "✅ Completed",     bg: C.greenBg,  color: C.green,  bd: C.greenBd },
-  scheduled:   { label: "📅 Scheduled",     bg: C.blueBg,   color: C.blue,   bd: C.blueBd  },
-  overdue:     { label: "⚠ Overdue",        bg: C.redBg,    color: C.red,    bd: C.redBd   },
-  unscheduled: { label: "❌ Not Scheduled", bg: C.yellowBg, color: C.yellow, bd: C.yellowBd },
-};
+// Quarter maths, the overdue rule and these styles now live in
+// lib/healthchecks.ts, shared with the per-customer Health checks tab. Three
+// copies of "what counts as overdue" is how the allocation bands drifted.
+const STATUS_STYLE = HC_STATUS_STYLE;
+const getStatus = (customerId: number, quarter: string, hcs: Healthcheck[]) =>
+  hcStatus(String(customerId), quarter, hcs);
+const lastHealthcheck = (customerId: number, hcs: Healthcheck[]) =>
+  lastCompleted(String(customerId), hcs);
 
 // ─── Schedule / Complete Modal ────────────────────────────────────────────────
 
@@ -223,7 +187,7 @@ function HistoryModal({ customer, hcs, onClose }: { customer: NSCustomer; hcs: H
                   <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{h.quarter}</div>
                   <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: st.bg, color: st.color, border: `1px solid ${st.bd}` }}>{st.label}</span>
                 </div>
-                {h.scheduled_date && <div style={{ fontSize: 12, color: C.textSub, marginBottom: 3 }}>📅 {fmtDate(h.scheduled_date)}{h.consultant_name ? ` · ${h.consultant_name}` : ""}</div>}
+                {h.scheduled_date && <div style={{ fontSize: 12, color: C.textSub, marginBottom: 3 }}>📅 {fmtHcDate(h.scheduled_date)}{h.consultant_name ? ` · ${h.consultant_name}` : ""}</div>}
                 {h.topics && <div style={{ fontSize: 12, color: C.textMid, marginBottom: 3 }}>Topics: {h.topics}</div>}
                 {h.notes  && <div style={{ fontSize: 12, color: C.textSub }}>{h.notes}</div>}
               </div>
@@ -475,7 +439,7 @@ function CustomerProjectsView({ customers }: { customers: NSCustomer[] }) {
     setAccess(prev => prev.filter(a => !(a.customer_ns_id === customerNsId && a.project_ns_id === projectNsId)));
   }
 
-  function fmtDate(s: string | null) {
+  function fmtHcDate(s: string | null) {
     if (!s) return "—";
     return new Date(s).toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
   }
@@ -502,7 +466,7 @@ function CustomerProjectsView({ customers }: { customers: NSCustomer[] }) {
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.companyname}</div>
                   <div style={{ fontSize: 11, color: C.textSub, marginTop: 1 }}>
-                    #{p.entityid} · {p.jobtype === "1" ? "Implementation" : "Service"} · Go-live: {fmtDate(p.golive_date)}
+                    #{p.entityid} · {p.jobtype === "1" ? "Implementation" : "Service"} · Go-live: {fmtHcDate(p.golive_date)}
                     · {usedH.toFixed(0)}h / {budgetH.toFixed(0)}h ({burnPct}%)
                   </div>
                 </div>
@@ -525,7 +489,7 @@ function CustomerProjectsView({ customers }: { customers: NSCustomer[] }) {
                         {a.customer_portal_users?.display_name && (
                           <span style={{ color: C.textSub, marginLeft: 6 }}>({a.customer_portal_users.display_name})</span>
                         )}
-                        <span style={{ color: C.textSub, marginLeft: 8 }}>Invited by {a.invited_by} · {fmtDate(a.invited_at)}</span>
+                        <span style={{ color: C.textSub, marginLeft: 8 }}>Invited by {a.invited_by} · {fmtHcDate(a.invited_at)}</span>
                       </div>
                       <button
                         onClick={() => revokeAccess(a.customer_ns_id, a.project_ns_id)}
@@ -760,7 +724,7 @@ export function CustomersView() {
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "#F1F5F9" }}>{c.companyname}</div>
                       <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
-                        {last ? `Last health check: ${fmtDate(last.completed_at)}` : "No health check on record"}
+                        {last ? `Last health check: ${fmtHcDate(last.completed_at)}` : "No health check on record"}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -833,10 +797,10 @@ export function CustomersView() {
                     {curHc?.consultant_name ?? <span style={{ color: C.textSub }}>—</span>}
                   </td>
                   <td style={{ padding: "10px 16px", fontSize: 12, fontFamily: C.mono, color: C.text, whiteSpace: "nowrap" }}>
-                    {fmtDate(curHc?.scheduled_date)}
+                    {fmtHcDate(curHc?.scheduled_date)}
                   </td>
                   <td style={{ padding: "10px 16px", fontSize: 12, fontFamily: C.mono, color: C.textSub, whiteSpace: "nowrap" }}>
-                    {lastHc ? fmtDate(lastHc.completed_at ?? lastHc.updated_at) : "—"}
+                    {lastHc ? fmtHcDate(lastHc.completed_at ?? lastHc.updated_at) : "—"}
                   </td>
                   <td style={{ padding: "10px 16px" }}>
                     <div style={{ display: "flex", gap: 6 }}>

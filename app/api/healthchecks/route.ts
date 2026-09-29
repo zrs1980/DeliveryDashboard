@@ -39,17 +39,20 @@ export interface Healthcheck {
   completed_at: string | null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  // Scoped to one customer for the account page's Health checks tab; unscoped
+  // for the portfolio grid, which needs every row to build its matrix.
+  const customerNsId = new URL(req.url).searchParams.get("customerNsId");
+
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("healthchecks")
-    .select("*")
-    .order("updated_at", { ascending: false });
+  let q = supabase.from("healthchecks").select("*");
+  if (customerNsId) q = q.eq("customer_ns_id", customerNsId);
+  const { data, error } = await q.order("updated_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

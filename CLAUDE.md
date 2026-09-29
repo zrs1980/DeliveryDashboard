@@ -2982,6 +2982,43 @@ calls, so an account with weekly cadence meetings read as quiet.
 - A Fireflies failure returns `unavailable` with a reason and the stored history
   still renders. "We could not look" and "there were none" must not look alike.
 
+### Health checks on the customer record
+
+`lib/healthchecks.ts` · `components/dashboard/CustomerHealthChecks.tsx`
+
+A **Health checks** tab on the customer page, beside Tasks: every quarterly call
+for that account, its status, who ran it and what was covered. The portfolio
+grid in the Customers area answers "who is missing one"; this answers "what is
+the story on this account", which is the question you have when you are already
+looking at them.
+
+- **⚠ NOT behind `cs_layer`, and it sits with Tasks rather than with Health.**
+  `healthchecks` is call *scheduling*; `cs_health_*` is the CS layer's *scoring*.
+  The names are unfortunate and the two tabs now sit near each other, so the
+  distinction is restated at the call site. PMs and consultants run these calls
+  — hiding the tab from them would hide their own work.
+- **⚠ One definition of "overdue", in `lib/healthchecks.ts`.** It was inline in
+  `CustomersView` and derived again in `buildCustomerIndex`; a per-customer tab
+  would have made a third copy of a rule that must not drift — exactly how the
+  allocation bands ended up reading "Normal" on a card and "Med" in the grid
+  beneath it. `CustomersView` now imports `hcStatus`, `HC_STATUS_STYLE`,
+  `quarterList` and `fmtHcDate` rather than keeping its own.
+  **`overdue` is derived, never stored**: a stored flag is wrong the morning
+  after the date passes and nobody re-saves the row.
+- **A completed check wins over a scheduled one in the same quarter.** A call
+  that happened is not made un-held by a second row someone left booked.
+- **Marking a check held writes the customer's timeline** — the existing PUT
+  inserts a `call` activity with the topics and notes, once, on the transition.
+  The tab says so under the list, because what gets typed here is what shows up
+  on Activity later.
+- **A past quarter stays selectable when editing an old check.** Offering only
+  future quarters would silently move a historical row into the current one on
+  save.
+- **`GET /api/healthchecks?customerNsId=` was added** for this tab; unscoped
+  still returns everything, which the portfolio grid needs to build its matrix.
+- The empty state says no check has been *recorded*, not that none happened —
+  only what was booked or logged in this app appears.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a
