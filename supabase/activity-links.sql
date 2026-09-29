@@ -1,0 +1,43 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- `pm_crm_activities` gains a link
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Run by hand in the Supabase SQL editor. Safe to re-run.
+--
+-- ─── Why ────────────────────────────────────────────────────────────────────
+--
+-- A timeline row can say a meeting happened, but not WHERE what came out of it
+-- went. The Process-meeting wizard files a Google Doc summarising each Fireflies
+-- recording into the project's Drive folder — 19 of them as of September 2026,
+-- every one with a `doc_url` in `meeting_processing` — and none of that reached
+-- the customer's Activity tab. The most useful thing about the meeting was one
+-- click away and there was no click.
+--
+-- ⚠ TWO PLAIN COLUMNS, NOT A JSONB BAG. The temptation is `metadata jsonb` that
+-- could hold anything; the cost is that nothing then knows what is in it, and
+-- the renderer has to guess. A timeline row has at most one thing worth opening,
+-- so it gets one url and one label for it.
+--
+-- Nullable, and almost every row will leave them null. That is correct: a note
+-- someone typed has nothing to link to, and an empty column is cheaper than a
+-- convention nobody follows.
+--
+-- ─── What writes them ───────────────────────────────────────────────────────
+--
+--   meeting  → the filed Google Doc          (lib/meeting-processing.ts)
+--   call     → nothing yet; the health check has no record page to open
+--   email    → nothing yet; a sent CS draft could link to itself
+--
+-- Adding a writer means setting two columns. It does not mean a migration.
+
+ALTER TABLE pm_crm_activities ADD COLUMN IF NOT EXISTS link_url   text;
+ALTER TABLE pm_crm_activities ADD COLUMN IF NOT EXISTS link_label text;
+
+-- ─── After running ──────────────────────────────────────────────────────────
+--
+--   npx tsx --env-file=.env.vercel scripts/backfill-meeting-activities.ts
+--
+-- That resolves the customer for every processed meeting, fills
+-- `meeting_processing.customer_ns_id`, and writes the timeline rows that were
+-- never created for meetings processed before September 2026. Dry run by
+-- default; pass --write to apply.

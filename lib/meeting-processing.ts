@@ -141,12 +141,32 @@ async function recordMeetingActivity(ctx: ProcessingContext): Promise<void> {
 
     const { data: existing, error: readErr } = await db
       .from("pm_crm_activities")
-      .select("id")
+      .select("id, link_url")
       .eq("source", source)
       .limit(1);
     // A failed read is NOT "no row exists". Inserting on a read failure is how
     // you get three copies of the same meeting on a timeline.
-    if (readErr || existing?.length) return;
+    if (readErr) return;
+
+    // ⚠ The Drive step usually runs AFTER the ClickUp and Slack steps, so the
+    // first call through here has no doc yet and the row is written without a
+    // link. Rather than leaving it linkless forever, a later step fills it in.
+    // Read the doc off the row instead of this call's patch, because the patch
+    // only carries what the CURRENT step wrote.
+    const { data: mp } = await db
+      .from("meeting_processing")
+      .select("doc_url, doc_name")
+      .eq("fireflies_id", ctx.firefliesId)
+      .maybeSingle();
+
+    if (existing?.length) {
+      if (mp?.doc_url && !existing[0].link_url) {
+        await db.from("pm_crm_activities")
+          .update({ link_url: mp.doc_url, link_label: mp.doc_name || "Meeting summary" })
+          .eq("id", existing[0].id);
+      }
+      return;
+    }
 
     const customer = await customerOfProject(ctx.projectNsId);
     if (!customer) return;
@@ -161,6 +181,9 @@ async function recordMeetingActivity(ctx: ProcessingContext): Promise<void> {
       // processing it. A timeline ordered by processing time reads as fiction.
       occurred_at:    ctx.meetingDate || new Date().toISOString(),
       actor_email:    ctx.processedBy ?? null,
+      // The filed summary doc — the whole reason this row is worth opening.
+      link_url:       mp?.doc_url ?? null,
+      link_label:     mp?.doc_url ? (mp.doc_name || "Meeting summary") : null,
       source,
     });
 

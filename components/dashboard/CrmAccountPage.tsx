@@ -66,6 +66,13 @@ interface Activity {
   id: string; kind: string; direction: string | null;
   subject: string | null; body: string | null;
   occurred_at: string; actor_email: string | null; source: string;
+  /**
+   * The one thing on this row worth opening. A processed meeting carries the
+   * Google Doc the wizard filed into the project's Drive folder — the summary
+   * of the Fireflies recording, which is the most useful artefact the app
+   * produces and used to be unreachable from the customer.
+   */
+  link_url: string | null; link_label: string | null;
 }
 
 const money = (n: number | null) =>
@@ -752,10 +759,24 @@ export default function CrmAccountPage({
                       {a.body.replace(/\s+/g, " ").slice(0, 220)}
                     </div>
                   )}
-                  <div style={{ fontSize: 10.5, color: C.textSub, marginTop: 3, fontFamily: C.mono }}>
-                    {new Date(a.occurred_at).toLocaleDateString()}
-                    {a.actor_email ? ` · ${a.actor_email}` : ""}
-                    {a.source === "netsuite" ? " · NetSuite" : ""}
+                  <div style={{ fontSize: 10.5, color: C.textSub, marginTop: 3, fontFamily: C.mono,
+                                display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>
+                      {new Date(a.occurred_at).toLocaleDateString()}
+                      {a.actor_email ? ` · ${a.actor_email}` : ""}
+                      {a.source === "netsuite" ? " · NetSuite" : ""}
+                    </span>
+                    {/* Purple, matching every other external-system link in the
+                        app — the doc lives in Drive, not here. */}
+                    {a.link_url && (
+                      <a href={a.link_url} target="_blank" rel="noreferrer"
+                         style={{ fontFamily: C.font, fontSize: 10.5, fontWeight: 600,
+                                  color: C.purple, background: C.purpleBg,
+                                  border: `1px solid ${C.purpleBd}`, borderRadius: 4,
+                                  padding: "1px 6px", textDecoration: "none" }}>
+                        ↗ {a.link_label ?? "Open"}
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
