@@ -6,6 +6,7 @@ import CrmTasks from "@/components/dashboard/CrmTasks";
 import CrmProjects from "@/components/dashboard/CrmProjects";
 import CustomerCsPanel from "@/components/dashboard/CustomerCsPanel";
 import CustomerHealthChecks from "@/components/dashboard/CustomerHealthChecks";
+import CustomerCommitments from "@/components/dashboard/CustomerCommitments";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
@@ -774,6 +775,10 @@ export default function CrmAccountPage({
 
         {section === "activity" && (
           <>
+            {/* Above the log box on purpose: what is outstanding is what you
+                act on; the feed below is what already happened. */}
+            <CustomerCommitments customerNsId={customerNsId} />
+
             <div style={{ display: "flex", gap: 7, marginBottom: 12, flexWrap: "wrap" }}>
               <select value={logKind} onChange={e => setLogKind(e.target.value as typeof logKind)}
                       style={{ padding: "5px 9px", fontSize: 12, border: `1px solid ${C.mid}`,
