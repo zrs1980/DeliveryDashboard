@@ -760,7 +760,13 @@ export default function CrmAccountPage({
             who run these calls; the `Health` tab beside it is the CS layer's
             judgment about the account and only appears for cs_layer. */}
         {section === "checks" && (
-          <CustomerHealthChecks customerNsId={customerNsId} customerName={customerName} />
+          <CustomerHealthChecks
+            customerNsId={customerNsId} customerName={customerName}
+            // The governing contract sets the cadence, so the tab and Focus
+            // agree about when this account is next owed a call.
+            annualValue={governing?.annualValue ?? null}
+            daysToNotice={governing?.daysToNotice ?? null}
+          />
         )}
 
         {section === "contacts" && <CrmContacts customerNsId={customerNsId} />}

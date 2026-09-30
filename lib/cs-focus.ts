@@ -25,6 +25,8 @@
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { CustomerIndexRow } from "@/lib/cs-customer-index";
+import { healthCheckDue, CADENCE_LABEL } from "@/lib/healthchecks";
+import type { Healthcheck } from "@/app/api/healthchecks/route";
 
 export type FocusKind =
   | "notice_deadline" | "drafts_waiting" | "we_owe" | "flags_raised"
@@ -102,7 +104,7 @@ export async function buildFocus(): Promise<FocusResult> {
   const supabase = getSupabaseAdmin();
   const warnings: string[] = [];
 
-  const [idx, drafts, commits, anyCommit, flags] = await Promise.all([
+  const [idx, drafts, commits, anyCommit, flags, checks] = await Promise.all([
     supabase.from("cs_customer_index").select("*"),
     // `generated_at`, not `created_at`, and the waiting statuses are the ones a
     // reviewer still has to act on. `snoozed` is parked on purpose and `expired`
@@ -122,6 +124,8 @@ export async function buildFocus(): Promise<FocusResult> {
     supabase.from("cs_health_flags")
       .select("customer_ns_id, rule_id, title, severity, raised_at")
       .in("status", ["open", "acknowledged"]),
+    // Every check, so the cadence maths can see what was last held.
+    supabase.from("healthchecks").select("*"),
   ]);
 
   if (idx.error) {
@@ -326,35 +330,68 @@ export async function buildFocus(): Promise<FocusResult> {
       })).sort((a, b) => a.rank - b.rank),
   });
 
-  // ── 6. Never health-checked ───────────────────────────────────────────────
-  // Restricted to stage CUSTOMER: a prospect has no health check to miss, and
-  // including them would put 90 rows here on day one.
+  // ── 6. Health checks due ──────────────────────────────────────────────────
+  //
+  // ⚠ THIS USED TO SAY "NEVER HAD ONE" AND COLLAPSE TO A SENTENCE when every
+  // customer qualified — true, honest, and completely unactionable. 87 of 87 is
+  // a real process gap, but "which five do I book this week" is the question
+  // that follows, and a sentence cannot answer it.
+  //
+  // It now ranks by CADENCE, which comes from contract value with a renewal in
+  // sight overriding size — qbrTier(), shared with the QBR pack, so a health
+  // check and a QBR cannot disagree about how often an account is owed a
+  // conversation. A never-checked account on a quarterly cadence outranks a
+  // never-checked account on an annual one, so the list stays short and in the
+  // right order even while everyone is technically overdue.
+  const hcRows = (checks.data ?? []) as Healthcheck[];
   const eligible = rows.filter(r => r.stage === "CUSTOMER");
-  const unchecked = eligible.filter(r => !r.last_healthcheck_at);
-  const hcSection: FocusSection = {
+
+  const due = eligible.map(r => ({
+    r,
+    d: healthCheckDue(r.customer_ns_id, hcRows, {
+      annualValue:  r.annual_value ?? null,
+      daysToNotice: daysUntil(r.notice_date),
+    }),
+  })).filter(({ r, d }) => {
+    // ⚠ GATED ON A LIVE RELATIONSHIP, exactly like the silence rules. Without
+    // this it is 87 rows — the entire customer book — because nobody has ever
+    // recorded a check, and a list containing everyone ranks nothing.
+    //
+    // A finished implementation with no contract and no recent time is not
+    // owed a quarterly call; it is done. The gate is the same one
+    // `stalled_work` uses: money on the table, work in flight, or an open
+    // project.
+    const live = (r.annual_value ?? 0) > 0
+      || (r.hours_90d ?? 0) > 0
+      || (r.active_project_count ?? 0) > 0;
+    if (!live) return false;
+    return d.neverHeld || (d.daysUntil !== null && d.daysUntil <= 30);
+  });
+
+  const CADENCE_RANK = { quarterly: 0, twice_yearly: 1000, annual: 2000 };
+
+  sections.push({
     kind: "never_health_checked",
-    title: "Never had a health check",
-    why: "Customers with no completed quarterly call on record. Prospects and leads are "
-       + "excluded — there is nothing for them to have missed.",
-    items: unchecked.map(r => ({
+    title: "Health check due",
+    why: "Ranked by how often the account is owed one: contract value sets the cadence, "
+       + "and a renewal inside 180 days promotes it to quarterly. An account that has "
+       + "never had a check is owed one NOW, not twelve months from a clock nobody started.",
+    items: due.map(({ r, d }) => ({
       customerNsId: r.customer_ns_id,
       ...ownerOf(r.customer_ns_id),
       name: r.name,
-      detail: `${plural(r.project_count ?? 0, "project")} · ${r.current_quarter_status ?? "unscheduled"} this quarter`,
-      rank: -(r.project_count ?? 0),
-      meta: { quarterStatus: r.current_quarter_status },
+      detail: d.neverHeld
+        ? `Never held · ${CADENCE_LABEL[d.cadence].toLowerCase()} · ${d.reason}`
+        : (d.daysUntil ?? 0) < 0
+          ? `${plural(Math.abs(d.daysUntil ?? 0), "day")} overdue · ${CADENCE_LABEL[d.cadence].toLowerCase()}`
+          : `Due in ${plural(d.daysUntil ?? 0, "day")} · ${CADENCE_LABEL[d.cadence].toLowerCase()}`,
+      rank: CADENCE_RANK[d.cadence]
+          + (d.neverHeld ? -500 : Math.max(-499, Math.min(499, d.daysUntil ?? 0))),
+      // Amber only when genuinely late. Due next week is not a missed deadline.
+      tone: (d.neverHeld || (d.daysUntil ?? 0) < 0) ? "yellow" as const : undefined,
+      meta: { cadence: d.cadence, dueDate: d.dueDate, projects: r.project_count ?? 0 },
     })).sort((a, b) => a.rank - b.rank),
-  };
-  // Measured September 2026: 87 of 87. See `summary` on FocusSection — when it
-  // is everyone, the finding is about the process and belongs in one sentence.
-  if (eligible.length > 0 && unchecked.length === eligible.length) {
-    hcSection.summary =
-      `No completed health check is recorded for ANY of the ${eligible.length} customers. `
-      + `That is a gap in the quarterly call process, not ${eligible.length} accounts to open — `
-      + `the Customers tab is where checks get scheduled.`;
-    hcSection.items = [];
-  }
-  sections.push(hcSection);
+  });
 
   // Owners actually present on something actionable — not the whole staff list.
   // A filter offering people with nothing in it is noise.

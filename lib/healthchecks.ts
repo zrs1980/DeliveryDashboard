@@ -15,6 +15,7 @@
 // CLIENT-SAFE: no Supabase, no NetSuite. Imported by browser components.
 
 import { C } from "@/lib/constants";
+import { qbrTier, TIER_MONTHS, type QbrTier } from "@/lib/cs-qbr";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 
 export type HCStatus = "completed" | "scheduled" | "overdue" | "unscheduled";
@@ -114,4 +115,92 @@ export function daysSinceLastCheck(customerNsId: string, all: Healthcheck[]): nu
   if (!when) return null;
   const t = new Date(when).getTime();
   return Number.isNaN(t) ? null : Math.floor((Date.now() - t) / 86_400_000);
+}
+
+// ─── When is the next one due? ───────────────────────────────────────────────
+//
+// ⚠ THE TAB COULD SAY WHAT HAPPENED BUT NEVER WHAT TO BOOK. A status is not a
+// deadline: Focus could report "0 of 87 customers have ever had a check" and
+// still not answer the only question that follows — which five do I book this
+// week?
+//
+// ⚠ THE CADENCE RULE IS THE QBR'S, NOT A SECOND ONE. `qbrTier()` in
+// lib/cs-qbr.ts already decides how often an account deserves a formal
+// conversation, from contract value, with a renewal in sight overriding size.
+// A health check is the lighter-weight version of the same conversation and
+// must not disagree about how often it is owed — two cadence rules is how you
+// get a quarterly QBR on an account whose health check says annual.
+//
+// ⚠ It IMPORTS qbrTier rather than restating it. The first draft of this file
+// copied the thresholds, which would have been a second rule three lines after
+// a comment saying not to have one. lib/cs-qbr.ts has no imports at all, so it
+// is client-safe and there is no excuse for a copy.
+
+export type HcCadence = QbrTier;
+
+export const CADENCE_MONTHS = TIER_MONTHS;
+
+export const CADENCE_LABEL: Record<HcCadence, string> = {
+  quarterly: "Quarterly", twice_yearly: "Twice a year", annual: "Annual",
+};
+
+export interface HcDue {
+  cadence:   HcCadence;
+  /** ISO date the next check is due. Null when no check has ever been held. */
+  dueDate:   string | null;
+  /** Negative = overdue by that many days. Null when never held. */
+  daysUntil: number | null;
+  /** Never held, so it is owed now regardless of cadence. */
+  neverHeld: boolean;
+  /** Why this cadence — shown to the reader, because a deadline needs a reason. */
+  reason:    string;
+}
+
+/**
+ * How often this account is owed a check, and when the next one falls.
+ *
+ * ⚠ AN ACCOUNT THAT HAS NEVER HAD ONE IS OWED ONE NOW. It does not get a
+ * comfortable due date twelve months out because nobody ever started the
+ * clock — that would let the least-attended accounts look the least urgent,
+ * which is exactly backwards.
+ */
+export function healthCheckDue(
+  customerNsId: string,
+  all: Healthcheck[],
+  opts: { annualValue?: number | null; daysToNotice?: number | null } = {},
+): HcDue {
+  const { annualValue = null, daysToNotice = null } = opts;
+
+  // A renewal in sight outranks contract size — the check has to land
+  // comfortably before the notice date, not after it. qbrTier() owns that rule.
+  const renewalSoon = daysToNotice !== null && daysToNotice <= 180;
+  const cadence = qbrTier(annualValue, renewalSoon);
+
+  const reason =
+    renewalSoon          ? "Renewal decision inside 180 days"
+  : annualValue === null ? "No contract value recorded"
+  :                        `Contract value $${Math.round(annualValue).toLocaleString()}`;
+
+  const last = lastCompleted(customerNsId, all);
+  const when = last?.completed_at ?? last?.scheduled_date ?? null;
+  if (!when) {
+    return { cadence, dueDate: null, daysUntil: null, neverHeld: true, reason };
+  }
+
+  const held = new Date(when);
+  if (Number.isNaN(held.getTime())) {
+    return { cadence, dueDate: null, daysUntil: null, neverHeld: true, reason };
+  }
+
+  const due = new Date(held);
+  due.setMonth(due.getMonth() + CADENCE_MONTHS[cadence]);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  return {
+    cadence,
+    dueDate: due.toISOString().slice(0, 10),
+    daysUntil: Math.round((due.getTime() - today.getTime()) / 86_400_000),
+    neverHeld: false,
+    reason,
+  };
 }

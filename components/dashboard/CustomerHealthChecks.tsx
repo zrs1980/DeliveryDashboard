@@ -4,7 +4,7 @@ import { C } from "@/lib/constants";
 import { useStaff } from "@/lib/use-staff";
 import {
   currentQuarter, quarterList, hcStatus, lastCompleted, daysSinceLastCheck,
-  HC_STATUS_STYLE, fmtHcDate, type HCStatus,
+  healthCheckDue, CADENCE_LABEL, HC_STATUS_STYLE, fmtHcDate, type HCStatus,
 } from "@/lib/healthchecks";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 
@@ -26,7 +26,13 @@ import type { Healthcheck } from "@/app/api/healthchecks/route";
 
 export default function CustomerHealthChecks({
   customerNsId, customerName,
-}: { customerNsId: string; customerName: string }) {
+  annualValue, daysToNotice,
+}: {
+  customerNsId: string; customerName: string;
+  /** Drives the cadence. Absent is fine — it falls back to annual and says so. */
+  annualValue?: number | null;
+  daysToNotice?: number | null;
+}) {
   const [rows, setRows]       = useState<Healthcheck[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
@@ -55,6 +61,7 @@ export default function CustomerHealthChecks({
   const thisQuarter = hcStatus(customerNsId, cq, rows);
   const last  = lastCompleted(customerNsId, rows);
   const since = daysSinceLastCheck(customerNsId, rows);
+  const due   = healthCheckDue(customerNsId, rows, { annualValue, daysToNotice });
 
   // Newest quarter first, and within a quarter the most recently touched.
   const sorted = useMemo(() => [...rows].sort((a, b) =>
@@ -111,6 +118,22 @@ export default function CustomerHealthChecks({
           <span style={{ fontSize: 12.5, fontFamily: C.mono, color: C.text }}>
             {rows.length}
           </span>
+        </Stat>
+        {/* A status is not a deadline. This is the half the tab was missing:
+            when the next one is owed, and on what grounds. */}
+        <Stat label="Next due">
+          <span style={{ fontSize: 12.5,
+                         color: due.neverHeld || (due.daysUntil ?? 0) < 0 ? C.yellow : C.text }}>
+            {due.neverHeld
+              ? "Now — never held"
+              : (due.daysUntil ?? 0) < 0
+                ? `${Math.abs(due.daysUntil ?? 0)}d overdue`
+                : `${fmtHcDate(due.dueDate)}`}
+            <span style={{ color: C.textSub, fontSize: 11 }}>
+              {" · "}{CADENCE_LABEL[due.cadence].toLowerCase()}
+            </span>
+          </span>
+          <div style={{ fontSize: 10.5, color: C.textSub, marginTop: 2 }}>{due.reason}</div>
         </Stat>
         <button onClick={() => { setAdding(true); setEditing(null); }}
                 style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, color: "#fff",
