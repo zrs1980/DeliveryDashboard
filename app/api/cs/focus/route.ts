@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCsLayer } from "@/lib/cs-permissions";
 import { buildFocus } from "@/lib/cs-focus";
+import { resolveOwner } from "@/lib/cs-ownership";
 
 export const revalidate  = 0;
 export const maxDuration = 60;
@@ -25,7 +26,14 @@ export async function GET() {
   if (gate.response) return gate.response;
 
   try {
-    return NextResponse.json(await buildFocus());
+    // Resolved server-side because the client has an email and the accounts
+    // carry a NetSuite employee id — the roster is the only thing that joins
+    // them, and it is a NetSuite read.
+    const [focus, me] = await Promise.all([
+      buildFocus(),
+      resolveOwner(gate.session?.email),
+    ]);
+    return NextResponse.json({ ...focus, me });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },

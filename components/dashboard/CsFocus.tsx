@@ -3,6 +3,11 @@ import { useEffect, useState, useCallback } from "react";
 import { C } from "@/lib/constants";
 import type { FocusResult, FocusSection, FocusItem } from "@/lib/cs-focus";
 
+interface FocusPayload extends FocusResult {
+  /** The signed-in user as a NetSuite employee, resolved server-side. */
+  me: { nsId: number | null; name: string | null; email: string };
+}
+
 // ─── Focus ───────────────────────────────────────────────────────────────────
 //
 // "Which customers should I open this morning, and why."
@@ -28,7 +33,16 @@ export default function CsFocus({
 }: {
   onOpenCustomer?: (customerNsId: string, name: string) => void;
 }) {
-  const [data, setData] = useState<FocusResult | null>(null);
+  const [data, setData] = useState<FocusPayload | null>(null);
+  /**
+   * ⚠ A FILTER, NEVER A PERMISSION. "Not mine" is still one click away and the
+   * route returns everything regardless — this only decides what is shown
+   * first. Defaults to the signed-in user's own book when NetSuite knows who
+   * they are, because a list of 87 accounts belonging to several people is the
+   * thing a CSM stops opening.
+   */
+  const [owner, setOwner] = useState<number | "all">("all");
+  const [pickedOwner, setPickedOwner] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,10 +53,18 @@ export default function CsFocus({
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
       setData(json);
+      // Default to "mine" once, on first load, and only if they actually own
+      // something — defaulting an unresolved user, or one with an empty book,
+      // to a filter that hides everything reads as a broken page.
+      if (!pickedOwner && json.me?.nsId) {
+        const ownsSomething = (json.sections ?? []).some((sec: FocusSection) =>
+          sec.items.some(i => i.ownerNsId === json.me.nsId));
+        if (ownsSomething) setOwner(json.me.nsId);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally { setLoading(false); }
-  }, []);
+  }, [pickedOwner]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -50,16 +72,44 @@ export default function CsFocus({
   if (error)   return <div style={{ padding: 20, fontSize: 13, color: C.red }}>{error}</div>;
   if (!data)   return null;
 
+  const mine = (i: FocusItem) => owner === "all" || i.ownerNsId === owner;
+  const sections = data.sections.map(sec => ({ ...sec, items: sec.items.filter(mine) }));
+  const shown = sections.reduce((n, s) => n + s.items.length, 0);
+  const hidden = data.total - shown;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.text }}>Focus</h2>
         <span style={{ fontSize: 12, color: C.textSub }}>
-          {data.total === 0
-            ? "Nothing needs you right now — each section below says why."
-            : `${data.total} thing${data.total === 1 ? "" : "s"} to act on`}
+          {shown === 0
+            ? owner === "all"
+              ? "Nothing needs you right now — each section below says why."
+              : "Nothing on your accounts. Switch to All to see the rest of the book."
+            : `${shown} thing${shown === 1 ? "" : "s"} to act on`}
+          {/* Never let a filter hide work silently. */}
+          {hidden > 0 && (
+            <span style={{ color: C.textSub }}> · {hidden} on other people&apos;s accounts</span>
+          )}
         </span>
+
+        <select
+          value={String(owner)}
+          onChange={e => {
+            setPickedOwner(true);
+            setOwner(e.target.value === "all" ? "all" : Number(e.target.value));
+          }}
+          style={{ fontSize: 12, fontFamily: C.font, padding: "3px 8px",
+                   border: `1px solid ${C.mid}`, borderRadius: 6,
+                   background: C.surface, color: C.text }}
+        >
+          <option value="all">All accounts</option>
+          {data.me?.nsId && <option value={String(data.me.nsId)}>Mine</option>}
+          {data.owners
+            .filter(o => o.nsId !== data.me?.nsId)
+            .map(o => <option key={o.nsId} value={String(o.nsId)}>{o.name}</option>)}
+        </select>
         {/* A stale view that looks identical to a fresh one is how stale data
             gets trusted — the index is rebuilt nightly, so say when. */}
         <span style={{ marginLeft: "auto", fontSize: 11, color: C.textSub, fontFamily: C.mono }}>
@@ -74,7 +124,7 @@ export default function CsFocus({
         }}>↻ Refresh</button>
       </div>
 
-      {data.sections.map(s => (
+      {sections.map(s => (
         <Section key={s.kind} s={s} onOpenCustomer={onOpenCustomer} />
       ))}
     </div>
@@ -179,6 +229,12 @@ function Row({
                      flexGrow: 1, minWidth: 0,
                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {i.detail}
+      </span>
+      <span style={{ fontSize: 10.5, color: C.textSub, flexShrink: 0,
+                     fontFamily: C.mono, minWidth: 92, textAlign: "right" }}>
+        {/* An account NetSuite has no owner for is visibly unowned rather than
+            quietly everyone's — that is a gap worth seeing. */}
+        {i.ownerName ?? "unowned"}
       </span>
       {onOpenCustomer && (
         <span style={{ fontSize: 11, color: C.blue, flexShrink: 0 }}>Open →</span>

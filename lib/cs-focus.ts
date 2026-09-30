@@ -33,6 +33,13 @@ export type FocusKind =
 export interface FocusItem {
   customerNsId: string;
   name:         string;
+  /**
+   * Who NetSuite says owns this account. Carried on every item so the client
+   * can offer a "mine" filter without a second lookup per row — and so a row
+   * with no owner is visibly unowned rather than silently everyone's.
+   */
+  ownerName:    string | null;
+  ownerNsId:    number | null;
   /** The single fact that put this row in this section. Never a judgment. */
   detail:       string;
   /** Sorts within the section. Lower is more urgent. */
@@ -70,6 +77,8 @@ export interface FocusSection {
 
 export interface FocusResult {
   sections:  FocusSection[];
+  /** Distinct owners across every item, for the filter. */
+  owners:    { nsId: number; name: string }[];
   refreshedAt: string | null;
   /** Total across every section — what the tab badge counts. */
   total:     number;
@@ -125,6 +134,17 @@ export async function buildFocus(): Promise<FocusResult> {
   const byId = new Map(rows.map(r => [r.customer_ns_id, r]));
   const nameOf = (id: string) => byId.get(id)?.name ?? id;
 
+  // NetSuite carries two owner fields and either counts. The consultant is
+  // preferred for display because on a delivered account they are the person
+  // actually in contact; the sales rep is the fallback.
+  const ownerOf = (id: string): { ownerNsId: number | null; ownerName: string | null } => {
+    const r = byId.get(id);
+    if (!r) return { ownerNsId: null, ownerName: null };
+    if (r.consultant_ns_id) return { ownerNsId: r.consultant_ns_id, ownerName: r.consultant_name };
+    if (r.salesrep_ns_id)   return { ownerNsId: r.salesrep_ns_id,   ownerName: r.salesrep_name };
+    return { ownerNsId: null, ownerName: null };
+  };
+
   const sections: FocusSection[] = [];
 
   // ── 1. Notice deadlines ───────────────────────────────────────────────────
@@ -141,6 +161,7 @@ export async function buildFocus(): Promise<FocusResult> {
       .filter(x => x.d !== null && x.d <= NOTICE_HORIZON_DAYS)
       .map(({ r, d }) => ({
         customerNsId: r.customer_ns_id,
+        ...ownerOf(r.customer_ns_id),
         name: r.name,
         detail: d! < 0
           ? `Notice date passed ${plural(Math.abs(d!), "day")} ago`
@@ -178,6 +199,7 @@ export async function buildFocus(): Promise<FocusResult> {
         const exp = d.expires_at ? daysUntil(String(d.expires_at).slice(0, 10)) : null;
         return {
           customerNsId: d.customer_ns_id,
+          ...ownerOf(d.customer_ns_id),
           name: nameOf(d.customer_ns_id),
           detail: `${d.motion.replace(/_/g, " ")} · waiting ${plural(age, "day")}`
                 + (exp !== null && exp <= 3 ? ` · expires in ${plural(Math.max(exp, 0), "day")}` : ""),
@@ -209,6 +231,7 @@ export async function buildFocus(): Promise<FocusResult> {
       .filter(x => x.d !== null && x.d! <= 0)
       .map(({ c, d }) => ({
         customerNsId: c.customer_ns_id,
+        ...ownerOf(c.customer_ns_id),
         name: nameOf(c.customer_ns_id),
         detail: `${c.description} — due ${plural(Math.abs(d!), "day")} ago`,
         rank: d!,
@@ -254,6 +277,7 @@ export async function buildFocus(): Promise<FocusResult> {
       const worst = fs.some(f => f.severity === "critical") ? "critical" : "high";
       return {
         customerNsId: id,
+        ...ownerOf(id),
         name: nameOf(id),
         // The flag's own title, not a count — "2 open flags" tells you nothing
         // you can act on, and the point of interrupting someone is to say why.
@@ -292,6 +316,7 @@ export async function buildFocus(): Promise<FocusResult> {
         (r.days_since_activity === null || (r.days_since_activity ?? 0) >= QUIET_DAYS))
       .map(r => ({
         customerNsId: r.customer_ns_id,
+        ...ownerOf(r.customer_ns_id),
         name: r.name,
         detail: r.days_since_activity === null
           ? "No logged time on record"
@@ -313,6 +338,7 @@ export async function buildFocus(): Promise<FocusResult> {
        + "excluded — there is nothing for them to have missed.",
     items: unchecked.map(r => ({
       customerNsId: r.customer_ns_id,
+      ...ownerOf(r.customer_ns_id),
       name: r.name,
       detail: `${plural(r.project_count ?? 0, "project")} · ${r.current_quarter_status ?? "unscheduled"} this quarter`,
       rank: -(r.project_count ?? 0),
@@ -330,8 +356,17 @@ export async function buildFocus(): Promise<FocusResult> {
   }
   sections.push(hcSection);
 
+  // Owners actually present on something actionable — not the whole staff list.
+  // A filter offering people with nothing in it is noise.
+  const owners = [...new Map(
+    sections.flatMap(sec => sec.items)
+      .filter(i => i.ownerNsId !== null && i.ownerName)
+      .map(i => [i.ownerNsId!, { nsId: i.ownerNsId!, name: i.ownerName! }])
+  ).values()].sort((a, b) => a.name.localeCompare(b.name));
+
   return {
     sections,
+    owners,
     refreshedAt: rows[0]?.refreshed_at ?? null,
     total: sections.reduce((n, s) => n + s.items.length, 0),
     warnings,
