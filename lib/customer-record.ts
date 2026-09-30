@@ -34,6 +34,7 @@ import { runSuiteQL } from "@/lib/netsuite";
 import { fetchNsContracts, currentContractByCustomer, type NsContract } from "@/lib/cs-ns-contracts";
 import { renewalClock } from "@/lib/cs-contracts";
 import { isLocalAccountId, localUuidOf } from "@/lib/crm-accounts";
+import { lastContactOf } from "@/lib/cs-focus";
 
 export interface CustomerIdentity {
   id:           string | null;   // customers.id — null until customers.sql has run
@@ -53,6 +54,15 @@ export interface CustomerIdentity {
   billingAddress:  string | null;
   shippingAddress: string | null;
   netsuiteUrl:  string | null;
+  /**
+   * When anyone last had contact — sales activity, logged time or a health
+   * check, whichever is latest. NOT cs_layer data: "when did we last talk to
+   * them" is the first thing anyone opening an account wants to know, and it
+   * is a fact rather than a judgment.
+   */
+  lastContact:     string | null;
+  lastContactDays: number | null;
+  lastContactVia:  string | null;
 }
 
 export interface CustomerProjectSummary {
@@ -277,6 +287,8 @@ export async function fetchCustomerRecord(
       // is a dead page that asserts, with the authority of a working link, that
       // the account is in NetSuite.
       netsuiteUrl: null,
+      // A local prospect has no NetSuite history to draw on.
+      lastContact: null, lastContactDays: null, lastContactVia: null,
     };
   } else {
     const r = await fetchNsIdentity(key);
@@ -296,7 +308,20 @@ export async function fetchCustomerRecord(
       billingAddress:  str(r.billing_address),
       shippingAddress: str(r.shipping_address),
       netsuiteUrl: NS_CUSTOMER_URL + key,
+      lastContact: null, lastContactDays: null, lastContactVia: null,
     };
+
+    // From the index, which already rolls up all three signals nightly.
+    const { data: ix } = await supabase
+      .from("cs_customer_index")
+      .select("last_activity_date, last_sales_activity, last_healthcheck_at")
+      .eq("customer_ns_id", key).maybeSingle();
+    if (ix) {
+      const lc = lastContactOf(ix);
+      identity.lastContact     = lc.date;
+      identity.lastContactDays = lc.days;
+      identity.lastContactVia  = lc.source;
+    }
   }
 
   // ─── The CRM side ─────────────────────────────────────────────────────────

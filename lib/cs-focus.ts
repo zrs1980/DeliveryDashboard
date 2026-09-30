@@ -89,6 +89,16 @@ export interface FocusResult {
 
 const NOTICE_HORIZON_DAYS = 120;   // the outermost alert band in cs-contracts
 const QUIET_DAYS          = 90;    // the activity window used everywhere else
+/**
+ * ⚠ AND AN UPPER BOUND, WHICH MATTERS AS MUCH AS THE LOWER ONE. Sorting
+ * worst-first without it put accounts quiet for **2,528 days** at the top —
+ * seven years. That is not a relationship going cold, it is a dormant record
+ * with a NetSuite project nobody ever closed, and it buries the accounts that
+ * went quiet last quarter under ones that went quiet before anyone here
+ * started. This section is about NOTICING a relationship cool off; a book
+ * clean-up is a different job.
+ */
+const QUIET_MAX_DAYS      = 365;
 
 const daysUntil = (iso: string | null): number | null => {
   if (!iso) return null;
@@ -99,6 +109,42 @@ const daysUntil = (iso: string | null): number | null => {
 };
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+/**
+ * When anyone last had contact with this account, from every signal we hold.
+ *
+ * ⚠ LOGGED HOURS ALONE ARE NOT CONTACT. Delivery time says work happened, not
+ * that anyone spoke to the customer, and an account can be worked on silently
+ * for months. `custentity_date_lsa` — last sales activity, populated on **132
+ * of 180** customers and the best-covered relationship signal on the NetSuite
+ * record — was flowing into the index and read by nothing at all.
+ *
+ * The answer is the most recent of: sales activity, delivery time, and a
+ * completed health check. Whichever is latest is the honest answer to "when
+ * did we last actually talk to them".
+ */
+export function lastContactOf(r: {
+  last_activity_date?: string | null;
+  last_sales_activity?: string | null;
+  last_healthcheck_at?: string | null;
+}): { date: string | null; source: string | null; days: number | null } {
+  const candidates: { date: string; source: string }[] = [];
+  if (r.last_sales_activity) candidates.push({ date: String(r.last_sales_activity).slice(0, 10), source: "sales activity" });
+  if (r.last_activity_date)  candidates.push({ date: String(r.last_activity_date).slice(0, 10),  source: "logged time" });
+  if (r.last_healthcheck_at) candidates.push({ date: String(r.last_healthcheck_at).slice(0, 10), source: "health check" });
+  if (!candidates.length) return { date: null, source: null, days: null };
+
+  // ISO dates, so a string comparison is a date comparison — which is exactly
+  // why fetchCustomerLastActivity normalises with TO_CHAR rather than handing
+  // back NetSuite's M/D/YYYY.
+  const best = candidates.sort((a, b) => b.date.localeCompare(a.date))[0];
+  const t = new Date(best.date + "T00:00:00").getTime();
+  return {
+    date: best.date,
+    source: best.source,
+    days: Number.isNaN(t) ? null : Math.floor((Date.now() - t) / 86_400_000),
+  };
+}
 
 export async function buildFocus(): Promise<FocusResult> {
   const supabase = getSupabaseAdmin();
@@ -311,23 +357,41 @@ export async function buildFocus(): Promise<FocusResult> {
   // in the rules engine. No RAG: quiet is a fact, not a verdict.
   sections.push({
     kind: "quiet_under_contract",
-    title: "Quiet, under an active contract",
-    why: `No logged time for ${QUIET_DAYS}+ days on an account still under contract. `
-       + "Accounts with no contract are excluded — a finished implementation going quiet "
-       + "is not the same thing, and including them puts most of the book on this list.",
-    items: rows.filter(r =>
-        (r.contract_status ?? "").toLowerCase() === "active" &&
-        (r.days_since_activity === null || (r.days_since_activity ?? 0) >= QUIET_DAYS))
-      .map(r => ({
-        customerNsId: r.customer_ns_id,
-        ...ownerOf(r.customer_ns_id),
-        name: r.name,
-        detail: r.days_since_activity === null
-          ? "No logged time on record"
-          : `Quiet ${plural(r.days_since_activity, "day")}`,
-        rank: -(r.days_since_activity ?? 9999),
-        meta: { hours90d: r.hours_90d, lastActivity: r.last_activity_date },
-      })).sort((a, b) => a.rank - b.rank),
+    title: "No contact, and something to lose",
+    why: `Nobody has spoken to these accounts in ${QUIET_DAYS}+ days — counting sales `
+       + "activity, logged time and health checks, not just delivery hours. Limited to "
+       + "accounts with an open project or a contract: a finished implementation going "
+       + `quiet is not the same thing. Capped at ${QUIET_MAX_DAYS} days — an account `
+       + "silent for years is a dormant record to clean up, not a relationship cooling off.",
+    items: rows.filter(r => {
+        // ⚠ THE GATE WAS `contract_status === 'active'` AND RETURNED NOTHING.
+        // Only 4 customers in the account have a contract record at all, so a
+        // section that needed one was structurally empty while real accounts
+        // went untouched. An OPEN PROJECT is the same claim — there is a live
+        // relationship here and something to lose — and it is a fact we
+        // actually hold.
+        const something = (r.contract_status ?? "").toLowerCase() === "active"
+          || (r.annual_value ?? 0) > 0
+          || (r.active_project_count ?? 0) > 0;
+        if (!something) return false;
+        const lc = lastContactOf(r);
+        // No contact of ANY kind on record is a data gap, not a cooling
+        // relationship — it belongs with the accounts nobody has profiled,
+        // not at the top of a worklist.
+        if (lc.days === null) return false;
+        return lc.days >= QUIET_DAYS && lc.days <= QUIET_MAX_DAYS;
+      })
+      .map(r => {
+        const lc = lastContactOf(r);
+        return {
+          customerNsId: r.customer_ns_id,
+          ...ownerOf(r.customer_ns_id),
+          name: r.name,
+          detail: `${plural(lc.days ?? 0, "day")} since ${lc.source}`,
+          rank: -(lc.days ?? 9999),
+          meta: { lastContact: lc.date, source: lc.source, hours90d: r.hours_90d },
+        };
+      }).sort((a, b) => a.rank - b.rank),
   });
 
   // ── 6. Health checks due ──────────────────────────────────────────────────

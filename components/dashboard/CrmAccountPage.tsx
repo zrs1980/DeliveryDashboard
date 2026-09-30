@@ -58,6 +58,9 @@ export interface AccountDetail {
   inBothSubsidiaries?: boolean;
   salesrepName?: string | null;
   isLocal?: boolean;
+  lastContact?: string | null;
+  lastContactDays?: number | null;
+  lastContactVia?: string | null;
 }
 
 interface Opp {
@@ -291,6 +294,9 @@ export default function CrmAccountPage({
           entitystatusLabel: c.entitystatusLabel,
           subsidiaryId: c.subsidiaryId,
           isLocal: c.isLocal,
+          lastContact: c.lastContact,
+          lastContactDays: c.lastContactDays,
+          lastContactVia: c.lastContactVia,
         });
       } catch { /* the band stays empty; the rest of the page is unaffected */ }
     })();
@@ -467,6 +473,19 @@ export default function CrmAccountPage({
                style={{ color: C.blue, textDecoration: "none" }}>
               {account.website.replace(/^https?:\/\//, "")}
             </a>
+          </Info>
+        )}
+        {/* The first question anyone opening an account asks. Amber past 90
+            days because that is a dated fact, not a judgment about the
+            account — the same licence the renewal chip uses. */}
+        {account?.lastContactDays !== null && account?.lastContactDays !== undefined && (
+          <Info label="Last contact">
+            <span style={{ color: account.lastContactDays > 90 ? C.yellow : C.text }}>
+              {account.lastContactDays}d ago
+            </span>
+            <span style={{ color: C.textSub, fontSize: 11 }}>
+              {" · "}{account.lastContactVia}
+            </span>
           </Info>
         )}
         {account?.industry   && <Info label="Industry">{account.industry}</Info>}
