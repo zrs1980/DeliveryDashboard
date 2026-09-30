@@ -119,7 +119,7 @@ function guessMeetingType(title: string): MeetingType | "" {
 
 type SortKey = "start" | "duration" | "attendees" | "organiser" | "title";
 
-export function FirefliesMeetingsView() {
+export function FirefliesMeetingsView({ initialSearch }: { initialSearch?: string } = {}) {
   const [from, setFrom]     = useState(() => isoDaysAgo(DEFAULT_LOOKBACK_DAYS));
   const [to, setTo]         = useState(todayISO);
   const [meetings, setM]    = useState<Meeting[]>([]);
@@ -132,7 +132,9 @@ export function FirefliesMeetingsView() {
   const [updatedAt, setUpd] = useState<string | null>(null);
 
   const [orgFilter, setOrgFilter]       = useState("all");
-  const [search, setSearch]             = useState("");
+  // Seeded when arriving from a customer's Activity tab, so the meeting you
+  // clicked is already the only one on screen rather than one of a hundred.
+  const [search, setSearch]             = useState(initialSearch ?? "");
   const [sort, setSort]                 = useState<SortKey>("start");
   const [asc, setAsc]                   = useState(false);
   const [grouped, setGrouped]           = useState(true);

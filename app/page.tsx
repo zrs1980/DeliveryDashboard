@@ -20,6 +20,7 @@ import { ServiceRequestsView } from "@/components/dashboard/ServiceRequestsView"
 import { SRDashboardView } from "@/components/dashboard/SRDashboardView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import CustomersArea from "@/components/dashboard/CustomersArea";
+import { onNavigate, type NavRequest } from "@/lib/app-nav";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
@@ -155,12 +156,21 @@ function ServiceRequestsShell() {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("projects");
+  // Set when another screen asks to jump here with a row in mind — see
+  // lib/app-nav.ts. Carrying it in state rather than the URL because `tab` is
+  // not in the URL either.
+  const [navFocus, setNavFocus] = useState<NavRequest["focus"]>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // cs_layer cannot be checked in the browser: the allow-list lives in
   // lib/cs-permissions.ts, which is server-only precisely so it does not ship in
   // a bundle the way PTO_APPROVER_EMAILS does. Ask the server instead. Defaults
   // to false, so the tab never flashes visible before the answer arrives.
+  useEffect(() => onNavigate(req => {
+    setNavFocus(req.focus);
+    setTab(req.tab === "cs" || req.tab === "customers" ? "customers" : "fireflies");
+  }), []);
+
   const [csLayer, setCsLayer] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -663,7 +673,14 @@ export default function DashboardPage() {
         {tab === "meetings" && <MeetingsView />}
 
         {/* Fireflies Meetings — self-loading, independent of the NetSuite refresh */}
-        {tab === "fireflies" && <FirefliesMeetingsView />}
+        {tab === "fireflies" && (
+          <FirefliesMeetingsView
+            // Remounted on a new target so the seeded search takes effect; the
+            // key is stable otherwise, so ordinary tab switches do not refetch.
+            key={navFocus?.kind === "meeting" ? navFocus.id : "fireflies"}
+            initialSearch={navFocus?.kind === "meeting" ? navFocus.label : undefined}
+          />
+        )}
 
         {/* Calendar */}
         {tab === "calendar" && (

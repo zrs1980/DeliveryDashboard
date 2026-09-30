@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { C } from "@/lib/constants";
 import type { CustomerCsBlock } from "@/lib/customer-record";
+import { navigateTo } from "@/lib/app-nav";
 
 // ─── The CS half of the customer page ────────────────────────────────────────
 //
@@ -204,6 +205,18 @@ export default function CustomerCsPanel({
                   <span style={{ fontSize: 10.5, color: C.textSub, fontFamily: C.mono, whiteSpace: "nowrap" }}>
                     {d.motion} · {day(d.created_at)}
                   </span>
+                  {/* Read-only here on purpose — a send is reviewed in the
+                      draft queue, and putting "approve and send" on a panel
+                      someone opened to read a timeline would widen a safety
+                      surface that is narrow by design. This just takes them
+                      to the screen that does it. */}
+                  <button onClick={() => navigateTo({ tab: "cs", focus: { kind: "draft", id: d.id } })}
+                          style={{ fontSize: 10, fontWeight: 700, color: C.blue,
+                                   background: C.blueBg, border: `1px solid ${C.blueBd}`,
+                                   borderRadius: 3, padding: "1px 6px", cursor: "pointer",
+                                   fontFamily: C.font, whiteSpace: "nowrap" }}>
+                    Review →
+                  </button>
                 </div>
               );
             })}

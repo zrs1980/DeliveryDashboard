@@ -7,6 +7,7 @@ import CrmProjects from "@/components/dashboard/CrmProjects";
 import CustomerCsPanel from "@/components/dashboard/CustomerCsPanel";
 import CustomerHealthChecks from "@/components/dashboard/CustomerHealthChecks";
 import CustomerCommitments from "@/components/dashboard/CustomerCommitments";
+import { navigateTo } from "@/lib/app-nav";
 import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
@@ -841,15 +842,36 @@ export default function CrmAccountPage({
                         LOCAL account chip makes of it. This row was matched,
                         not recorded, and the reader is entitled to know. */}
                     {a.unprocessed && (
-                      <span title={"Matched to this customer from the meeting's attendees. "
-                                 + "Nobody has run it through the Process wizard, so there is "
-                                 + "no summary doc, no ClickUp tasks and no Slack post."}
-                            style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
-                                     color: C.teal, background: C.tealBg,
-                                     border: `1px solid ${C.tealBd}`, borderRadius: 3,
-                                     padding: "1px 5px" }}>
-                        NOT PROCESSED
-                      </span>
+                      <>
+                        <span title={"Matched to this customer from the meeting's attendees. "
+                                   + "Nobody has run it through the Process wizard, so there is "
+                                   + "no summary doc, no ClickUp tasks and no Slack post."}
+                              style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+                                       color: C.teal, background: C.tealBg,
+                                       border: `1px solid ${C.tealBd}`, borderRadius: 3,
+                                       padding: "1px 5px" }}>
+                          NOT PROCESSED
+                        </span>
+                        {/* ⚠ Announcing a gap and making someone walk somewhere
+                            else to close it is the most irritating kind of UI.
+                            This carries them to the Fireflies tab with the list
+                            already filtered to this meeting. It does not
+                            re-host the wizard — that needs a project and the
+                            full Fireflies record, and the tab is where the
+                            flow lives. */}
+                        <button
+                          onClick={() => navigateTo({
+                            tab: "fireflies",
+                            focus: { kind: "meeting", id: a.id.replace(/^ff:/, ""),
+                                     label: a.subject ?? undefined },
+                          })}
+                          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3,
+                                   color: C.blue, background: C.blueBg,
+                                   border: `1px solid ${C.blueBd}`, borderRadius: 3,
+                                   padding: "1px 6px", cursor: "pointer", fontFamily: C.font }}>
+                          Process →
+                        </button>
+                      </>
                     )}
                   </div>
                   {a.body && (
