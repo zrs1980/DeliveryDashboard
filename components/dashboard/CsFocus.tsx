@@ -152,17 +152,18 @@ export default function CsFocus({
       )}
 
       {sections.map(s => (
-        <Section key={s.kind} s={s} onOpenCustomer={onOpenCustomer} />
+        <Section key={s.kind} s={s} onOpenCustomer={onOpenCustomer} onSnoozed={load} />
       ))}
     </div>
   );
 }
 
 function Section({
-  s, onOpenCustomer,
+  s, onOpenCustomer, onSnoozed,
 }: {
   s: FocusSection;
   onOpenCustomer?: (customerNsId: string, name: string) => void;
+  onSnoozed: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
@@ -225,7 +226,8 @@ function Section({
         ) : (
           <>
             {shown.map((i, n) => (
-              <Row key={i.customerNsId + n} i={i} onOpenCustomer={onOpenCustomer} />
+              <Row key={i.customerNsId + n} i={i} kind={s.kind}
+                   onOpenCustomer={onOpenCustomer} onSnoozed={onSnoozed} />
             ))}
             {s.items.length > SHOW && (
               <button onClick={() => setExpanded(!expanded)} style={{
@@ -245,49 +247,93 @@ function Section({
 }
 
 function Row({
-  i, onOpenCustomer,
+  i, kind, onOpenCustomer, onSnoozed,
 }: {
   i: FocusItem;
+  kind: string;
   onOpenCustomer?: (customerNsId: string, name: string) => void;
+  onSnoozed: () => void;
 }) {
   const t = toneOf(i.tone);
+  const [busy, setBusy] = useState(false);
+
+  /**
+   * ⚠ THE REASON IS ASKED FOR, NOT ASSUMED. The route rejects a snooze without
+   * one, because it is the only feedback on whether a section surfaces the
+   * right rows — fifty dismissals saying "not a real customer" means the gate
+   * is wrong, and nothing else would ever tell us.
+   */
+  async function snooze(e: React.MouseEvent) {
+    e.stopPropagation();                      // the row itself opens the customer
+    const reason = window.prompt(
+      `Snooze ${i.name} for 30 days.
+
+Why? (this is how we find out when a section is wrong)`);
+    if (!reason || !reason.trim()) return;    // cancelled, or no reason given
+    setBusy(true);
+    try {
+      const res = await fetch("/api/cs/focus", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerNsId: i.customerNsId, kind, reason: reason.trim(), days: 30 }),
+      });
+      if (!res.ok) { alert((await res.json())?.error ?? "Could not snooze."); return; }
+      onSnoozed();
+    } finally { setBusy(false); }
+  }
+
+  // ⚠ TWO SIBLINGS IN A FLEX ROW, NOT A BUTTON INSIDE A BUTTON. The row opens
+  // the customer and Snooze does something else, and nesting one interactive
+  // element inside another is invalid HTML — the account list hit this exact
+  // trap and solved it the same way.
   return (
-    <button
-      onClick={() => onOpenCustomer?.(i.customerNsId, i.name)}
-      disabled={!onOpenCustomer}
-      style={{
-        display: "flex", width: "100%", gap: 12, alignItems: "center",
-        padding: "9px 14px", borderTop: `1px solid ${C.border}`,
-        background: "transparent", border: "none", borderTopStyle: "solid",
-        cursor: onOpenCustomer ? "pointer" : "default", textAlign: "left",
-        fontFamily: C.font,
-      }}
-    >
-      {/* Only where the section earned RAG. A neutral row gets no dot rather
-          than a grey one — decorative colour is what makes real colour stop
-          meaning anything. */}
-      {i.tone && (
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: t.fg, flexShrink: 0 }} />
-      )}
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text,
-                     minWidth: 0, flexShrink: 0, maxWidth: 260,
-                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {i.name}
-      </span>
-      <span style={{ fontSize: 12, color: i.tone ? t.fg : C.textMid,
-                     flexGrow: 1, minWidth: 0,
-                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {i.detail}
-      </span>
-      <span style={{ fontSize: 10.5, color: C.textSub, flexShrink: 0,
-                     fontFamily: C.mono, minWidth: 92, textAlign: "right" }}>
-        {/* An account NetSuite has no owner for is visibly unowned rather than
-            quietly everyone's — that is a gap worth seeing. */}
-        {i.ownerName ?? "unowned"}
-      </span>
-      {onOpenCustomer && (
-        <span style={{ fontSize: 11, color: C.blue, flexShrink: 0 }}>Open →</span>
-      )}
-    </button>
+    <div style={{ display: "flex", alignItems: "center", gap: 12,
+                  borderTop: `1px solid ${C.border}`, padding: "0 14px 0 0" }}>
+      <button
+        onClick={() => onOpenCustomer?.(i.customerNsId, i.name)}
+        disabled={!onOpenCustomer}
+        style={{
+          display: "flex", flexGrow: 1, minWidth: 0, gap: 12, alignItems: "center",
+          padding: "9px 0 9px 14px",
+          background: "transparent", border: "none",
+          cursor: onOpenCustomer ? "pointer" : "default", textAlign: "left",
+          fontFamily: C.font,
+        }}
+      >
+        {/* Only where the section earned RAG. A neutral row gets no dot rather
+            than a grey one — decorative colour is what makes real colour stop
+            meaning anything. */}
+        {i.tone && (
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: t.fg, flexShrink: 0 }} />
+        )}
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text,
+                       minWidth: 0, flexShrink: 0, maxWidth: 260,
+                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {i.name}
+        </span>
+        <span style={{ fontSize: 12, color: i.tone ? t.fg : C.textMid,
+                       flexGrow: 1, minWidth: 0,
+                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {i.detail}
+        </span>
+        <span style={{ fontSize: 10.5, color: C.textSub, flexShrink: 0,
+                       fontFamily: C.mono, minWidth: 92, textAlign: "right" }}>
+          {/* An account NetSuite has no owner for is visibly unowned rather than
+              quietly everyone's — that is a gap worth seeing. */}
+          {i.ownerName ?? "unowned"}
+        </span>
+        {onOpenCustomer && (
+          <span style={{ fontSize: 11, color: C.blue, flexShrink: 0 }}>Open →</span>
+        )}
+      </button>
+
+      <button onClick={snooze} disabled={busy}
+              title="Hide this for 30 days. You will be asked why."
+              style={{ fontSize: 11, color: C.textSub, flexShrink: 0,
+                       background: "transparent", border: "none",
+                       cursor: "pointer", fontFamily: C.font,
+                       opacity: busy ? 0.4 : 1 }}>
+        {busy ? "…" : "Snooze"}
+      </button>
+    </div>
   );
 }

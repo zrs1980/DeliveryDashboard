@@ -150,7 +150,7 @@ export async function buildFocus(): Promise<FocusResult> {
   const supabase = getSupabaseAdmin();
   const warnings: string[] = [];
 
-  const [idx, drafts, commits, anyCommit, flags, checks] = await Promise.all([
+  const [idx, drafts, commits, anyCommit, flags, checks, snoozes] = await Promise.all([
     supabase.from("cs_customer_index").select("*"),
     // `generated_at`, not `created_at`, and the waiting statuses are the ones a
     // reviewer still has to act on. `snoozed` is parked on purpose and `expired`
@@ -172,6 +172,10 @@ export async function buildFocus(): Promise<FocusResult> {
       .in("status", ["open", "acknowledged"]),
     // Every check, so the cadence maths can see what was last held.
     supabase.from("healthchecks").select("*"),
+    // Live snoozes. A failed read must not UNSUPPRESS everything — see below.
+    supabase.from("cs_focus_snoozes")
+      .select("customer_ns_id, kind, suppressed_until")
+      .gt("suppressed_until", new Date().toISOString()),
   ]);
 
   if (idx.error) {
@@ -194,6 +198,22 @@ export async function buildFocus(): Promise<FocusResult> {
     if (r.salesrep_ns_id)   return { ownerNsId: r.salesrep_ns_id,   ownerName: r.salesrep_name };
     return { ownerNsId: null, ownerName: null };
   };
+
+  /**
+   * ⚠ A FAILED SNOOZE READ DOES NOT UNSUPPRESS EVERYTHING. If the table cannot
+   * be read, rows someone deliberately set aside would all reappear at once —
+   * which looks exactly like the feature not working, on the morning they
+   * least want noise. The whole build fails loudly instead.
+   */
+  if (snoozes.error && !/does not exist|schema cache/i.test(snoozes.error.message)) {
+    throw new Error(
+      `Snoozes unreadable: ${snoozes.error.message}. Refusing to build Focus, because `
+      + `every snoozed row would reappear.`);
+  }
+  if (snoozes.error) {
+    warnings.push("Snoozing is unavailable — run supabase/focus-snooze.sql.");
+  }
+  const snoozed = new Set((snoozes.data ?? []).map(s => `${s.kind}:${s.customer_ns_id}`));
 
   const sections: FocusSection[] = [];
 
@@ -456,6 +476,12 @@ export async function buildFocus(): Promise<FocusResult> {
       meta: { cadence: d.cadence, dueDate: d.dueDate, projects: r.project_count ?? 0 },
     })).sort((a, b) => a.rank - b.rank),
   });
+
+  // Applied once, over every section, rather than inside each: a new section
+  // is snoozable the day it is written, with nothing to remember.
+  for (const sec of sections) {
+    sec.items = sec.items.filter(i => !snoozed.has(`${sec.kind}:${i.customerNsId}`));
+  }
 
   // Owners actually present on something actionable — not the whole staff list.
   // A filter offering people with nothing in it is noise.
