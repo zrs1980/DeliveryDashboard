@@ -110,7 +110,15 @@ export default function CsFocus({
                    background: C.surface, color: C.text }}
         >
           <option value="all">All accounts</option>
-          {data.me?.nsId && <option value={String(data.me.nsId)}>Mine</option>}
+          {/* ⚠ NAME THE PERSON. "Mine" alone is a promise the reader cannot
+              check — it means whoever NetSuite matched to their login email,
+              and if that match failed they were silently shown everything with
+              nothing saying why. */}
+          {data.me?.nsId && (
+            <option value={String(data.me.nsId)}>
+              Mine{data.me.name ? ` — ${data.me.name}` : ""}
+            </option>
+          )}
           {data.owners
             .filter(o => o.nsId !== data.me?.nsId)
             .map(o => <option key={o.nsId} value={String(o.nsId)}>{o.name}</option>)}
@@ -128,6 +136,20 @@ export default function CsFocus({
           cursor: "pointer", fontFamily: C.font,
         }}>↻ Refresh</button>
       </div>
+
+      {/* The silent case made loud: no NetSuite employee matched this login, so
+          there is no "mine" to filter to. Said once, quietly, rather than
+          leaving someone to wonder why the option is missing. */}
+      {!data.me?.nsId && (
+        <div style={{ fontSize: 11.5, color: C.textSub, lineHeight: 1.6,
+                      background: C.alt, border: `1px solid ${C.border}`,
+                      borderRadius: 6, padding: "7px 10px" }}>
+          Showing every account: no NetSuite employee record matches
+          <span style={{ fontFamily: C.mono }}> {data.me?.email || "your login"}</span>,
+          so there is nothing to filter to. Accounts are owned via the consultant
+          or sales rep on the NetSuite customer record.
+        </div>
+      )}
 
       {sections.map(s => (
         <Section key={s.kind} s={s} onOpenCustomer={onOpenCustomer} />

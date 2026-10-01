@@ -3070,6 +3070,22 @@ caller. Both forms now have two fields and PATCH accepts them.
   thing explaining why you are looking at nothing — and a populated one hides it
   behind "why?".
 
+- **Four labels meant different things at two levels.** `Contacts`, `Tasks`,
+  `Projects` and `Health checks` each exist twice — across the whole book in the
+  Customers bar, and as a tab on one account — at identical weight, with nothing
+  saying which you were in. The bar now says **All contacts · All tasks · All
+  projects · Health check grid**; the account tabs stay short, because the
+  account is the context.
+- **The Activity tab stacked four blocks before any history.** The commitments
+  panel now collapses to its header when nothing is outstanding — the prompt to
+  log one stays as a button rather than a paragraph explaining emptiness. And
+  the `Process →` jump moved to the right of the row, beside the links: state
+  belongs next to the title, actions on the right, and 38 of 46 rows had both
+  competing for the same space.
+- **"Mine" named nobody.** It now reads `Mine — Shai Aradais`, and a login with
+  no matching NetSuite employee gets a line saying so instead of silently
+  showing the whole book with the option absent.
+
 Still open, and worth deciding before reorganising further: a customer page
 with this many tabs is trying to be an entire application. Which three a CSM
 actually lives in should come from a CSM, not from a guess.

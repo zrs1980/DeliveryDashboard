@@ -46,13 +46,20 @@ const ENTRIES: Entry[] = [
   { id: "triage",    label: "Triage",    view: "cs",  csMode: "triage", cs: true },
   { id: "drafts",    label: "Drafts",    view: "cs",  csMode: "drafts", cs: true },
 
-  { id: "accounts",  label: "Accounts",  view: "crm", crmMode: "accounts", group: "Book" },
-  { id: "pipeline",  label: "Pipeline",  view: "crm", crmMode: "pipeline" },
-  { id: "contacts",  label: "Contacts",  view: "crm", crmMode: "contacts" },
-  { id: "tasks",     label: "Tasks",     view: "crm", crmMode: "tasks" },
-  { id: "projects",  label: "Projects",  view: "crm", crmMode: "projects" },
+  // ⚠ "ALL" IS NOT PADDING. Contacts, Tasks, Projects and Health checks each
+  // exist TWICE in this app — here across the whole book, and as a tab on a
+  // single customer. Identical labels at identical weight for different scopes
+  // meant clicking "Contacts" in this bar and "Contacts" on an account gave two
+  // different screens with the same name and nothing on either saying which.
+  // The account tabs stay short because the account is the context; these say
+  // what they span.
+  { id: "accounts",  label: "Accounts",      view: "crm", crmMode: "accounts", group: "Book" },
+  { id: "pipeline",  label: "Pipeline",      view: "crm", crmMode: "pipeline" },
+  { id: "contacts",  label: "All contacts",  view: "crm", crmMode: "contacts" },
+  { id: "tasks",     label: "All tasks",     view: "crm", crmMode: "tasks" },
+  { id: "projects",  label: "All projects",  view: "crm", crmMode: "projects" },
 
-  { id: "checks",    label: "Health checks", view: "healthchecks", group: "Cadence" },
+  { id: "checks",    label: "Health check grid", view: "healthchecks", group: "Cadence" },
   { id: "renewals",  label: "Renewals",  view: "cs",  csMode: "renewals", cs: true },
   { id: "releases",  label: "Releases",  view: "cs",  csMode: "releases", cs: true },
   { id: "agent",     label: "Agent",     view: "cs",  csMode: "agent",    cs: true },

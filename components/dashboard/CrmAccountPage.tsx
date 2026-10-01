@@ -886,25 +886,6 @@ export default function CrmAccountPage({
                                        padding: "1px 5px" }}>
                           NOT PROCESSED
                         </span>
-                        {/* ⚠ Announcing a gap and making someone walk somewhere
-                            else to close it is the most irritating kind of UI.
-                            This carries them to the Fireflies tab with the list
-                            already filtered to this meeting. It does not
-                            re-host the wizard — that needs a project and the
-                            full Fireflies record, and the tab is where the
-                            flow lives. */}
-                        <button
-                          onClick={() => navigateTo({
-                            tab: "fireflies",
-                            focus: { kind: "meeting", id: a.id.replace(/^ff:/, ""),
-                                     label: a.subject ?? undefined },
-                          })}
-                          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3,
-                                   color: C.blue, background: C.blueBg,
-                                   border: `1px solid ${C.blueBd}`, borderRadius: 3,
-                                   padding: "1px 6px", cursor: "pointer", fontFamily: C.font }}>
-                          Process →
-                        </button>
                       </>
                     )}
                   </div>
@@ -921,6 +902,26 @@ export default function CrmAccountPage({
                       {a.actor_email ? ` · ${a.actor_email}` : ""}
                       {a.source === "netsuite" ? " · NetSuite" : ""}
                     </span>
+                    {/* ⚠ ACTIONS LIVE ON THE RIGHT, STATE LIVES BY THE TITLE.
+                        The Process jump used to sit immediately after the NOT
+                        PROCESSED chip, so 38 of 46 rows carried two competing
+                        elements next to the meeting name. Same count, read far
+                        better once what-it-is and what-to-do-about-it stopped
+                        sharing a line. */}
+                    {a.unprocessed && (
+                      <button
+                        onClick={() => navigateTo({
+                          tab: "fireflies",
+                          focus: { kind: "meeting", id: a.id.replace(/^ff:/, ""),
+                                   label: a.subject ?? undefined },
+                        })}
+                        style={{ fontFamily: C.font, fontSize: 10.5, fontWeight: 600,
+                                 color: C.blue, background: C.blueBg,
+                                 border: `1px solid ${C.blueBd}`, borderRadius: 4,
+                                 padding: "1px 6px", cursor: "pointer" }}>
+                        Process →
+                      </button>
+                    )}
                     {/* Purple, matching every other external-system link in the
                         app — the doc lives in Drive, not here. */}
                     {a.link_url && (

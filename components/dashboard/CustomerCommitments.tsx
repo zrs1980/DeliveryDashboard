@@ -132,6 +132,14 @@ export default function CustomerCommitments({ customerNsId }: { customerNsId: st
         </button>
       </div>
 
+      {/* ⚠ COLLAPSES TO ITS HEADER WHEN THERE IS NOTHING OUTSTANDING AND
+          NOBODY IS TYPING. The Activity tab stacks four blocks before any
+          history — commitments, the log composer, a warning, then the feed —
+          and this one explaining at length that it is empty was the largest
+          thing between the reader and what they came for. The prompt to log
+          one still sits in the header, where it is a button rather than a
+          paragraph. */}
+      {(open || openRows.length > 0 || error || !canRead) && (
       <div style={{ padding: "10px 12px" }}>
         {error && (
           <div style={{ fontSize: 11.5, color: C.red, marginBottom: 8 }}>{error}</div>
@@ -217,6 +225,7 @@ export default function CustomerCommitments({ customerNsId }: { customerNsId: st
           })
         )}
       </div>
+      )}
     </div>
   );
 }
