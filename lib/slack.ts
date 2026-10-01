@@ -136,3 +136,74 @@ export async function prependToCanvas(markdown: string, canvasId?: string | null
     );
   }
 }
+
+// ─── Direct messages ─────────────────────────────────────────────────────────
+//
+// ⚠ THE BOT TOKEN CANNOT DO THIS TODAY, AND THE FAILURE IS DELIBERATE RATHER
+// THAN HIDDEN. Probed October 2026: `auth.test` succeeds (team Loop), but
+// `users.lookupByEmail` and `conversations.list` both return `missing_scope`.
+// Posting to a channel works; finding a person does not.
+//
+// To turn DMs on, add these to the Slack app's Bot Token Scopes and reinstall:
+//
+//     users:read          read the member list
+//     users:read.email    match a member to their email address
+//     im:write            open a DM conversation with them
+//
+// Until then `dmByEmail` throws a message naming those three, and the digest
+// falls back to a channel rather than silently sending nothing.
+
+export class SlackScopeError extends Error {}
+
+async function slack(method: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  const res = await fetch(`https://slack.com/api/${method}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+      ...(init.headers ?? {}),
+    },
+  });
+  return await res.json() as Record<string, unknown>;
+}
+
+/**
+ * DM one person, found by their email address.
+ *
+ * Throws SlackScopeError when the token cannot look people up, so the caller
+ * can fall back rather than treating it as a transient failure.
+ */
+export async function dmByEmail(email: string, text: string): Promise<PostedMessage> {
+  if (!process.env.SLACK_BOT_TOKEN) throw new Error("SLACK_BOT_TOKEN is not set.");
+
+  const look = await slack(`users.lookupByEmail?email=${encodeURIComponent(email)}`);
+  if (!look.ok) {
+    if (look.error === "missing_scope") {
+      throw new SlackScopeError(
+        "Slack cannot look up people by email. Add users:read, users:read.email and "
+        + "im:write to the app's Bot Token Scopes and reinstall it.");
+    }
+    if (look.error === "users_not_found") {
+      throw new Error(`No Slack member has the address ${email}.`);
+    }
+    throw new Error(`Slack users.lookupByEmail: ${look.error}`);
+  }
+
+  const userId = (look.user as { id?: string } | undefined)?.id;
+  if (!userId) throw new Error(`Slack returned no user id for ${email}.`);
+
+  const open = await slack("conversations.open", {
+    method: "POST", body: JSON.stringify({ users: userId }),
+  });
+  if (!open.ok) {
+    if (open.error === "missing_scope") {
+      throw new SlackScopeError("Slack cannot open a DM. Add im:write to the app's Bot Token Scopes.");
+    }
+    throw new Error(`Slack conversations.open: ${open.error}`);
+  }
+
+  const channel = (open.channel as { id?: string } | undefined)?.id;
+  if (!channel) throw new Error("Slack opened no DM channel.");
+  return postToChannel(channel, text);
+}

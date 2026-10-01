@@ -3090,6 +3090,46 @@ Still open, and worth deciding before reorganising further: a customer page
 with this many tabs is trying to be an entire application. Which three a CSM
 actually lives in should come from a CSM, not from a guess.
 
+### The morning digest — the first thing that leaves the app
+
+`lib/digest.ts` · `app/api/cs/cron/digest` · `scripts/try-digest.ts`
+
+Nothing in this application reached a person who was not already looking at it.
+Two crons ran at 07:00, produced findings, and told nobody; assigning someone a
+task did not notify them. Every surface was pull.
+
+One message per person at **08:00 on weekdays** — after scoring and the agent,
+so it reads what the night produced rather than racing it. Tasks due, promises
+made, health checks to book, accounts gone quiet, drafts waiting.
+
+- **⚠ It sends to NOBODY until `DIGEST_RECIPIENTS` is set, and that default is
+  the feature.** A daily message that is wrong or noisy gets muted inside a
+  week, and a muted channel is worse than none. Unset = a dry run reporting what
+  it *would* send. One address to trial, `*` once it is trusted.
+- **An empty digest is not sent.** "Nothing today", every day, is how people
+  learn to ignore the one that matters. Silence is a valid and common output.
+- **⚠ DMs need three scopes the token does not have.** Probed October 2026:
+  `auth.test` succeeds, `users.lookupByEmail` and `conversations.list` both
+  return `missing_scope`. Add `users:read`, `users:read.email` and `im:write`
+  to the Slack app and reinstall. Until then each digest falls back to
+  `DIGEST_SLACK_CHANNEL`, and the response says so rather than being quietly
+  different from what was asked for.
+- **⚠ Active staff only.** `getStaffRoster()` deliberately includes people who
+  have left; the first real run built a digest for a consultant who left in
+  April. Messaging someone who no longer works here ends a daily message's
+  credibility on day one.
+- **⚠ The annual never-held health-check tail is excluded.** The first run gave
+  one consultant 19 items, 16 of them "never held (annual)" — a backlog nobody
+  can act on, pushed daily. The digest carries accounts on a real clock
+  (quarterly or twice-yearly, meaning contract value or a renewal); the annual
+  tail stays on Focus, ranked, to be worked through by choice.
+- Drafts are **cs_layer only** inside the digest: surfacing proposed outreach to
+  the delivery team would put a risk judgment in front of exactly the people the
+  boundary exists to keep it from.
+
+After those two gates the real output is **3 people, 3–6 items each** — which is
+the shape a morning message has to have to survive.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a
