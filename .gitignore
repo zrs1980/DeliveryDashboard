@@ -53,3 +53,7 @@ font-check.pdf
 
 # Spec archives — contents are extracted alongside as .md
 docs/*.zip
+
+# Contact exports — real customer names, emails and phone numbers.
+# Round-tripped through a spreadsheet; never committed.
+exports/
