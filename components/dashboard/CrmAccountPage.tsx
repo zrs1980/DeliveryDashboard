@@ -8,7 +8,6 @@ import CustomerCsPanel from "@/components/dashboard/CustomerCsPanel";
 import CustomerHealthChecks from "@/components/dashboard/CustomerHealthChecks";
 import CustomerCommitments from "@/components/dashboard/CustomerCommitments";
 import { navigateTo } from "@/lib/app-nav";
-import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 import { isLocalAccountId } from "@/lib/crm-accounts";
 
 // ─── The account page ───────────────────────────────────────────
@@ -122,10 +121,10 @@ interface Contract {
 
 type Section =
   | "overview" | "projects" | "contacts" | "tasks" | "activity" | "contracts"
-  | "checks" | "health" | "profile";
+  | "checks" | "risk";
 
 export default function CrmAccountPage({
-  customerNsId, customerName, onClose, onOpenDeal, account: accountProp,
+  customerNsId, customerName, onClose, onOpenDeal, account: accountProp, backLabel,
 }: {
   customerNsId: string; customerName: string; onClose: () => void;
   onOpenDeal?: (dealId: string) => void;
@@ -141,6 +140,16 @@ export default function CrmAccountPage({
    * prop. When it is absent, identity is fetched from /api/customers/[id].
    */
   account?: AccountDetail;
+  /**
+   * Where the reader came from, e.g. "Focus". Shown as a breadcrumb.
+   *
+   * ⚠ Arriving here from a worklist used to leave NO sense of place: a
+   * full-page account view, no highlighted tab in the bar above (deliberately,
+   * since claiming "you are on Focus" while a customer page is open would be a
+   * lie), no breadcrumb, and nothing to go back to except the page's own Close.
+   * Technically honest and experientially disorienting.
+   */
+  backLabel?: string;
 }) {
   const [section, setSection] = useState<Section>("overview");
   // Identity fetched only when the caller did not supply it — see `account`.
@@ -367,6 +376,16 @@ export default function CrmAccountPage({
 
   return (
     <div style={{ border: `1px solid ${C.mid}`, borderRadius: 10, background: C.surface, overflow: "hidden" }}>
+      {backLabel && (
+        <button onClick={onClose}
+                style={{ display: "block", width: "100%", textAlign: "left",
+                         padding: "7px 16px", background: "transparent",
+                         border: "none", borderBottom: `1px solid ${C.border}`,
+                         fontSize: 11.5, fontWeight: 600, color: C.blue,
+                         cursor: "pointer", fontFamily: C.font }}>
+          ← {backLabel}
+        </button>
+      )}
       <div style={{ padding: "12px 16px", background: C.alt, borderBottom: `1px solid ${C.border}`,
                     display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{customerName}</span>
@@ -517,7 +536,13 @@ export default function CrmAccountPage({
         {([
           "overview", "projects", "contacts", "contracts", "tasks", "checks", "activity",
           // Appears only once the server has actually sent a cs block.
-          ...(hasCs ? ["health" as const, "profile" as const] : []),
+          // ⚠ "Risk", not "Health" — there is a "Health checks" tab three
+          // places to the left and the two are unrelated: one is the quarterly
+          // customer call, the other is a churn judgment. They shipped side by
+          // side with near-identical names, which nobody would get right from
+          // the label. Profile folded in with it: both answer "what does the CS
+          // layer think", and neither filled a tab on its own.
+          ...(hasCs ? ["risk" as const] : []),
         ] as readonly Section[]).map(s => (
           <button key={s} onClick={() => setSection(s)} style={{
             padding: "9px 14px", fontSize: 12,
@@ -530,7 +555,7 @@ export default function CrmAccountPage({
             {s === "overview" ? "Opportunities" : s === "projects" ? "Projects"
               : s === "contacts" ? "Contacts" : s === "contracts" ? "Contracts"
               : s === "tasks" ? "Tasks" : s === "checks" ? "Health checks"
-              : s === "health" ? "Health" : s === "profile" ? "Profile" : "Activity"}
+              : s === "risk" ? "Risk" : "Activity"}
             {s === "contracts" && contracts.length > 0 && (
               <span style={{ marginLeft: 5, fontFamily: C.mono, fontSize: 11 }}>{contracts.length}</span>
             )}
@@ -757,22 +782,12 @@ export default function CrmAccountPage({
             whether the tab exists at all, and a tab that only appears after you
             click something you cannot see is not a tab. Hidden rather than
             unmounted so switching away does not refetch. */}
-        <div hidden={section !== "health"}>
-          <CustomerCsPanel customerNsId={customerNsId} onHasCs={onHasCs} />
-        </div>
-
-        {/* Mounted only when open: extraction state is expensive to build and
-            nobody needs it until they ask. The Health panel above is the
-            opposite case — it has to be mounted to report whether the cs block
-            exists at all. */}
-        {section === "profile" && (
-          <CustomerProfilePanel
-            embedded
-            customerNsId={customerNsId}
-            customerName={customerName}
-            onClose={() => setSection("overview")}
+        <div hidden={section !== "risk"}>
+          <CustomerCsPanel
+            customerNsId={customerNsId} customerName={customerName}
+            onHasCs={onHasCs}
           />
-        )}
+        </div>
 
         {/* ⚠ Health CHECKS, not the health SCORE — and the two tabs sitting
             near each other makes the distinction worth restating. This is the

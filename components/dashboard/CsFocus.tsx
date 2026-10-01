@@ -23,6 +23,11 @@ interface FocusPayload extends FocusResult {
 // commitments" reads as reassurance when the truth is that no commitment has
 // ever been recorded.
 
+const whyBtn: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: C.blue, background: "transparent",
+  border: "none", padding: 0, marginLeft: 7, cursor: "pointer", fontFamily: C.font,
+};
+
 const toneOf = (t?: "red" | "yellow") =>
   t === "red"    ? { fg: C.red,    bg: C.redBg,    bd: C.redBd }
 : t === "yellow" ? { fg: C.yellow, bg: C.yellowBg, bd: C.yellowBd }
@@ -138,6 +143,7 @@ function Section({
   onOpenCustomer?: (customerNsId: string, name: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
   const SHOW = 6;
   const shown = expanded ? s.items : s.items.slice(0, SHOW);
 
@@ -155,9 +161,30 @@ function Section({
             </span>
           )}
         </div>
-        {/* The reason, always visible. Not a tooltip: if it is worth saying it
-            is worth reading without hovering. */}
-        <div style={{ fontSize: 11.5, color: C.textSub, lineHeight: 1.6, marginTop: 4 }}>{s.why}</div>
+        {/* ⚠ THE REASON EARNS ITS PLACE WHEN THE SECTION IS EMPTY, AND GETS OUT
+            OF THE WAY WHEN IT IS NOT.
+            These started always-visible on the principle that a worklist nobody
+            trusts is one that does not say why something is on it. That is
+            right the first time you read it and wrong every morning after:
+            six justifying paragraphs above six short lists is a wall of prose
+            you scroll past to reach nine rows.
+            An EMPTY section is the case where the sentence is the content — it
+            is the only thing explaining why you are looking at nothing. So it
+            stays there, and hides behind "why?" once there is something to
+            work. */}
+        {(s.items.length === 0 || whyOpen) ? (
+          <div style={{ fontSize: 11.5, color: C.textSub, lineHeight: 1.6, marginTop: 4 }}>
+            {s.why}
+            {s.items.length > 0 && (
+              <button onClick={() => setWhyOpen(false)}
+                      style={whyBtn}>hide</button>
+            )}
+          </div>
+        ) : (
+          <button onClick={() => setWhyOpen(true)} style={{ ...whyBtn, marginLeft: 0, marginTop: 3 }}>
+            why?
+          </button>
+        )}
       </div>
 
       <div style={{ padding: s.items.length ? 0 : "12px 14px" }}>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { C } from "@/lib/constants";
 import type { CustomerCsBlock } from "@/lib/customer-record";
 import { navigateTo } from "@/lib/app-nav";
+import CustomerProfilePanel from "@/components/dashboard/CustomerProfilePanel";
 
 // ─── The CS half of the customer page ────────────────────────────────────────
 //
@@ -56,9 +57,10 @@ const day = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—";
 
 export default function CustomerCsPanel({
-  customerNsId, onHasCs,
+  customerNsId, customerName, onHasCs,
 }: {
   customerNsId: string;
+  customerName: string;
   /**
    * Told to the parent so it can show or hide the tab that opens this panel.
    * The parent must not decide for itself — only the server's response knows.
@@ -181,6 +183,21 @@ export default function CustomerCsPanel({
           </div>
         )}
       </Block>
+
+      {/* ── The extracted profile in full ──────────────────────────────── */}
+      {/* Folded in from what used to be its own tab. "Risk" and "Profile" both
+          answered "what does the CS layer think about this account", and
+          neither filled a tab on its own — while a separate "Health" tab sat
+          three places from "Health checks", which is a collision nobody would
+          get right from the label. */}
+      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 2 }}>
+        <CustomerProfilePanel
+          embedded
+          customerNsId={customerNsId}
+          customerName={customerName}
+          onClose={() => {}}
+        />
+      </div>
 
       {/* ── Drafts ─────────────────────────────────────────────────────── */}
       <Block title={`Outreach drafts (${drafts.length})`}>

@@ -3049,6 +3049,31 @@ caller. Both forms now have two fields and PATCH accepts them.
 - Search still matches on `name` only, which is correct now that the two are
   kept in step — a last name is inside it.
 
+### UI corrections from a CSM's reading of it (October 2026)
+
+- **⚠ "Health" and "Health checks" were adjacent tabs on the same customer
+  page.** One is the quarterly customer call, the other a churn judgment. A code
+  comment warned the names were unfortunate and they shipped side by side
+  anyway — nobody gets that right from a label. The CS tab is now **Risk**, and
+  **Profile folded into it**: both answered "what does the CS layer think", and
+  neither filled a tab alone. Nine tabs became seven.
+- **A customer opened from a worklist had no sense of place.** The bar
+  deliberately highlights nothing during that jump (claiming "you are on Focus"
+  while a customer page is open would be a lie), which left a full-page account
+  view with no breadcrumb and no way back but Close. `backLabel` now renders a
+  `← Focus` / `← Accounts` crumb, set by whichever screen opened it.
+- **Focus's six "why" paragraphs are now conditional.** They started
+  always-visible on the principle that a worklist nobody trusts is one that does
+  not say why something is on it. True the first read, wrong every morning
+  after: six justifications above six short lists is prose you scroll past.
+  **An empty section keeps its sentence** — there it IS the content, the only
+  thing explaining why you are looking at nothing — and a populated one hides it
+  behind "why?".
+
+Still open, and worth deciding before reorganising further: a customer page
+with this many tabs is trying to be an entire application. Which three a CSM
+actually lives in should come from a CSM, not from a guess.
+
 ### Two non-negotiables from the spec
 
 **Draft, never send.** Every outbound email is a draft awaiting human approval. This is a

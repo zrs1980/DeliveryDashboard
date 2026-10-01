@@ -80,6 +80,8 @@ export default function CustomerSuccessView({
   const [q,       setQ]       = useState("");
   const [sort,    setSort]    = useState<SortKey>("quiet");
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
+  // Which screen opened the account, so the page can offer a way back to it.
+  const [cameFrom, setCameFrom] = useState<string | null>(null);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
   const [ownMode,  setOwnMode]  = useState<CsMode>("focus");
@@ -208,7 +210,9 @@ export default function CustomerSuccessView({
           worse copy of it. Opening a row lands on the same customer page the
           CRM tab opens. */}
       {mode === "focus" && (
-        <CsFocus onOpenCustomer={(id, name) => { setSelected({ id, name }); setMode("accounts"); }} />
+        <CsFocus onOpenCustomer={(id, name) => {
+          setSelected({ id, name }); setCameFrom("Focus"); setMode("accounts");
+        }} />
       )}
 
       {mode === "triage" && (
@@ -303,7 +307,7 @@ export default function CustomerSuccessView({
                 {rows.map((c, i) => (
                   <tr
                     key={c.customerNsId}
-                    onClick={() => setSelected({ id: c.customerNsId, name: c.name })}
+                    onClick={() => { setSelected({ id: c.customerNsId, name: c.name }); setCameFrom("Accounts"); }}
                     style={{
                       background: selected?.id === c.customerNsId ? C.blueBg : i % 2 ? C.alt : C.surface,
                       cursor: "pointer",
@@ -375,7 +379,8 @@ export default function CustomerSuccessView({
               key={selected.id}
               customerNsId={selected.id}
               customerName={selected.name}
-              onClose={() => setSelected(null)}
+              backLabel={cameFrom ?? undefined}
+              onClose={() => { setSelected(null); setCameFrom(null); }}
             />
           )}
 
