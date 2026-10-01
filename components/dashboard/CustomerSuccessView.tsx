@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { C } from "@/lib/constants";
 import CrmAccountPage from "@/components/dashboard/CrmAccountPage";
+import { readUrl, writeUrl } from "@/lib/url-state";
 import CsContracts from "@/components/dashboard/CsContracts";
 import CsAgentMetrics from "@/components/dashboard/CsAgentMetrics";
 import CsTriage from "@/components/dashboard/CsTriage";
@@ -79,9 +80,21 @@ export default function CustomerSuccessView({
   const [error,   setError]   = useState<string | null>(null);
   const [q,       setQ]       = useState("");
   const [sort,    setSort]    = useState<SortKey>("quiet");
-  const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
+  /**
+   * ⚠ THE LINK THAT MATTERS MOST. ?customer=16650 is what the morning digest,
+   * a Slack message and a bookmark all point at — without it every reference
+   * to an account is "go and find it".
+   *
+   * The name is not in the URL: it would be stale the moment a customer is
+   * renamed, and the page fetches identity anyway. A link carries the id only.
+   */
+  const [selected, setSelected] = useState<{ id: string; name: string } | null>(
+    () => { const id = readUrl().customer; return id ? { id, name: id } : null; });
   // Which screen opened the account, so the page can offer a way back to it.
   const [cameFrom, setCameFrom] = useState<string | null>(null);
+
+  // Keep the address bar in step with what is open.
+  useEffect(() => { writeUrl({ customer: selected?.id ?? null }); }, [selected]);
   // Triage is the default: it is the question the module exists to answer, and
   // the accounts table is reference material by comparison.
   const [ownMode,  setOwnMode]  = useState<CsMode>("focus");

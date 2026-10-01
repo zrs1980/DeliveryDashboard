@@ -4,6 +4,7 @@ import { C } from "@/lib/constants";
 import CrmView from "@/components/dashboard/CrmView";
 import CustomerSuccessView, { type CsMode } from "@/components/dashboard/CustomerSuccessView";
 import { CustomersView } from "@/components/dashboard/CustomersView";
+import { useUrlState } from "@/lib/url-state";
 
 // ─── One customers area ──────────────────────────────────────────────────────
 //
@@ -70,7 +71,8 @@ export default function CustomersArea({ csLayer }: { csLayer: boolean }) {
   // for them, and defaulting to a tab that is not in the bar would render an
   // empty page.
   const entries = ENTRIES.filter(e => !e.cs || csLayer);
-  const [active, setActive] = useState(entries[0]?.id ?? "accounts");
+  // ?view=focus — so a link lands on the screen it was shared from.
+  const [active, setActive] = useUrlState("view", entries[0]?.id ?? "accounts");
   const entry = entries.find(e => e.id === active) ?? entries[0];
 
   /**

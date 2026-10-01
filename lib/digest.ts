@@ -38,6 +38,8 @@ const MAX_PER_SECTION = 5;
 
 export interface DigestLine {
   text:   string;
+  /** Deep link to the account. Null when the line is not about one. */
+  href?:  string | null;
   /** Late enough to lead with. Drives ordering, not colour — Slack has none. */
   urgent: boolean;
 }
@@ -62,6 +64,21 @@ const daysUntil = (d: string | null | undefined): number | null => {
   if (Number.isNaN(x.getTime())) return null;
   const t = new Date(); t.setHours(0, 0, 0, 0);
   return Math.round((x.getTime() - t.getTime()) / 86_400_000);
+};
+
+/**
+ * ⚠ A PUSH CHANNEL THAT CANNOT POINT AT ANYTHING MAKES THE READER GO HUNTING,
+ * which is most of its value gone. Until the app had URL state there was
+ * nothing to link to; now "Certified Waste Solutions needs a health check"
+ * carries the account with it.
+ *
+ * AUTH_URL is already set for sign-in, so it is the one base URL this app
+ * reliably knows about itself.
+ */
+const base = () => String(process.env.AUTH_URL ?? "").replace(/\/$/, "");
+const customerLink = (customerNsId: string): string | null => {
+  const b = base();
+  return b ? `${b}/?tab=customers&view=accounts&customer=${encodeURIComponent(customerNsId)}` : null;
 };
 
 const whenText = (d: number | null): string =>
@@ -130,6 +147,7 @@ export async function buildDigests(): Promise<Digest[]> {
       .filter(({ d }) => d !== null && d <= SOON_DAYS);
     const taskSec = section("Your tasks", tasks.map(({ t, d }) => ({
       text: `${t.title}${t.customer_ns_id ? ` — ${nameOf.get(t.customer_ns_id) ?? ""}` : ""} (${whenText(d)})`,
+      href: t.customer_ns_id ? customerLink(t.customer_ns_id) : null,
       urgent: (d ?? 0) < 0,
     })));
     if (taskSec) sections.push(taskSec);
@@ -144,6 +162,7 @@ export async function buildDigests(): Promise<Digest[]> {
       .filter(({ d }) => d !== null && d <= SOON_DAYS);
     const comSec = section("You promised", commits.map(({ c, d }) => ({
       text: `${nameOf.get(c.customer_ns_id) ?? c.customer_ns_id}: ${c.description} (${whenText(d)})`,
+      href: customerLink(c.customer_ns_id),
       urgent: (d ?? 0) < 0,
     })));
     if (comSec) sections.push(comSec);
@@ -175,6 +194,7 @@ export async function buildDigests(): Promise<Digest[]> {
     });
     const hcSec = section("Health checks to book", due.map(({ r, h }) => ({
       text: `${r.name} — ${h.neverHeld ? "never held" : `${Math.abs(h.daysUntil ?? 0)}d overdue`} (${h.cadence.replace("_", " ")})`,
+      href: customerLink(r.customer_ns_id),
       urgent: h.neverHeld,
     })));
     if (hcSec) sections.push(hcSec);
@@ -187,6 +207,7 @@ export async function buildDigests(): Promise<Digest[]> {
         && lc.days !== null && lc.days >= QUIET_MIN && lc.days <= QUIET_MAX);
     const qSec = section("Gone quiet", quiet.map(({ r, lc }) => ({
       text: `${r.name} — ${lc.days}d since ${lc.source}`,
+      href: customerLink(r.customer_ns_id),
       urgent: false,
     })));
     if (qSec) sections.push(qSec);
@@ -202,6 +223,7 @@ export async function buildDigests(): Promise<Digest[]> {
         .filter(d => !d.expires_at || new Date(d.expires_at).getTime() > now);
       const dSec = section("Drafts waiting for you", drafts.map(d => ({
         text: `${nameOf.get(d.customer_ns_id) ?? d.customer_ns_id}: ${d.subject ?? d.motion}`,
+        href: customerLink(d.customer_ns_id),
         urgent: false,
       })));
       if (dSec) sections.push(dSec);
@@ -224,7 +246,11 @@ export function renderDigest(d: Digest): string {
   ];
   for (const s of d.sections) {
     lines.push("", `*${s.title}*`);
-    for (const l of s.lines) lines.push(`• ${l.text}`);
+    // Slack mrkdwn link. Falls back to plain text when AUTH_URL is unset,
+    // rather than rendering a broken <|> with nothing in it.
+    for (const l of s.lines) {
+      lines.push(l.href ? `• <${l.href}|${l.text}>` : `• ${l.text}`);
+    }
     if (s.more) lines.push(`• _+${s.more} more_`);
   }
   lines.push("", "_Reply here if any of this is wrong or noisy._");

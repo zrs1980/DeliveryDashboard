@@ -21,6 +21,7 @@ import { SRDashboardView } from "@/components/dashboard/SRDashboardView";
 import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import CustomersArea from "@/components/dashboard/CustomersArea";
 import { onNavigate, type NavRequest } from "@/lib/app-nav";
+import { useUrlState, writeUrl } from "@/lib/url-state";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
@@ -155,7 +156,10 @@ function ServiceRequestsShell() {
 
 export default function DashboardPage() {
   const { data: session } = useSession();
-  const [tab, setTab] = useState<Tab>("projects");
+  // Shareable: ?tab=customers survives a refresh and pastes into Slack.
+  const [tabRaw, setTabRaw] = useUrlState("tab", "projects");
+  const tab = tabRaw as Tab;
+  const setTab = (t: Tab) => setTabRaw(t);
   // Set when another screen asks to jump here with a row in mind — see
   // lib/app-nav.ts. Carrying it in state rather than the URL because `tab` is
   // not in the URL either.
@@ -167,6 +171,9 @@ export default function DashboardPage() {
   // a bundle the way PTO_APPROVER_EMAILS does. Ask the server instead. Defaults
   // to false, so the tab never flashes visible before the answer arrives.
   useEffect(() => onNavigate(req => {
+    // Leaving for another tab: clear the customer from the URL so a copied
+    // link does not reopen an account the reader never saw.
+    writeUrl({ customer: null });
     setNavFocus(req.focus);
     setTab(req.tab === "cs" || req.tab === "customers" ? "customers" : "fireflies");
   }), []);

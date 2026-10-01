@@ -388,7 +388,14 @@ export default function CrmAccountPage({
       )}
       <div style={{ padding: "12px 16px", background: C.alt, borderBottom: `1px solid ${C.border}`,
                     display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{customerName}</span>
+        {/* ⚠ Prefer the FETCHED name. A page restored from ?customer=16650 has
+            no name to pass in — the link deliberately carries only the id, so
+            it cannot go stale when a customer is renamed — and without this
+            the heading reads "16650" until the reader works out what they are
+            looking at. */}
+        <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+          {account?.companyname || customerName}
+        </span>
 
         {/* A local account has no NetSuite record, so it gets neither the id nor
             the link. Rendering the link anyway would point at
