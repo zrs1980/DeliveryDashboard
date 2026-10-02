@@ -1,0 +1,19 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- A health check can be put in a calendar
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Run by hand in the Supabase SQL editor. Safe to re-run.
+--
+-- Scheduling a check said "Scheduled" and nothing happened in the real world.
+-- The workflow ended exactly where the actual work starts, which is how
+-- "scheduled" and "happened" drift apart.
+--
+-- ⚠ THE ID IS STORED SO A SECOND CLICK CANNOT MAKE A SECOND EVENT. Without it
+-- the only thing standing between a reload and a duplicate in someone's
+-- calendar is their memory of having already pressed the button.
+--
+-- ⚠ IT IS A CONVENIENCE, NOT A SECOND SOURCE OF TRUTH. The check is what this
+-- app knows about; the event is a copy someone can move or delete in Google
+-- without this column being wrong — it only answers "did we already create
+-- one".
+ALTER TABLE healthchecks ADD COLUMN IF NOT EXISTS calendar_event_id text;

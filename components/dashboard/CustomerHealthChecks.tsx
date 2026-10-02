@@ -86,6 +86,46 @@ export default function CustomerHealthChecks({
     } finally { setBusy(null); }
   }
 
+  /**
+   * Put a scheduled check in the clicker's own calendar.
+   *
+   * ⚠ IT LANDS IN *YOUR* CALENDAR, NOT THE ASSIGNED CONSULTANT'S, and the
+   * button says so. The calendar API uses the signed-in user's Google token —
+   * which is also why no background job can create these — so booking on
+   * someone else's behalf is not something this can honestly offer.
+   *
+   * ⚠ 10:00 LOCAL IS A GUESS, AND IT IS LABELLED AS ONE. A health check row
+   * carries a DATE and no time, so any time here is invented; saying "move it"
+   * is better than silently picking one and letting someone miss a call.
+   */
+  async function addToCalendar(h: Healthcheck) {
+    if (!h.scheduled_date) return;
+    setBusy(h.id); setError(null);
+    try {
+      const start = new Date(`${String(h.scheduled_date).slice(0, 10)}T10:00:00`);
+      const end   = new Date(start.getTime() + 45 * 60_000);
+      const res = await fetch("/api/calendar/events", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Health check — ${customerName}`,
+          description: [h.topics, h.notes, `${h.quarter} health check`]
+            .filter(Boolean).join("\n\n"),
+          start: start.toISOString(), end: end.toISOString(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Calendar failed (${res.status})`);
+
+      // Recorded so a reload and a second click cannot make a second event.
+      await fetch(`/api/healthchecks/${h.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calendar_event_id: json.event?.id ?? "created" }),
+      });
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : "Unknown error"); }
+    finally { setBusy(null); }
+  }
+
   const remove = async (id: string) => {
     if (!confirm("Delete this health check? The timeline entry, if one was written, stays.")) return;
     setBusy(id);
@@ -207,6 +247,15 @@ export default function CustomerHealthChecks({
             </div>
 
             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              {h.status !== "completed" && h.scheduled_date && (
+                h.calendar_event_id
+                  ? <span style={{ ...mini(C.textSub), cursor: "default" }}>✓ In calendar</span>
+                  : <button disabled={busy === h.id} onClick={() => addToCalendar(h)}
+                            title="Creates a 45-minute event at 10:00 in YOUR calendar. Move it to suit."
+                            style={mini(C.blue)}>
+                      {busy === h.id ? "…" : "📅 My calendar"}
+                    </button>
+              )}
               {h.status !== "completed" && (
                 <button
                   disabled={busy === h.id}

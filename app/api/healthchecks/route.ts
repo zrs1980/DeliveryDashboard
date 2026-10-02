@@ -37,6 +37,12 @@ export interface Healthcheck {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  /**
+   * The Google Calendar event created from this check, if someone made one.
+   * A convenience copy, never a second source of truth — it exists so a
+   * reload and a second click cannot put two events in a calendar.
+   */
+  calendar_event_id?: string | null;
 }
 
 export async function GET(req: Request) {
