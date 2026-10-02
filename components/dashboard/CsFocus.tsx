@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { C } from "@/lib/constants";
 import type { FocusResult, FocusSection, FocusItem } from "@/lib/cs-focus";
+import { currentQuarter } from "@/lib/healthchecks";
 
 interface FocusPayload extends FocusResult {
   /** The signed-in user as a NetSuite employee, resolved server-side. */
@@ -167,6 +168,19 @@ function Section({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
+  /**
+   * ⚠ BULK EXISTS FOR ONE CASE AND IS NOT OFFERED ANYWHERE ELSE. 45 accounts
+   * need a health check and they were booked one at a time through a form on
+   * separate pages, with the list unchanged while you worked through it.
+   *
+   * It is deliberately NOT offered on the other sections. Nothing sensible can
+   * be done to five quiet accounts at once — "contact them" is five different
+   * conversations — and a checkbox that leads to a menu with nothing useful in
+   * it is worse than no checkbox.
+   */
+  const bulkable = s.kind === "never_health_checked";
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const SHOW = 6;
   const shown = expanded ? s.items : s.items.slice(0, SHOW);
 
@@ -225,9 +239,64 @@ function Section({
           <div style={{ fontSize: 12, color: C.textSub }}>Nothing here.</div>
         ) : (
           <>
+            {bulkable && picked.size > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10,
+                            padding: "8px 14px", background: C.blueBg,
+                            borderTop: `1px solid ${C.blueBd}` }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.blue }}>
+                  {picked.size} selected
+                </span>
+                <button
+                  disabled={bulkBusy}
+                  onClick={async () => {
+                    setBulkBusy(true);
+                    try {
+                      // Sequential, not parallel: a partial failure is only
+                      // reportable if we know how far we got — the same reason
+                      // ClickUp task creation is sequential.
+                      const failed: string[] = [];
+                      for (const id of picked) {
+                        const item = s.items.find(x => x.customerNsId === id);
+                        const res = await fetch("/api/healthchecks", {
+                          method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            customer_ns_id: id,
+                            customer_name: item?.name ?? id,
+                            quarter: currentQuarter(),
+                          }),
+                        });
+                        if (!res.ok) failed.push(item?.name ?? id);
+                      }
+                      if (failed.length) alert(`Could not create: ${failed.join(", ")}`);
+                      setPicked(new Set());
+                      onSnoozed();          // reloads Focus
+                    } finally { setBulkBusy(false); }
+                  }}
+                  style={{ fontSize: 11.5, fontWeight: 600, color: "#fff", background: C.blue,
+                           border: "none", borderRadius: 5, padding: "4px 11px",
+                           cursor: "pointer", fontFamily: C.font }}>
+                  {bulkBusy ? "Creating…" : `Create ${currentQuarter()} checks`}
+                </button>
+                <button onClick={() => setPicked(new Set())}
+                        style={{ fontSize: 11, color: C.textMid, background: "transparent",
+                                 border: "none", cursor: "pointer", fontFamily: C.font }}>
+                  Clear
+                </button>
+                <span style={{ fontSize: 11, color: C.textSub, marginLeft: "auto" }}>
+                  Creates unscheduled checks — pick dates on each account.
+                </span>
+              </div>
+            )}
+
             {shown.map((i, n) => (
               <Row key={i.customerNsId + n} i={i} kind={s.kind}
-                   onOpenCustomer={onOpenCustomer} onSnoozed={onSnoozed} />
+                   onOpenCustomer={onOpenCustomer} onSnoozed={onSnoozed}
+                   picked={bulkable ? picked.has(i.customerNsId) : undefined}
+                   onPick={bulkable ? (on) => setPicked(p => {
+                     const next = new Set(p);
+                     if (on) next.add(i.customerNsId); else next.delete(i.customerNsId);
+                     return next;
+                   }) : undefined} />
             ))}
             {s.items.length > SHOW && (
               <button onClick={() => setExpanded(!expanded)} style={{
@@ -247,12 +316,15 @@ function Section({
 }
 
 function Row({
-  i, kind, onOpenCustomer, onSnoozed,
+  i, kind, onOpenCustomer, onSnoozed, picked, onPick,
 }: {
   i: FocusItem;
   kind: string;
   onOpenCustomer?: (customerNsId: string, name: string) => void;
   onSnoozed: () => void;
+  /** Undefined on a section where bulk makes no sense — no checkbox at all. */
+  picked?: boolean;
+  onPick?: (on: boolean) => void;
 }) {
   const t = toneOf(i.tone);
   const [busy, setBusy] = useState(false);
@@ -288,12 +360,18 @@ Why? (this is how we find out when a section is wrong)`);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12,
                   borderTop: `1px solid ${C.border}`, padding: "0 14px 0 0" }}>
+      {onPick && (
+        <input type="checkbox" checked={Boolean(picked)}
+               onChange={e => onPick(e.target.checked)}
+               aria-label={`Select ${i.name}`}
+               style={{ marginLeft: 14, flexShrink: 0, cursor: "pointer" }} />
+      )}
       <button
         onClick={() => onOpenCustomer?.(i.customerNsId, i.name)}
         disabled={!onOpenCustomer}
         style={{
           display: "flex", flexGrow: 1, minWidth: 0, gap: 12, alignItems: "center",
-          padding: "9px 0 9px 14px",
+          padding: "9px 0 9px 10px",
           background: "transparent", border: "none",
           cursor: onOpenCustomer ? "pointer" : "default", textAlign: "left",
           fontFamily: C.font,
