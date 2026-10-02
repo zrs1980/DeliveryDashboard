@@ -22,6 +22,7 @@ import { EmployeeView } from "@/components/dashboard/EmployeeView";
 import CustomersArea from "@/components/dashboard/CustomersArea";
 import { onNavigate, type NavRequest } from "@/lib/app-nav";
 import { useUrlState, writeUrl } from "@/lib/url-state";
+import GlobalSearch from "@/components/dashboard/GlobalSearch";
 import { AdminUtilizationView } from "@/components/dashboard/AdminUtilizationView";
 import { PMView } from "@/components/dashboard/PMView";
 import { ManagerReview } from "@/components/dashboard/ManagerReview";
@@ -639,6 +640,9 @@ export default function DashboardPage() {
             <EmployeeView />
           </div>
         )}
+
+        {/* Cmd+K from anywhere. Renders nothing until opened. */}
+        <GlobalSearch />
 
         {/* Customers — the CRM, the CS layer and the health-check grid, under
             one bar. Self-loading; independent of the header's Refresh Data
