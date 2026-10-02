@@ -162,6 +162,14 @@ export default function CrmAccountPage({
   const [stages, setStages] = useState<{ id: string; name: string; is_open: boolean }[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [meetingNote, setMeetingNote] = useState<string | null>(null);
+  /**
+   * ⚠ THE FEED GOT RICHER WITHOUT GETTING NAVIGABLE. Oxide carries 21 meeting
+   * rows plus emails, notes and health-check calls in one undifferentiated
+   * list — matched meetings and filed-doc links were added and no way to find
+   * anything in it was.
+   */
+  const [actKind, setActKind]   = useState<string>("all");
+  const [actQuery, setActQuery] = useState("");
   const [activityNote, setActivityNote] = useState<string | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractNote, setContractNote] = useState<string | null>(null);
@@ -371,6 +379,13 @@ export default function CrmAccountPage({
     return { text: `RENEWS IN ${governing.daysToRenewal}D`,
              fg: C.textMid, bg: C.alt, bd: C.border };
   }, [governing]);
+  const visibleActivities = useMemo(() => {
+    const q = actQuery.trim().toLowerCase();
+    return activities.filter(a =>
+      (actKind === "all" || a.kind === actKind) &&
+      (!q || `${a.subject ?? ""} ${a.body ?? ""} ${a.actor_email ?? ""}`.toLowerCase().includes(q)));
+  }, [activities, actKind, actQuery]);
+
   const openOpps = opps.filter(o => o.status === "A");
   const openValue = openOpps.reduce((n, o) => n + (o.projected_total ?? 0), 0);
 
@@ -858,6 +873,39 @@ export default function CrmAccountPage({
               </div>
             )}
 
+            {/* Filter by what it is, then by what it says. Counts on the chips,
+                so a kind with nothing in it is visibly empty rather than looking
+                broken. Hidden below four entries — a filter over three rows is
+                more chrome than content. */}
+            {activities.length > 3 && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center",
+                            flexWrap: "wrap", marginBottom: 10 }}>
+                {(["all", "meeting", "email", "call", "note"] as const).map(k => {
+                  const n = k === "all"
+                    ? activities.length
+                    : activities.filter(a => a.kind === k).length;
+                  if (k !== "all" && n === 0) return null;
+                  return (
+                    <button key={k} onClick={() => setActKind(k)} style={{
+                      fontSize: 11, fontWeight: 600, fontFamily: C.font,
+                      color: actKind === k ? "#fff" : C.textMid,
+                      background: actKind === k ? C.blue : "transparent",
+                      border: `1px solid ${actKind === k ? C.blue : C.border}`,
+                      borderRadius: 5, padding: "3px 9px", cursor: "pointer",
+                    }}>
+                      {k === "all" ? "All" : k[0].toUpperCase() + k.slice(1)}
+                      <span style={{ marginLeft: 5, fontFamily: C.mono, opacity: 0.75 }}>{n}</span>
+                    </button>
+                  );
+                })}
+                <input
+                  value={actQuery} onChange={e => setActQuery(e.target.value)}
+                  placeholder="Search this timeline…"
+                  style={{ ...field(), flex: "1 1 160px", padding: "4px 9px", fontSize: 12 }}
+                />
+              </div>
+            )}
+
             {loading && <div style={{ fontSize: 12, color: C.textSub }}>Loading…</div>}
             {!loading && activities.length === 0 && (
               <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6 }}>
@@ -866,7 +914,12 @@ export default function CrmAccountPage({
               </div>
             )}
 
-            {activities.map(a => (
+            {visibleActivities.length === 0 && activities.length > 0 && !loading && (
+              <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6 }}>
+                Nothing here matches that filter — {activities.length} entr{activities.length === 1 ? "y" : "ies"} hidden.
+              </div>
+            )}
+            {visibleActivities.map(a => (
               <div key={a.id} style={{
                 display: "flex", gap: 10, padding: "8px 0",
                 borderBottom: `1px solid ${C.border}`,
