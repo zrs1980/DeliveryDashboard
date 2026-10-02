@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifyAssignment, taskLink } from "@/lib/notify";
 
 export const revalidate = 0;
 
@@ -112,7 +113,17 @@ export async function POST(req: Request) {
     }).select().single();
 
     if (error) return NextResponse.json({ error: error.message, hint: HINT }, { status: 503 });
-    return NextResponse.json({ task: data });
+
+    // ⚠ The task is already created. A notification that cannot be delivered
+    // comes back as a warning, never as a failure — telling the assigner the
+    // assignment did not happen when it did is the worse of the two errors.
+    const warning = await notifyAssignment({
+      to: data.assigned_to, by: gate.email, title: data.title,
+      customer: data.customer_ns_id ?? null, dueDate: data.due_date ?? null,
+      href: taskLink(data.customer_ns_id),
+    });
+
+    return NextResponse.json({ task: data, ...(warning && { warning }) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }
@@ -128,6 +139,10 @@ export async function PATCH(req: Request) {
 
   const id = String(body.id ?? "").trim();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  // Who held it before, so a reassignment can be told from any other edit.
+  const { data: before } = await getSupabaseAdmin()
+    .from("pm_crm_tasks").select("assigned_to").eq("id", id).maybeSingle();
 
   const patch: Record<string, unknown> = {};
   if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim();
@@ -168,7 +183,22 @@ export async function PATCH(req: Request) {
       });
     }
 
-    return NextResponse.json({ task: data });
+    // ⚠ ONLY ON A CHANGE OF HANDS. Every edit touches this route — a due date,
+    // a note, ticking it done — and a message each time is how a useful
+    // notification becomes one people filter away.
+    let warning: string | null = null;
+    if (typeof body.assignedTo === "string") {
+      const next = String(body.assignedTo).trim().toLowerCase();
+      if (next && next !== String(before?.assigned_to ?? "").toLowerCase()) {
+        warning = await notifyAssignment({
+          to: next, by: gate.email, title: data.title,
+          customer: data.customer_ns_id ?? null, dueDate: data.due_date ?? null,
+          href: taskLink(data.customer_ns_id),
+        });
+      }
+    }
+
+    return NextResponse.json({ task: data, ...(warning && { warning }) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });
   }

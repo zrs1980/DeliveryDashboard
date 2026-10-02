@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifyAssignment } from "@/lib/notify";
+import { getStaffRoster } from "@/lib/roster";
 
 export const revalidate = 0;
 
@@ -67,5 +69,28 @@ export async function POST(req: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ task: data });
+  // ⚠ PM TASKS ASSIGN BY NETSUITE EMPLOYEE ID, NOT EMAIL — delivery work goes
+  // to the person whose time is booked against the project, which is a
+  // different identity from the CRM's. The roster is what turns one into the
+  // other, and it is the only thing that can.
+  let warning: string | null = null;
+  if (data?.assignee_ns_id) {
+    try {
+      const roster = await getStaffRoster();
+      const to = roster.byId[Number(data.assignee_ns_id)]?.email;
+      if (to) {
+        warning = await notifyAssignment({
+          to, by: session.user.email!, title: data.title,
+          // pm_tasks carries project_ns_id, not a project name — passing a
+          // column that does not exist would have read as "no project" rather
+          // than failing, which is the quiet kind of wrong.
+          customer: data.project_ns_id ? `Project ${data.project_ns_id}` : null,
+          dueDate: data.due_date ?? null,
+          href: null,
+        });
+      }
+    } catch { /* the task exists; a lookup failure is not worth failing it */ }
+  }
+
+  return NextResponse.json({ task: data, ...(warning && { warning }) });
 }
