@@ -10,6 +10,7 @@ import { LinkBtn } from "@/components/ui/LinkBtn";
 import SentimentPrompt from "@/components/dashboard/SentimentPrompt";
 import type { Project, CUTask } from "@/lib/types";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
+import MyWorkPanel from "@/components/dashboard/MyWorkPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -517,6 +518,13 @@ export function ConsultantView({ projects, cases }: Props) {
 
   return (
     <div style={{ fontFamily: C.font, color: C.text }}>
+
+      {/* ⚠ "My Work" fetched health checks and AI insights and knew about
+          nothing else assigned to the person reading it. Work for one person
+          lives across four surfaces keyed four different ways; this is the one
+          place that puts them together. It renders nothing when there is
+          nothing, so the page is unchanged for anyone with an empty queue. */}
+      <MyWorkPanel />
 
       {/* ── Consultant selector ─────────────────────────────────────────────── */}
       <div style={{
