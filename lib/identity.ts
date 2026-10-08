@@ -49,9 +49,10 @@ export function isInternalDomain(domain: string): boolean {
  * Are these two addresses the same colleague?
  *
  * Exact match, or the same local part at two of our own domains. Never treats
- * a local part at an outside domain as a match — `dana@oxidecomputer.com` and
- * `dana@cebasolutions.com` are two different people and conflating them would
- * hand a customer's contact our staff's permissions.
+ * a local part at an outside domain as a match: `chris@<a-customer>.com` and
+ * `chris@cebasolutions.com` are two different people who happen to share a
+ * first name, and conflating them would hand a customer's contact our staff's
+ * permissions.
  */
 export function samePerson(a: string | null | undefined, b: string | null | undefined): boolean {
   const x = normaliseEmail(a), y = normaliseEmail(b);

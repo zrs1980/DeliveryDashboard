@@ -9,7 +9,7 @@ import { C } from "@/lib/constants";
 // writer was the Process-meeting wizard, which has run on 7 of 100 meetings.
 // So the table is empty, Focus's "We owe them, overdue" section is structurally
 // incapable of firing, and someone coming off a call who wants to note
-// "revised SOW to Dana by 15 Oct" has only a free-text note that will never
+// "revised SOW to the customer by Friday" has only a free-text note that never
 // remind them.
 //
 // ⚠ RECORDING AND READING ARE GATED DIFFERENTLY, ON PURPOSE. POST is
