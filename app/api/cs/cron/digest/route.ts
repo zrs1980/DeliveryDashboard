@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCronSecret } from "@/lib/cs-permissions";
 import { buildDigests, renderDigest } from "@/lib/digest";
 import { dmByEmail, postToChannel, SlackScopeError } from "@/lib/slack";
+import { samePerson } from "@/lib/identity";
 
 export const revalidate  = 0;
 export const maxDuration = 120;
@@ -36,13 +37,17 @@ export async function GET(req: Request) {
 
   const allow = String(process.env.DIGEST_RECIPIENTS ?? "").trim();
   const channel = String(process.env.DIGEST_SLACK_CHANNEL ?? "").trim();
-  const wanted = allow === "*"
-    ? null                                    // everyone
-    : new Set(allow.split(/[,\s]+/).filter(Boolean).map(s => s.toLowerCase()));
+  // ⚠ Compared with samePerson, not string equality. The digest is built from
+  // the NetSuite roster, so its addresses are whatever NetSuite holds — and
+  // putting your NEW address in DIGEST_RECIPIENTS would otherwise match
+  // nothing and silently send you nothing.
+  const wantedList = allow === "*" ? null : allow.split(/[,\s]+/).filter(Boolean);
 
   try {
     const digests = await buildDigests();
-    const targets = wanted ? digests.filter(d => wanted.has(d.email)) : digests;
+    const targets = wantedList
+      ? digests.filter(d => wantedList.some(w => samePerson(w, d.email)))
+      : digests;
 
     if (!allow) {
       return NextResponse.json({

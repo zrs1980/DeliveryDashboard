@@ -30,6 +30,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { readCustomerIndex, type CustomerIndexRow } from "@/lib/cs-customer-index";
 import { hcStatus } from "@/lib/healthchecks";
+import { samePerson } from "@/lib/identity";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 
 export interface WorkItem {
@@ -77,8 +78,11 @@ export async function buildMyWork(email: string, nsId: number | null): Promise<M
 
   const [crm, pm, checks, index] = await Promise.all([
     db.from("pm_crm_tasks")
-      .select("id, title, due_date, status, customer_ns_id, priority")
-      .in("status", ["open", "in_progress"]).ilike("assigned_to", addr),
+      .select("id, title, due_date, status, customer_ns_id, priority, assigned_to")
+      // Every open task, filtered in code — a task assigned to someone's old
+      // address must still be theirs after a domain move, and PostgREST cannot
+      // express that.
+      .in("status", ["open", "in_progress"]),
     nsId === null
       ? Promise.resolve({ data: [], error: null })
       : db.from("pm_tasks")
@@ -96,7 +100,9 @@ export async function buildMyWork(email: string, nsId: number | null): Promise<M
   const sections: WorkSection[] = [];
 
   // ── CRM tasks ─────────────────────────────────────────────────────────────
-  const crmItems: WorkItem[] = (crm.data ?? []).map(t => ({
+  const crmItems: WorkItem[] = (crm.data ?? [])
+    .filter(t => samePerson(t.assigned_to, addr))
+    .map(t => ({
     id: String(t.id),
     title: t.title,
     detail: t.priority && t.priority !== "normal" ? `${t.priority} priority` : null,

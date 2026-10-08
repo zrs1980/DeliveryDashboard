@@ -19,6 +19,7 @@
 // SERVER ONLY — reads the NetSuite roster.
 
 import { getStaffRoster } from "@/lib/roster";
+import { samePerson } from "@/lib/identity";
 
 export interface Owner {
   nsId: number | null;
@@ -41,8 +42,10 @@ export async function resolveOwner(email: string | null | undefined): Promise<Ow
 
   try {
     const roster = await getStaffRoster();
-    const hit = Object.values(roster.byId).find(
-      s => String(s.email ?? "").trim().toLowerCase() === addr);
+    // Domain-tolerant: NetSuite may still hold the old address while someone
+    // signs in with the new one. An exact match here cost them the "Mine"
+    // filter and half of My Work, with nothing on screen to explain it.
+    const hit = Object.values(roster.byId).find(s => samePerson(s.email, addr));
     return { nsId: hit ? Number(hit.id) : null, name: hit?.name ?? null, email: addr };
   } catch {
     // The roster is a NetSuite read and can fail. Treat it as "unknown owner",

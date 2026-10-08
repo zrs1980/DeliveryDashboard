@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { matchesAny } from "@/lib/identity";
 
 // ─── CS agent layer — the `cs_layer` permission ──────────────────────────────
 //
@@ -40,7 +41,12 @@ export const CS_LAYER_EMAILS = [
 
 export function hasCsLayer(email: string | null | undefined): boolean {
   if (!email) return false;
-  return CS_LAYER_EMAILS.includes(email.toLowerCase().trim());
+  // ⚠ Domain-tolerant. The same person signing in as @loopservices.co while
+  // this list holds @cebasolutions.com would otherwise lose the entire CS
+  // layer silently — they still sign in, the tab is just gone. See
+  // lib/identity.ts; "same person" needs the same local part AND both domains
+  // ours, so a customer contact can never match.
+  return matchesAny(email, CS_LAYER_EMAILS);
 }
 
 export interface CsSession {
