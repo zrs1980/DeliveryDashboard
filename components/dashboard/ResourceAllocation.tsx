@@ -1932,47 +1932,58 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
               </span>
             </div>
 
-            {/* Team KPI cards */}
+            {/* ── Team KPI cards ──────────────────────────────────────────
+                ⚠ THE LEAST ACTIONABLE NUMBER USED TO BE THE LOUDEST. The raw
+                hours were 24px while "how far off target" and the percentage —
+                the two things anyone actually reads these for — were 10px at
+                the bottom. The hours stay, but the gap and the percentage now
+                carry the same weight.
+
+                One component rather than five near-identical blocks: the old
+                tiles had five copies of the same markup, which is how one of
+                them ends up with a different font size or a stale threshold. */}
             <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-              {/* Capacity */}
-              <div style={{ background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.blue, lineHeight: 1 }}>{teamCap.toFixed(0)}h</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Team Capacity</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{workDays}d × {rows.length} people × 8h</div>
-              </div>
-              {/* Billable */}
-              <div style={{ background: ragBg(teamBillableRAG), border: `1px solid ${ragBd(teamBillableRAG)}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: ragColor(teamBillableRAG), lineHeight: 1 }}>{teamBillable.toFixed(1)}h</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Billable</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamBillablePct * 100)}% of capacity · target {Math.round(teamBillableTgtPct * 100)}%</div>
-                <MiniBar pct={teamBillablePct} tgt={teamBillableTgtPct} color={ragColor(teamBillableRAG)} />
-                <div style={{ fontSize: 10, fontFamily: C.mono, color: ragColor(teamBillableRAG), marginTop: 4, fontWeight: 600 }}>
-                  {(teamBillable - teamBillableTarget) >= 0 ? `+${(teamBillable - teamBillableTarget).toFixed(1)}h` : `${(teamBillable - teamBillableTarget).toFixed(1)}h`} vs target
-                </div>
-              </div>
-              {/* Utilized */}
-              <div style={{ background: ragBg(teamUtilizedRAG), border: `1px solid ${ragBd(teamUtilizedRAG)}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: ragColor(teamUtilizedRAG), lineHeight: 1 }}>{teamUtilized.toFixed(1)}h</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Utilized</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamUtilizedPct * 100)}% of capacity · target {Math.round(teamUtilizedTgtPct * 100)}%</div>
-                <MiniBar pct={teamUtilizedPct} tgt={teamUtilizedTgtPct} color={ragColor(teamUtilizedRAG)} />
-                <div style={{ fontSize: 10, fontFamily: C.mono, color: ragColor(teamUtilizedRAG), marginTop: 4, fontWeight: 600 }}>
-                  {(teamUtilized - teamUtilizedTarget) >= 0 ? `+${(teamUtilized - teamUtilizedTarget).toFixed(1)}h` : `${(teamUtilized - teamUtilizedTarget).toFixed(1)}h`} vs target
-                </div>
-              </div>
-              {/* Productive */}
-              <div style={{ background: C.alt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.textMid, lineHeight: 1 }}>{teamProductive.toFixed(1)}h</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Productive</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{Math.round(teamProductivePct * 100)}% of capacity · classify as productive</div>
-                <MiniBar pct={teamProductivePct} tgt={teamUtilizedTgtPct} color={C.textMid} />
-              </div>
-              {/* Bench */}
-              <div style={{ background: teamBench > teamCap * 0.25 ? C.redBg : teamBench > teamCap * 0.1 ? C.yellowBg : C.greenBg, border: `1px solid ${teamBench > teamCap * 0.25 ? C.redBd : teamBench > teamCap * 0.1 ? C.yellowBd : C.greenBd}`, borderRadius: 8, padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 150 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: teamBench > teamCap * 0.25 ? C.red : teamBench > teamCap * 0.1 ? C.yellow : C.green, lineHeight: 1 }}>{teamBench.toFixed(1)}h</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMid, marginTop: 4 }}>Bench</div>
-                <div style={{ fontSize: 10, color: C.textSub, marginTop: 2 }}>{teamCap > 0 ? Math.round((teamBench / teamCap) * 100) : 0}% unallocated</div>
-              </div>
+              <ForecastTile
+                label="Team Capacity"
+                hours={teamCap}
+                note={`${workDays}d × ${rows.length} people × 8h`}
+                color={C.blue} bg={C.blueBg} bd={C.blueBd}
+              />
+              <ForecastTile
+                label="Billable"
+                hours={teamBillable}
+                pct={teamBillablePct}
+                targetPct={teamBillableTgtPct}
+                gap={teamBillable - teamBillableTarget}
+                bar={<MiniBar pct={teamBillablePct} tgt={teamBillableTgtPct} color={ragColor(teamBillableRAG)} />}
+                color={ragColor(teamBillableRAG)} bg={ragBg(teamBillableRAG)} bd={ragBd(teamBillableRAG)}
+              />
+              <ForecastTile
+                label="Utilized"
+                hours={teamUtilized}
+                pct={teamUtilizedPct}
+                targetPct={teamUtilizedTgtPct}
+                gap={teamUtilized - teamUtilizedTarget}
+                bar={<MiniBar pct={teamUtilizedPct} tgt={teamUtilizedTgtPct} color={ragColor(teamUtilizedRAG)} />}
+                color={ragColor(teamUtilizedRAG)} bg={ragBg(teamUtilizedRAG)} bd={ragBd(teamUtilizedRAG)}
+              />
+              <ForecastTile
+                label="Productive"
+                hours={teamProductive}
+                pct={teamProductivePct}
+                note="classified productive"
+                bar={<MiniBar pct={teamProductivePct} tgt={teamUtilizedTgtPct} color={C.textMid} />}
+                color={C.textMid} bg={C.alt} bd={C.border}
+              />
+              <ForecastTile
+                label="Bench"
+                hours={teamBench}
+                pct={teamCap > 0 ? teamBench / teamCap : 0}
+                note="unallocated"
+                color={teamBench > teamCap * 0.25 ? C.red : teamBench > teamCap * 0.1 ? C.yellow : C.green}
+                bg={teamBench > teamCap * 0.25 ? C.redBg : teamBench > teamCap * 0.1 ? C.yellowBg : C.greenBg}
+                bd={teamBench > teamCap * 0.25 ? C.redBd : teamBench > teamCap * 0.1 ? C.yellowBd : C.greenBd}
+              />
             </div>
 
             {/* Per-consultant table */}
@@ -2169,6 +2180,71 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
           </>
         );
       })()}
+    </div>
+  );
+}
+
+/**
+ * One forecast headline.
+ *
+ * ⚠ THE GAP IS THE POINT, SO IT IS THE SECOND-BIGGEST THING ON THE TILE.
+ * "Need 104.8h" answers what to do; "17.0h" only says where you are. The
+ * percentage sits beside the hours at the same weight, because a figure in
+ * hours means nothing without the share of capacity it represents.
+ *
+ * Presentation only — every threshold, RAG band and target is computed by the
+ * caller and passed in. Nothing here decides whether something is behind.
+ */
+function ForecastTile({
+  label, hours, pct, targetPct, gap, note, bar, color, bg, bd,
+}: {
+  label: string;
+  hours: number;
+  pct?: number;
+  targetPct?: number;
+  /** Hours above (+) or below (−) target. Undefined where there is no target. */
+  gap?: number;
+  note?: string;
+  bar?: React.ReactNode;
+  color: string; bg: string; bd: string;
+}) {
+  const behind = gap !== undefined && gap < 0;
+
+  return (
+    <div style={{ background: bg, border: `1px solid ${bd}`, borderRadius: 8,
+                  padding: "14px 18px", boxShadow: C.sh, flex: "1 1 0", minWidth: 190 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.textMid,
+                    letterSpacing: 0.3, marginBottom: 6 }}>
+        {label}
+      </div>
+
+      {/* Hours and share of capacity, same weight — one is meaningless alone. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: C.mono, fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>
+          {hours.toFixed(hours % 1 === 0 ? 0 : 1)}h
+        </span>
+        {pct !== undefined && (
+          <span style={{ fontFamily: C.mono, fontSize: 20, fontWeight: 700,
+                         color, opacity: 0.75, lineHeight: 1 }}>
+            {Math.round(pct * 100)}%
+          </span>
+        )}
+      </div>
+
+      {bar && <div style={{ marginTop: 8 }}>{bar}</div>}
+
+      {/* The actionable number. Was 10px at the bottom of the tile. */}
+      {gap !== undefined && (
+        <div style={{ fontFamily: C.mono, fontSize: 15, fontWeight: 700, color,
+                      marginTop: 8, lineHeight: 1.2 }}>
+          {behind ? `Need ${Math.abs(gap).toFixed(1)}h` : `+${gap.toFixed(1)}h over`}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: C.textSub, marginTop: gap !== undefined ? 3 : 8 }}>
+        {targetPct !== undefined ? `target ${Math.round(targetPct * 100)}%` : note ?? ""}
+        {targetPct !== undefined && note ? ` · ${note}` : ""}
+      </div>
     </div>
   );
 }
