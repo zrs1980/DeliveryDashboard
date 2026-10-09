@@ -1249,11 +1249,83 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                 </div>
                                 <NoteLine note={resourceNoteOf(allocs)} />
                               </td>
+                              {/* ⚠ EDITABLE, THE SAME WAY THE BY-PROJECT TABLE IS.
+                                  These cells were read-only while the identical
+                                  numbers two sections down could be clicked and
+                                  changed — the same allocation, the same week,
+                                  two different answers to "can I edit this".
+                                  Shares editingCell, handleSave and the whole
+                                  save path rather than growing a second one. */}
                               {weeks.map((w, wi) => {
                                 const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
+                                const coveringAlloc = allocs.find(a => allocCoversWeek(a, w));
+                                const rowSaving = allocs.some(a => savingId === a.id) || savingRef.current;
+                                const rowError  = allocs.find(a => cellError?.id === a.id);
+                                const first     = allocs[0];
+
+                                const isEditingThis =
+                                  editingCell !== null &&
+                                  editingCell.weekMs     === w.getTime() &&
+                                  editingCell.employeeId === first.employeeId &&
+                                  editingCell.projectId  === projectId &&
+                                  // Same employee and project under a different task is a
+                                  // different row — without this both open an input at once.
+                                  (editingCell.taskId ?? "") === (first.taskId ?? "");
+
+                                const cellContext: CellEdit = {
+                                  allocationId:   coveringAlloc?.id ?? null,
+                                  employeeId:     first.employeeId,
+                                  employeeName:   emp.name,
+                                  taskId:         first.taskId,
+                                  taskName:       first.taskName,
+                                  projectId,
+                                  projectName:    name,
+                                  projectType:    type ?? "Internal",
+                                  companyName:    companyName ?? "",
+                                  remainingHours: first.remainingHours ?? null,
+                                  budgetHours:    first.budgetHours ?? null,
+                                  weekMs:         w.getTime(),
+                                  // Project-level flags — identical across every allocation
+                                  // on the project, so any row is representative. Omitting
+                                  // them leaves a newly created row undefined on all three
+                                  // and it reads as 0% Bill/Util/Prod until a refresh.
+                                  classifyAsBillable:   allocs.some(a => a.classifyAsBillable   === true),
+                                  classifyAsUtilized:   allocs.some(a => a.classifyAsUtilized   === true),
+                                  classifyAsProductive: allocs.some(a => a.classifyAsProductive === true),
+                                };
+
                                 return (
-                                  <td key={wi} style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400 }}>
-                                    {hrs > 0 ? hrs.toFixed(1) : <span style={{ color: C.mid }}>—</span>}
+                                  <td key={wi}
+                                      title={!rowSaving ? (coveringAlloc ? "Click to edit" : "Click to add allocation") : undefined}
+                                      onClick={() => {
+                                        if (rowSaving) return;
+                                        setEditingCell(cellContext);
+                                        setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
+                                      }}
+                                      style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400, cursor: !rowSaving ? "pointer" : "default", background: isEditingThis ? "#EBF5FF" : undefined, transition: "background 0.1s" }}>
+                                    {isEditingThis ? (
+                                      <input
+                                        autoFocus type="number" min={0} max={40} step={0.5}
+                                        value={editValue}
+                                        onChange={e => setEditValue(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === "Enter") { e.preventDefault(); handleSave(); }
+                                          if (e.key === "Escape") setEditingCell(null);
+                                        }}
+                                        onBlur={() => handleSave()}
+                                        style={{ width: 50, padding: "2px 4px", fontSize: 11, fontFamily: C.mono, border: `1.5px solid ${C.blue}`, borderRadius: 3, textAlign: "center", outline: "none", background: "#fff" }}
+                                      />
+                                    ) : rowSaving && coveringAlloc ? (
+                                      <span style={{ color: C.blue }}>…</span>
+                                    ) : rowError && coveringAlloc ? (
+                                      <span title={cellError!.msg} style={{ color: C.red }}>!</span>
+                                    ) : hrs > 0 ? (
+                                      hrs.toFixed(1)
+                                    ) : (
+                                      // A week with no allocation invites one rather than
+                                      // showing a dash you cannot act on.
+                                      <span style={{ color: C.mid }}>{coveringAlloc ? "0" : "+"}</span>
+                                    )}
                                   </td>
                                 );
                               })}

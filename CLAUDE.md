@@ -543,6 +543,27 @@ Weekly allocation table showing hours per consultant per week, grouped by projec
 - Hours shown in monospace; 0h cells are empty/grey
 - Weeks pro-rate allocation hours across business days in the date range
 
+### Week cells are editable in BOTH tables
+
+The by-resource grid (Section 1) and the by-project table (Section 2) show the
+same allocations from two directions, and only the second was editable — the
+same allocation, the same week, two different answers to "can I change this".
+Both now open an inline input on click.
+
+- **One editor, not two.** The by-resource cells reuse `editingCell`,
+  `editValue`, `handleSave` and the whole save path. A second mechanism would
+  be a second set of rules about what a blank cell means and when a row is
+  saving.
+- **⚠ The edit identity includes `taskId`.** One employee can hold two rows on
+  the same project under different tasks; without it both rows match the same
+  `editingCell` and open an input simultaneously.
+- **⚠ `CellEdit` must carry the three classification flags.** Inline creation
+  builds an optimistic `NSAllocation` by hand, and omitting them leaves the new
+  row `undefined` — excluded from every `=== true` filter, so a freshly added
+  allocation reads as 0% Bill/Util/Prod until a refresh.
+- A week with no allocation shows `+` rather than `—`: a dash you cannot act on
+  is indistinguishable from one you can.
+
 ### Allocation bands — three, and only three
 
 `allocationBand()` in `ResourceAllocation.tsx` is the **single** definition of what an allocation percentage means. It drives the KPI cards, the legend and every coloured cell.
