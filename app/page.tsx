@@ -51,7 +51,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "projects",   label: "Projects",    icon: "📊" },
   { id: "tasks",      label: "Tasks",       icon: "🗂️" },
   { id: "resources",      label: "Resource Allocation", icon: "👥" },
-  { id: "delivery-time", label: "Delivery Time (test)", icon: "🚚" },
+  { id: "delivery-time", label: "Delivery Time",       icon: "🚚" },
   { id: "time",          label: "Time Analysis",       icon: "⏱️" },
   { id: "mgr-review",  label: "Manager Review", icon: "📋" },
   { id: "consultant",  label: "My Work",         icon: "👤" },
