@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSuiteQLAll } from "@/lib/netsuite";
 import { PTO_APPROVER_EMAILS } from "@/lib/constants";
+import { CONSULTANT_CATEGORY_IDS } from "@/lib/roster";
 
 export const revalidate = 0;
-
-// custentity10 values that correspond to Consultant roles:
-//   "1" = Consultant  (Rodrigo, Sam, Jason Tutanes)
-//   "2" = Senior Consultant / PM  (Shai)
-const CONSULTANT_CATEGORY_IDS = ["1", "2"];
 
 export async function GET() {
   const session = await auth();

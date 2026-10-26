@@ -243,7 +243,7 @@ Render the response by splitting on newlines: bullet lines (starting with `-`, `
 
 | Field ID | Label | Type | Notes |
 |---|---|---|---|
-| `custentity10` | CEBA Employee Category | List | On the `employee` record. **The field that decides who counts as a consultant**: `1` Consulting · `2` PMO · `3` Managed Services · `4` Sales and Marketing · `5` Back Office · `6` Management · `7` Product. `1` and `2` drive Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard and every assignee picker. Blank or wrong is the single most common reason a new hire is invisible — see `docs/onboarding-consultant.md`. |
+| `custentity10` | CEBA Employee Category | List | On the `employee` record. **The field that decides who counts as a consultant**: `1` Consulting · `2` PMO · `3` Managed Services · `4` Sales and Marketing · `5` Back Office · `6` Management · `7` Product · `8` Support · `9` Consulting Manager. `1`, `2`, `8` and `9` (`CONSULTANT_CATEGORY_IDS` in `lib/roster.ts`) drive Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard and every assignee picker. Blank or wrong is the single most common reason a new hire is invisible — see `docs/onboarding-consultant.md`. |
 | `custentity20` | ClickUp URL | Text | Full URL of the linked ClickUp space/list. Parse to extract the List or Space ID for API calls. |
 | `custentity_ceba_project_budget_hours` | Budget Hours | Number | **Primary source for total budgeted hours.** Always use this field — do NOT derive budget hours from `projectbudget` or the standard `enddate` field. |
 | `custentity_project_remaining_hours` | Remaining Hours | Number | Hours remaining on the project (manually maintained by PM). **Can be severely out of date** — always cross-check against timebill actuals and flag discrepancies in the UI. |
@@ -895,7 +895,7 @@ vercel.json                    → Vercel deployment config (framework detection
 
 - `getStaffRoster()` — **everyone, including departed staff.** Use it to RESOLVE a name on an
   existing record (a case assignee, a service request owner, a PM on last year's project).
-- `getActiveStaff()` / `getConsultantRoster()` (`custentity10 IN (1,2)`) / `getPmRoster()` —
+- `getActiveStaff()` / `getConsultantRoster()` (`custentity10 IN CONSULTANT_CATEGORY_IDS` — 1, 2, 8, 9) / `getPmRoster()` —
   current staff. Use these for anything a user PICKS from.
 - Client components use the `useStaff()` hook (`lib/use-staff.ts`) against `GET /api/staff`.
 

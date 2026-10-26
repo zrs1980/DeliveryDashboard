@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runSuiteQL } from "@/lib/netsuite";
+import { CONSULTANT_CATEGORY_IDS } from "@/lib/roster";
 
 // Always hit NetSuite. Every other data route in this app declares this; without
 // it a CDN can serve a response cached before a metric definition changed.
@@ -58,7 +59,7 @@ export async function GET() {
     const empRows = await runSuiteQL<{ id: string; firstname: string; lastname: string }>(`
       SELECT e.id, e.firstname, e.lastname
       FROM employee e
-      WHERE e.custentity10 IN (1, 2)
+      WHERE e.custentity10 IN (${CONSULTANT_CATEGORY_IDS.join(", ")})
       AND e.isinactive = 'F'
       ORDER BY e.lastname ASC
     `);

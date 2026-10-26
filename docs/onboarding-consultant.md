@@ -21,7 +21,7 @@ clear beyond the 5-minute roster cache in `lib/roster.ts`.
 | Field | Set it to | What breaks if you don't |
 |---|---|---|
 | `isinactive` | unticked | Nothing works. Inactive staff are filtered out of every picker (their name still resolves on old records, which is deliberate). |
-| **`custentity10`** — "CEBA Employee Category" | **Consulting (1)** or **PMO (2)** | **The one that matters.** Wrong or blank and they vanish from Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard, the SR assignee dropdown, Admin Utilization and Time Review — while still appearing on Time Analysis, which is what makes it so confusing. |
+| **`custentity10`** — "CEBA Employee Category" | **Consulting (1)**, **PMO (2)**, **Support (8)** or **Consulting Manager (9)** | **The one that matters.** Wrong or blank and they vanish from Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard, the SR assignee dropdown, Admin Utilization and Time Review — while still appearing on Time Analysis, which is what makes it so confusing. |
 | `employeetype` | Consultant / Project Manager / … | Rows group under an "Other" heading on Delivery Time. `Project Manager` (or category PMO) is also what puts someone in the PM dropdown. |
 | `email` | their Google **primary** address | My Leave returns *"No NetSuite employee found"*. This is the only place a login maps to a NetSuite employee, and it is an exact match. A Workspace **alias** is not the primary address — Google's OIDC claim returns the primary, whatever they typed to sign in. |
 | `hiredate` | their start date | PTO accrual silently dates from 1 January instead of their hire anniversary, over-counting leave taken. |
@@ -32,7 +32,8 @@ clear beyond the 5-minute roster cache in `lib/roster.ts`.
 Note the **internal id** from the URL — useful for the verification step, not needed anywhere else.
 
 `custentity10` values in this account: 1 Consulting · 2 PMO · 3 Managed Services ·
-4 Sales and Marketing · 5 Back Office · 6 Management · 7 Product. Only **1 and 2** count as
+4 Sales and Marketing · 5 Back Office · 6 Management · 7 Product · 8 Support · 9 Consulting
+Manager. Only **1, 2, 8 and 9** count as
 delivery consultants; the list lives in `CONSULTANT_CATEGORY_IDS` in `lib/roster.ts` if that ever
 needs to change.
 
@@ -101,11 +102,11 @@ ClickUp assignments — a new hire is absent until they have some). Neither is b
 
 | View | Source | New hire visible? |
 |---|---|---|
-| Delivery Time | roster, filtered to Consulting + PMO | **Yes** — immediately, showing "No data" |
+| Delivery Time | roster, filtered by category NAME — Consulting, PMO, Support, Consulting Manager (`app/page.tsx`) | **Yes** — immediately, showing "No data" |
 | Time Analysis | roster, every active employee | **Yes** — immediately |
 | Resource Allocation → Forecast | roster + allocations | **Yes** — as Bench |
-| Manager PTO | roster, `custentity10 IN (1,2)` | **Yes** |
-| SR Dashboard (quota) | roster, `custentity10 IN (1,2)` | **Yes** — at 0 SRs, red RAG, and they dilute team attainment |
+| Manager PTO | roster, `CONSULTANT_CATEGORY_IDS` | **Yes** |
+| SR Dashboard (quota) | roster, `CONSULTANT_CATEGORY_IDS` | **Yes** — at 0 SRs, red RAG, and they dilute team attainment |
 | SR Pipeline assignee dropdown | roster, consultants | **Yes** |
 | PM task assignee · health-check consultant | roster | **Yes** |
 | Resource Allocation → Allocation grid | allocations only | **No** — until allocated |

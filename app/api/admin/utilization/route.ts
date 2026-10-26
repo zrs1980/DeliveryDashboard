@@ -108,7 +108,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Live consultant roster (custentity10 IN 1,2) rather than a hardcoded five —
+  // Live consultant roster (CONSULTANT_CATEGORY_IDS) rather than a hardcoded five —
   // a new hire is covered here the moment their NetSuite category is set.
   const roster      = await getConsultantRoster();
   const employeeIds = roster.members.map(m => m.id);

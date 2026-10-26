@@ -7,7 +7,7 @@ export const maxDuration = 30;
 
 /**
  * The roster, for client components that used to import the hardcoded EMPLOYEES
- * map. `?category=consultants` (custentity10 IN 1,2) · `pms` · `all` (default).
+ * map. `?category=consultants` (CONSULTANT_CATEGORY_IDS) · `pms` · `all` (default).
  *
  * `rosterFallback: true` means NetSuite could not be reached and these names came
  * from the constants in lib/constants.ts — show them, but do not trust them.

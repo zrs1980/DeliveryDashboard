@@ -177,7 +177,7 @@ export async function GET() {
 
     // Roster: the consultant list drives Forecast team targets, and the full staff
     // list resolves allocation names — an allocation can name someone outside
-    // custentity10 IN (1,2). Both read one cached query in lib/roster.
+    // CONSULTANT_CATEGORY_IDS. Both read one cached query in lib/roster.
     const staff       = await getStaffRoster();   // includes departed, for name resolution
     const consultants = await getConsultantRoster();
     const empNameMap: Record<number, string> = nameMap(staff);

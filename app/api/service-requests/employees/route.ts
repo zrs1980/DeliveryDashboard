@@ -8,7 +8,7 @@ export interface NsEmployee {
   name: string;
 }
 
-/** Assignable consultants, live from NetSuite — custentity10 IN (1, 2). */
+/** Assignable consultants, live from NetSuite — custentity10 IN CONSULTANT_CATEGORY_IDS. */
 export async function GET() {
   const roster = await getConsultantRoster();
 

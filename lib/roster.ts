@@ -23,10 +23,14 @@ export const CATEGORY = {
   BACK_OFFICE:      5,
   MANAGEMENT:       6,
   PRODUCT:          7,
+  SUPPORT:          8,
+  CONSULTING_MANAGER: 9,
 } as const;
 
 /** The categories that count as delivery consultants everywhere in the app. */
-export const CONSULTANT_CATEGORY_IDS: number[] = [CATEGORY.CONSULTING, CATEGORY.PMO];
+export const CONSULTANT_CATEGORY_IDS: number[] = [
+  CATEGORY.CONSULTING, CATEGORY.PMO, CATEGORY.SUPPORT, CATEGORY.CONSULTING_MANAGER,
+];
 
 export interface StaffMember {
   id:                number;
@@ -169,7 +173,7 @@ export async function getActiveStaff(): Promise<Roster> {
 }
 
 /**
- * Delivery consultants — `custentity10 IN (1, 2)`, the same rule already used by
+ * Delivery consultants — `custentity10 IN CONSULTANT_CATEGORY_IDS`, the rule used by
  * /api/resources, /api/manager/employees and /api/service-requests/metrics.
  * On the fallback path category is unknown, so everyone in it is returned rather
  * than nobody.
