@@ -22,7 +22,7 @@ clear beyond the 5-minute roster cache in `lib/roster.ts`.
 |---|---|---|
 | `isinactive` | unticked | Nothing works. Inactive staff are filtered out of every picker (their name still resolves on old records, which is deliberate). |
 | **`custentity10`** — "CEBA Employee Category" | **Consulting (1)**, **PMO (2)**, **Support (8)** or **Consulting Manager (9)** | **The one that matters.** Wrong or blank and they vanish from Delivery Time, Resource Allocation → Forecast, Manager PTO, the SR quota scorecard, the SR assignee dropdown, Admin Utilization and Time Review — while still appearing on Time Analysis, which is what makes it so confusing. |
-| `employeetype` | Consultant / Project Manager / … | Rows group under an "Other" heading on Delivery Time. `Project Manager` (or category PMO) is also what puts someone in the PM dropdown. |
+| `employeetype` | Consultant / Project Manager / … | Rows group under an "Other" heading on Time Analysis (Delivery Time groups by category instead). `Project Manager` (or category PMO) is also what puts someone in the PM dropdown. |
 | `email` | their Google **primary** address | My Leave returns *"No NetSuite employee found"*. This is the only place a login maps to a NetSuite employee, and it is an exact match. A Workspace **alias** is not the primary address — Google's OIDC claim returns the primary, whatever they typed to sign in. |
 | `hiredate` | their start date | PTO accrual silently dates from 1 January instead of their hire anniversary, over-counting leave taken. |
 | `targetutilization` | 0.75 for a standard consultant | Defaults to 0.75 anyway, but Delivery Time's billable target is 87% × this number, so a stray 1.0 measures them against 87% while the team sits at 65%. |

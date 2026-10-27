@@ -58,6 +58,7 @@ interface EmployeeTimeData {
   employeeId: number;
   employeeName: string;
   employeeType: string;
+  department: string;         // custentity10 display text, e.g. "Consulting" / "Support"
   targetUtilization: number;  // 0-1 decimal from NS employee record
   periods: Partial<Record<PeriodKey, PeriodMetrics>>;
   weeklyTrend: WeekPoint[];
@@ -376,7 +377,9 @@ export function TimeAnalysis({ title = "Time Analysis", filterDepartment }: { ti
             <tbody>
               {(() => {
                 const grouped = employees.reduce((acc, emp) => {
-                  const t = emp.employeeType || "Other";
+                  // A tab filtered by category groups by category too, so the headings
+                  // match who it lets in. Unfiltered (Time Analysis) groups by employee type.
+                  const t = (filterDepartment ? emp.department : emp.employeeType) || "Other";
                   if (!acc[t]) acc[t] = [];
                   acc[t].push(emp);
                   return acc;

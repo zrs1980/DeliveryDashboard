@@ -408,6 +408,7 @@ export async function GET(req: NextRequest) {
           employeeId:        empId,
           employeeName:      EMPLOYEES[empId]?.name ?? `Employee #${empId}`,
           employeeType:      EMPLOYEES[empId]?.employeeType ?? "",
+          department:        EMPLOYEES[empId]?.department ?? "",
           targetUtilization: EMPLOYEES[empId]?.targetUtilization ?? 0.75,
           hireDate:          EMPLOYEES[empId]?.hireDate ?? null,
           periods: {
