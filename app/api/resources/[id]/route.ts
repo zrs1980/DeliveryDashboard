@@ -1,5 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { patchRecord } from "@/lib/netsuite";
+import { patchRecord, deleteRecord } from "@/lib/netsuite";
+
+// Setting a week to 0h removes it from the allocation rather than writing a 0%
+// record; when the allocation covers only that week, the record itself goes.
+export async function DELETE(
+  _req: NextRequest,
+  props: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await props.params;
+    await deleteRecord("resourceallocation", parseInt(id));
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("[DELETE /api/resources/[id]]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 },
+    );
+  }
+}
 
 export async function PATCH(
   req: NextRequest,

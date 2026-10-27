@@ -563,6 +563,10 @@ Both now open an inline input on click.
   allocation reads as 0% Bill/Util/Prod until a refresh.
 - A week with no allocation shows `+` rather than `—`: a dash you cannot act on
   is indistinguishable from one you can.
+- **0h removes the week, it does not write a 0% record.** The allocation is
+  trimmed, split around the week, or (if it covered only that week) deleted via
+  `DELETE /api/resources/[id]`. Zeroing a row's only week drops the row off the
+  grid, since the grid is built from allocation records. 0 on an empty cell is a no-op.
 
 ### Allocation bands — three, and only three
 

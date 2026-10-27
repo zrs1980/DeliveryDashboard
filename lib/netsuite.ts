@@ -284,6 +284,19 @@ export async function patchRecord(
   }
 }
 
+export async function deleteRecord(recordType: string, id: number): Promise<void> {
+  const url    = `${BASE_URL}/services/rest/record/v1/${recordType}/${id}`;
+  const method = "DELETE";
+  const auth   = buildOAuthHeader(method, url);
+
+  const res = await fetch(url, { method, headers: { "Authorization": auth } });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NS DELETE error ${res.status}: ${text}`);
+  }
+}
+
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 

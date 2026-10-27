@@ -812,7 +812,11 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
   async function handleSave() {
     if (savingRef.current || !editingCell) return;
     const newHrs = parseFloat(editValue);
-    if (isNaN(newHrs) || newHrs <= 0) { setEditingCell(null); return; }
+    // 0 is a real answer ("off this project this week"), not a cancel. On an empty
+    // cell there is nothing to remove, so it closes the editor like a blank does.
+    if (isNaN(newHrs) || newHrs < 0 || (newHrs === 0 && !editingCell.allocationId)) {
+      setEditingCell(null); return;
+    }
 
     savingRef.current = true;
     const cell    = editingCell;
@@ -846,6 +850,15 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error ?? `Patch failed (${res.status})`);
+      }
+    }
+
+    // Helper — DELETE an allocation record outright
+    async function deleteAlloc(id: string) {
+      const res = await fetch(`/api/resources/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error ?? `Delete failed (${res.status})`);
       }
     }
 
@@ -926,7 +939,33 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         // Accumulate state changes, apply atomically at the end
         let nextAllocs = [...localAllocs];
 
-        if (!hasBefore && !hasAfter) {
+        if (newHrs === 0) {
+          // ── 0h: cut this week out, keep the original rate either side ───
+          // Same four shapes as below, minus the record for this week.
+          if (!hasBefore && !hasAfter) {
+            await deleteAlloc(cell.allocationId);
+            nextAllocs = nextAllocs.filter(x => x.id !== cell.allocationId);
+          } else if (hasBefore && !hasAfter) {
+            await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+            nextAllocs = nextAllocs.map(x =>
+              x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+            );
+          } else if (!hasBefore && hasAfter) {
+            await patchAlloc(cell.allocationId, { startDate: fmt(dayAfter) });
+            nextAllocs = nextAllocs.map(x =>
+              x.id === cell.allocationId ? { ...x, startDate: fmt(dayAfter) } : x,
+            );
+          } else {
+            // Create the "after" part FIRST, so a failure leaves the original intact
+            const newId = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
+            nextAllocs.push({ ...orig, id: newId, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: orig.percentOfMax });
+            await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+            nextAllocs = nextAllocs.map(x =>
+              x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+            );
+          }
+
+        } else if (!hasBefore && !hasAfter) {
           // ── Case 1: allocation IS this week — just update the rate ──────
           await patchAlloc(cell.allocationId, { percentOfTime: newPct });
           nextAllocs = nextAllocs.map(x =>
