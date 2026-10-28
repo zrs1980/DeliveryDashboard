@@ -67,6 +67,11 @@ function parseNSDate(s: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/** One grid row: an employee on a project, under one task (or none). */
+function rowKeyOf(employeeId: number, projectId: number, taskId: string | null | undefined): string {
+  return `${employeeId}-${projectId}-${taskId ?? ""}`;
+}
+
 function allocCoversWeek(a: NSAllocation, weekStart: Date): boolean {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
@@ -623,7 +628,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
   const [editingCell, setEditingCell] = useState<CellEdit | null>(null);
   const [editValue,   setEditValue]   = useState("");
   const [savingId,    setSavingId]    = useState<string | null>(null);
-  const [cellError,   setCellError]   = useState<{ id: string; msg: string } | null>(null);
+  // Keyed by ROW and week, not allocation id: a failed create has no allocation id,
+  // and keying on one hid every NetSuite rejection of a new allocation.
+  const [cellError,   setCellError]   = useState<{ rowKey: string; weekMs: number; msg: string } | null>(null);
   const savingRef = useRef(false);
 
   const [subTab, setSubTab] = useState<SubTab>("allocation");
@@ -823,6 +830,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
     const saveKey = cell.allocationId ?? `${cell.employeeId}-${cell.projectId}-${cell.taskId ?? ""}-${cell.weekMs}`;
     setEditingCell(null);
     setSavingId(saveKey);
+    setCellError(null);
 
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
@@ -1012,8 +1020,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         setLocalAllocs(nextAllocs);
       }
     } catch (err) {
-      setCellError({ id: saveKey, msg: err instanceof Error ? err.message : "Failed" });
-      setTimeout(() => setCellError(null), 5000);
+      // Stays until the next save — a NetSuite rejection is worth more than 5 seconds.
+      setCellError({
+        rowKey: rowKeyOf(cell.employeeId, cell.projectId, cell.taskId),
+        weekMs: cell.weekMs,
+        msg:    err instanceof Error ? err.message : "Failed",
+      });
     } finally {
       setSavingId(null);
       savingRef.current = false;
@@ -1287,6 +1299,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                   <TaskChip name={taskName} />
                                 </div>
                                 <NoteLine note={resourceNoteOf(allocs)} />
+                                {cellError?.rowKey === rowKeyOf(allocs[0].employeeId, projectId, allocs[0].taskId) && (
+                                  <div style={{ marginTop: 2, fontSize: 10, color: C.red, whiteSpace: "normal" }}>{cellError.msg}</div>
+                                )}
                               </td>
                               {/* ⚠ EDITABLE, THE SAME WAY THE BY-PROJECT TABLE IS.
                                   These cells were read-only while the identical
@@ -1299,7 +1314,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                 const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
                                 const coveringAlloc = allocs.find(a => allocCoversWeek(a, w));
                                 const rowSaving = allocs.some(a => savingId === a.id) || savingRef.current;
-                                const rowError  = allocs.find(a => cellError?.id === a.id);
+                                const rowError  = cellError?.rowKey === rowKeyOf(allocs[0].employeeId, projectId, allocs[0].taskId)
+                                  && cellError.weekMs === w.getTime();
                                 const first     = allocs[0];
 
                                 const isEditingThis =
@@ -1356,7 +1372,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                       />
                                     ) : rowSaving && coveringAlloc ? (
                                       <span style={{ color: C.blue }}>…</span>
-                                    ) : rowError && coveringAlloc ? (
+                                    ) : rowError ? (
                                       <span title={cellError!.msg} style={{ color: C.red }}>!</span>
                                     ) : hrs > 0 ? (
                                       hrs.toFixed(1)
@@ -1696,7 +1712,7 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                       const isLast   = ei === employees.length - 1;
                       const subBg    = pi % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
                       const empSaving = emp.allocs.some(a => savingId === a.id) || savingRef.current;
-                      const empError  = emp.allocs.find(a => cellError?.id === a.id);
+                      const empError  = cellError?.rowKey === rowKeyOf(emp.employeeId, proj.projectId, emp.taskId);
 
                       return (
                         <tr key={`${proj.projectId}-${emp.employeeId}-${emp.taskId ?? ""}`} style={{ background: subBg }}>
