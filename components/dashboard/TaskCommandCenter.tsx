@@ -85,6 +85,19 @@ function firstName(username: string): string {
 type SortKey = "status" | "priority" | "task" | "client" | "assignees" | "due" | "scheduled";
 type SortDir = "asc" | "desc";
 
+/**
+ * Fixed rather than built from the loaded tasks (unlike the status filter):
+ * ClickUp's four priorities are the same on every list, and "No priority" is
+ * the one most worth finding.
+ */
+const PRIORITY_OPTIONS = [
+  { value: "1",    label: "Urgent" },
+  { value: "2",    label: "High" },
+  { value: "3",    label: "Normal" },
+  { value: "4",    label: "Low" },
+  { value: "none", label: "No priority" },
+];
+
 /** ClickUp's rank, 1 = urgent … 4 = low. Null when no priority is set. */
 function priorityRank(task: CUTask): number | null {
   const n = parseInt(task.priority?.orderindex ?? "");
@@ -683,6 +696,8 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   );
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [selectedStatus, setSelectedStatus]   = useState<string>("");
+  // "" = all, "none" = no priority set, otherwise ClickUp's orderindex "1"–"4".
+  const [selectedPriority, setSelectedPriority] = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
   const [myWork, setMyWork]                   = useState<boolean>(false);
   const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
@@ -798,6 +813,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
       // ("In Review" / "in review"), and an exact match would silently split one
       // status into two half-empty filter entries.
       .filter(t => !selectedStatus || t.status.status.toLowerCase() === selectedStatus)
+      .filter(t => !selectedPriority || String(priorityRank(t) ?? "none") === selectedPriority)
       .filter(t => !myWork || !sessionName || t.assignees.some(a =>
         a.username.toLowerCase() === sessionName.toLowerCase()
       ))
@@ -913,6 +929,20 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             <option value="">All</option>
             {statusOptions.map(s => (
               <option key={s.key} value={s.key}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <label style={labelStyle}>Priority</label>
+          <select
+            value={selectedPriority}
+            onChange={e => setSelectedPriority(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All</option>
+            {PRIORITY_OPTIONS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
         </div>
