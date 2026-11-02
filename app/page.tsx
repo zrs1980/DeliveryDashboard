@@ -54,7 +54,9 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "delivery-time", label: "Delivery Time",       icon: "🚚" },
   { id: "time",          label: "Time Analysis",       icon: "⏱️" },
   { id: "mgr-review",  label: "Manager Review", icon: "📋" },
-  { id: "consultant",  label: "My Work",         icon: "👤" },
+  // "consultant" (My Work) is hidden from the nav, not removed — its Tab id and
+  // render branch stay, so restoring it is putting this line back:
+  //   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
   { id: "calendar",   label: "Calendar",    icon: "📅" },
   // "meetings" (Zoom) and "utilization" are intentionally absent from the nav.
