@@ -80,6 +80,73 @@ function firstName(username: string): string {
   return username.split(" ")[0] ?? username;
 }
 
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+
+type SortKey = "status" | "priority" | "task" | "client" | "assignees" | "due" | "scheduled";
+type SortDir = "asc" | "desc";
+
+/** ClickUp's rank, 1 = urgent … 4 = low. Null when no priority is set. */
+function priorityRank(task: CUTask): number | null {
+  const n = parseInt(task.priority?.orderindex ?? "");
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * The value a column sorts on. Null means "no value" — those rows go LAST in
+ * both directions, so flipping a sort never buries the tasks that have one
+ * under a block of blanks.
+ */
+function sortValue(row: TaskRow, key: SortKey, scheduledMap: Map<string, string>): string | number | null {
+  const { task, project } = row;
+  switch (key) {
+    case "status":    return statusLabel(task.status.status).toLowerCase();
+    case "priority":  return priorityRank(task);
+    case "task":      return task.name.toLowerCase();
+    case "client":    return project.client.toLowerCase() || null;
+    case "assignees": return task.assignees.map(a => firstName(a.username)).join(", ").toLowerCase() || null;
+    case "due":       return task.due_date ? parseInt(task.due_date) : null;
+    case "scheduled": {
+      const s = scheduledMap.get(task.id);
+      return s ? new Date(s).getTime() : null;
+    }
+  }
+}
+
+function sortRows(rows: TaskRow[], key: SortKey, dir: SortDir, scheduledMap: Map<string, string>): TaskRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  // Decorate once rather than recomputing values inside the comparator.
+  return rows
+    .map((row, i) => ({ row, i, v: sortValue(row, key, scheduledMap) }))
+    .sort((a, b) => {
+      if (a.v === null && b.v === null) return a.i - b.i;
+      if (a.v === null) return 1;
+      if (b.v === null) return -1;
+      const c = typeof a.v === "number" && typeof b.v === "number"
+        ? a.v - b.v
+        : String(a.v).localeCompare(String(b.v));
+      return c !== 0 ? c * sign : a.i - b.i;   // ties keep their original order
+    })
+    .map(d => d.row);
+}
+
+// ─── Priority ─────────────────────────────────────────────────────────────────
+
+/**
+ * ClickUp's flag, in ClickUp's own colour so it reads the same as it does there.
+ * Not a RAG signal — the label carries the meaning, the colour only matches ClickUp.
+ */
+function PriorityFlag({ task }: { task: CUTask }) {
+  const p = task.priority;
+  if (!p?.priority) return <span style={{ color: C.textSub, fontSize: 11 }}>—</span>;
+  const label = p.priority.charAt(0).toUpperCase() + p.priority.slice(1);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
+      <span style={{ color: p.color || C.textSub, fontSize: 12 }}>⚑</span>
+      {label}
+    </span>
+  );
+}
+
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
 
 /** Badge colours, falling back to neutral for a status STATUS_STYLES doesn't know. */
@@ -191,7 +258,26 @@ function StatusSelect({
 
 // ─── Table header ─────────────────────────────────────────────────────────────
 
-function TableHead() {
+const COLUMNS: Array<{ key: SortKey | null; label: string }> = [
+  { key: "status",    label: "Status" },
+  { key: "priority",  label: "Priority" },
+  { key: "task",      label: "Task" },
+  { key: "client",    label: "Client" },
+  { key: "assignees", label: "Assignees" },
+  { key: "due",       label: "Due" },
+  { key: "scheduled", label: "Scheduled" },
+  { key: null,        label: "Links" },
+];
+
+function TableHead({
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  sortKey: SortKey | null;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
   const th: React.CSSProperties = {
     padding: "6px 10px",
     fontSize: 11,
@@ -207,13 +293,24 @@ function TableHead() {
   return (
     <thead>
       <tr>
-        <th style={{ ...th, width: 80 }}>Status</th>
-        <th style={{ ...th }}>Task</th>
-        <th style={{ ...th, width: 130 }}>Client</th>
-        <th style={{ ...th, width: 110 }}>Assignees</th>
-        <th style={{ ...th, width: 80 }}>Due</th>
-        <th style={{ ...th, width: 90 }}>Scheduled</th>
-        <th style={{ ...th, width: 140 }}>Links</th>
+        {COLUMNS.map(({ key, label }) => {
+          if (!key) return <th key={label} style={th}>{label}</th>;
+          const active = sortKey === key;
+          return (
+            <th
+              key={label}
+              onClick={() => onSort(key)}
+              title={`Sort by ${label.toLowerCase()}`}
+              aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+              style={{ ...th, cursor: "pointer", userSelect: "none", color: active ? C.blue : th.color }}
+            >
+              {label}
+              <span style={{ marginLeft: 4, fontSize: 9, color: active ? C.blue : C.mid }}>
+                {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+              </span>
+            </th>
+          );
+        })}
       </tr>
     </thead>
   );
@@ -280,6 +377,11 @@ function TaskTableRow({
           saving={saving}
           onChange={next => onStatusChange(task, next)}
         />
+      </td>
+
+      {/* Priority */}
+      <td style={td}>
+        <PriorityFlag task={task} />
       </td>
 
       {/* Task name */}
@@ -413,7 +515,7 @@ function GroupHeaderRow({ label }: { label: string }) {
   return (
     <tr>
       <td
-        colSpan={7}
+        colSpan={COLUMNS.length}
         style={{
           padding: "4px 10px",
           background: "#DDEAF8",
@@ -451,6 +553,22 @@ function TaskTable({
   onStatusChange: (task: CUTask, next: string) => void;
   onOpenComments: (task: CUTask) => void;
 }) {
+  // Click a header to sort ascending, again for descending, a third time to go
+  // back to the default order (due-date buckets, as the tab defines them).
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const onSort = (key: SortKey) => {
+    if (sortKey !== key)     { setSortKey(key); setSortDir("asc"); }
+    else if (sortDir === "asc") setSortDir("desc");
+    else                     { setSortKey(null); setSortDir("asc"); }
+  };
+
+  const sortedRows = useMemo(
+    () => (sortKey ? sortRows(rows, sortKey, sortDir, scheduledMap) : rows),
+    [rows, sortKey, sortDir, scheduledMap],
+  );
+
   if (rows.length === 0) {
     return (
       <div style={{
@@ -482,14 +600,15 @@ function TaskTable({
 
   const buildRows = (): React.ReactNode[] => {
     if (!groupByProject) {
-      return rows.map(({ task, project }) => {
+      return sortedRows.map(({ task, project }) => {
         const alt = rowIndex % 2 === 1;
         rowIndex++;
         return renderRow(task, project, alt);
       });
     }
 
-    // Group by project
+    // Group by project. The group ORDER comes from the unsorted rows, so sorting
+    // reorders tasks inside each project rather than shuffling the projects.
     const groups = new Map<number, TaskRow[]>();
     const order: number[] = [];
     for (const row of rows) {
@@ -497,8 +616,8 @@ function TaskTable({
         groups.set(row.project.id, []);
         order.push(row.project.id);
       }
-      groups.get(row.project.id)!.push(row);
     }
+    for (const row of sortedRows) groups.get(row.project.id)!.push(row);
 
     const result: React.ReactNode[] = [];
     for (const projectId of order) {
@@ -525,6 +644,7 @@ function TaskTable({
       }}>
         <colgroup>
           <col style={{ width: 90 }} />
+          <col style={{ width: 90 }} />
           <col />
           <col style={{ width: 140 }} />
           <col style={{ width: 120 }} />
@@ -533,7 +653,7 @@ function TaskTable({
           {/* Links now carries the comments button alongside CU/NS. */}
           <col style={{ width: 140 }} />
         </colgroup>
-        <TableHead />
+        <TableHead sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
         <tbody>{buildRows()}</tbody>
       </table>
     </div>

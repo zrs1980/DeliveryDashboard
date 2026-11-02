@@ -42,6 +42,9 @@ export interface CUTask {
   date_done?: string | null;
   date_updated?: string | null;
   dependencies?: Array<{ task_id: string; depends_on: string; type: number }>;
+  // ClickUp's own priority: "urgent" | "high" | "normal" | "low", with orderindex
+  // "1"–"4" (1 = urgent). Null when the task has no priority set.
+  priority?: { id: string; priority: string; color: string; orderindex: string } | null;
 }
 
 // ─── Derived Project (enriched with ClickUp + health) ────────────────────────
