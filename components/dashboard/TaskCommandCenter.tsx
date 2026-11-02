@@ -8,6 +8,7 @@ import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, deriveTask
 import { nsProjectUrl } from "@/lib/constants";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
+import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
 import type { Project, CUTask, ProjectNote } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -340,6 +341,7 @@ function TaskTableRow({
   saving,
   onStatusChange,
   onOpenComments,
+  onOpenDescription,
 }: {
   task: CUTask;
   project: Project;
@@ -349,6 +351,7 @@ function TaskTableRow({
   saving: boolean;
   onStatusChange: (task: CUTask, next: string) => void;
   onOpenComments: (task: CUTask) => void;
+  onOpenDescription: (task: CUTask) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -428,6 +431,21 @@ function TaskTableRow({
           >
             {task.name}
           </a>
+          {/* Only on tasks that have one — an icon that opens "no description"
+              on most rows would teach people to stop clicking it. */}
+          {taskDescription(task) && (
+            <button
+              onClick={() => onOpenDescription(task)}
+              title="View the ClickUp description"
+              aria-label="View description"
+              style={{
+                flexShrink: 0, background: "none", border: "none", padding: "0 2px",
+                fontSize: 12, lineHeight: 1, cursor: "pointer", opacity: 0.75,
+              }}
+            >
+              📝
+            </button>
+          )}
         </div>
       </td>
 
@@ -557,6 +575,7 @@ function TaskTable({
   savingTaskId,
   onStatusChange,
   onOpenComments,
+  onOpenDescription,
 }: {
   rows: TaskRow[];
   groupByProject: boolean;
@@ -565,6 +584,7 @@ function TaskTable({
   savingTaskId: string | null;
   onStatusChange: (task: CUTask, next: string) => void;
   onOpenComments: (task: CUTask) => void;
+  onOpenDescription: (task: CUTask) => void;
 }) {
   // Click a header to sort ascending, again for descending, a third time to go
   // back to the default order (due-date buckets, as the tab defines them).
@@ -608,6 +628,7 @@ function TaskTable({
       saving={savingTaskId === task.id}
       onStatusChange={onStatusChange}
       onOpenComments={onOpenComments}
+      onOpenDescription={onOpenDescription}
     />
   );
 
@@ -710,6 +731,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const [savingTaskId,   setSavingTaskId]   = useState<string | null>(null);
   const [actionError,    setActionError]    = useState<string | null>(null);
   const [commentTask,    setCommentTask]    = useState<CUTask | null>(null);
+  const [descTask,       setDescTask]       = useState<CUTask | null>(null);
 
   useEffect(() => {
     fetch("/api/calendar/scheduled")
@@ -1088,8 +1110,14 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
           savingTaskId={savingTaskId}
           onStatusChange={changeStatus}
           onOpenComments={setCommentTask}
+          onOpenDescription={setDescTask}
         />
       </div>
+
+      {/* ── ClickUp description ── */}
+      {descTask && (
+        <TaskDescriptionModal task={descTask} onClose={() => setDescTask(null)} />
+      )}
 
       {/* ── ClickUp comments ── */}
       {commentTask && (

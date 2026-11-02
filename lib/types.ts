@@ -45,6 +45,10 @@ export interface CUTask {
   // ClickUp's own priority: "urgent" | "high" | "normal" | "low", with orderindex
   // "1"–"4" (1 = urgent). Null when the task has no priority set.
   priority?: { id: string; priority: string; color: string; orderindex: string } | null;
+  // Plain-text description. ClickUp returns both on the list fetch; text_content
+  // is the cleaner of the two, description the fallback.
+  description?: string | null;
+  text_content?: string | null;
 }
 
 // ─── Derived Project (enriched with ClickUp + health) ────────────────────────
