@@ -8,6 +8,7 @@ import { ProjectTable } from "@/components/dashboard/ProjectTable";
 import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
 import { TaskCommandCenter } from "@/components/dashboard/TaskCommandCenter";
 import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
+import { TimeEntries } from "@/components/dashboard/TimeEntries";
 import { TimeAnalysis } from "@/components/dashboard/TimeAnalysis";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
@@ -501,6 +502,12 @@ export default function DashboardPage() {
                 phases={phases}
                 onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
               />
+            </div>
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
+              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Time Entries</div>
+              </div>
+              <TimeEntries projects={projects.filter(p => !p.isInternal)} />
             </div>
           </>
         )}
