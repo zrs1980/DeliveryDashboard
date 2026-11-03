@@ -1151,6 +1151,36 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 
 ---
 
+## Module: Time Entries (Projects tab)
+
+Below Active Projects. Individual actual time entries (`timetype = 'A'`) on the
+tab's non-internal projects, with an Excel export and an **Approve Time** button.
+
+```
+/app/api/time-entries/route.ts          → GET ?projectIds=&from=&to=
+/app/api/time-entries/approve/route.ts  → POST { ids } → approve in NetSuite
+/components/dashboard/TimeEntries.tsx
+/lib/xlsx.ts                            → minimal one-sheet .xlsx writer over fflate
+```
+
+- **Description is `timebill.memo`** (the "Note" field). If the customer-facing
+  text turns out to live in a `custcol` field, swap it in the GET route.
+- **The period drives the fetch; Project / PM / Consultant filter in the browser.**
+- **The "Approved" status id is looked up, never hardcoded.** No one has verified
+  timebill's approval-status internal ids (manager-review's `=== "1"` is a guess),
+  so the approve route reads the id off an entry NetSuite already labels Approved
+  and PATCHes `approvalStatus` with that. Current status is re-read server-side:
+  already-approved entries are skipped and **rejected entries are never approved**.
+- **Approve Time acts on every entry currently shown** that isn't approved or
+  rejected, behind a confirm dialog. Anyone signed in can use it — there is no
+  approver check yet. The route logs who approved what.
+- **Export is exactly what is on screen** — the filtered rows, with B/U/P only when
+  that checkbox is ticked. `lib/xlsx.ts` exists instead of exceljs, which pulled in
+  173 packages; fflate was already in the tree via `@react-pdf`. Verified opening
+  in Excel (bold frozen header, 0.00 durations, accents, line breaks).
+
+---
+
 ## Module: Fireflies Meetings
 
 `🪰 Fireflies Meetings` tab — same layout as the Zoom Meetings tab, sourced from Fireflies.ai. Auth is a single `FIREFLIES_API_KEY`; no OAuth, no scopes.

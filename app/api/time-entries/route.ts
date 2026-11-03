@@ -31,6 +31,10 @@ interface TimebillRow {
   task_id:    string | null;
   memo:       string | null;
   hours:      string;
+  isbillable:   string | null;
+  isutilized:   string | null;
+  isproductive: string | null;
+  approval_label: string | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -58,7 +62,11 @@ export async function GET(req: NextRequest) {
           tb.employee,
           tb.casetaskevent  AS task_id,
           tb.memo,
-          tb.hours
+          tb.hours,
+          tb.isbillable,
+          tb.isutilized,
+          tb.isproductive,
+          BUILTIN.DF(tb.approvalstatus) AS approval_label
         FROM timebill tb
         WHERE tb.customer IN (${projectIds.join(",")})
           AND tb.timetype = 'A'
@@ -95,6 +103,11 @@ export async function GET(req: NextRequest) {
       taskName:     r.task_id ? (taskTitle[r.task_id] || null) : null,
       memo:         (r.memo ?? "").trim(),
       hours:        parseFloat(r.hours) || 0,
+      // `=== "T"`: SuiteQL omits a never-set checkbox entirely (see CLAUDE.md).
+      isBillable:   r.isbillable   === "T",
+      isUtilized:   r.isutilized   === "T",
+      isProductive: r.isproductive === "T",
+      approvalStatus: (r.approval_label ?? "").trim(),
     }));
 
     return NextResponse.json({

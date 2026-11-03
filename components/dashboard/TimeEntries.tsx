@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { C } from "@/lib/constants";
 import { mondayOf, toISODate } from "@/lib/status-report";
+import { buildXlsx, downloadXlsx, type XlsxCell, type XlsxColumn } from "@/lib/xlsx";
 import type { Project } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -15,7 +16,20 @@ interface TimeEntry {
   taskName:     string | null;
   memo:         string;
   hours:        number;
+  isBillable:   boolean;
+  isUtilized:   boolean;
+  isProductive: boolean;
+  approvalStatus: string;   // NetSuite's label, e.g. "Approved" / "Pending Approval"
 }
+
+/** Entries over this many hours have their duration in bold. */
+const LONG_ENTRY_HOURS = 5;
+
+/** What Approve Time will act on — anything not already approved, and never a rejected entry. */
+const isApprovable = (e: TimeEntry) => {
+  const s = e.approvalStatus.toLowerCase();
+  return s !== "approved" && s !== "rejected";
+};
 
 type Period = "thisWeek" | "lastWeek" | "thisMonth" | "lastMonth" | "thisQuarter" | "lastQuarter" | "custom";
 
@@ -68,6 +82,13 @@ function fmtDate(iso: string): string {
   return new Date(y, m - 1, d).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** ✓ / – for a flag. Neutral colours: a yes/no classification is not RAG. */
+function Check({ on }: { on: boolean }) {
+  return on
+    ? <span style={{ color: C.blue, fontWeight: 700 }}>✓</span>
+    : <span style={{ color: C.mid }}>–</span>;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function TimeEntries({ projects }: { projects: Project[] }) {
@@ -78,9 +99,14 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
   const [pmFilter, setPmFilter]                 = useState("");
   const [consultantFilter, setConsultantFilter] = useState<number | null>(null);
 
+  const [showClass, setShowClass] = useState(false);
+
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+
+  const [approving, setApproving]     = useState(false);
+  const [approveResult, setApproveResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
 
   const projectById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects]);
 
@@ -136,6 +162,78 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
   }), [entries, projectById, projectFilter, pmFilter, consultantFilter]);
 
   const totalHours = visible.reduce((s, e) => s + e.hours, 0);
+  const approvable = visible.filter(isApprovable);
+
+  // ── Export ──
+  // Exactly what is on screen: the filtered rows, and the B/U/P columns only
+  // when they are showing.
+  function exportXlsx() {
+    const columns: XlsxColumn[] = [
+      { header: "Date", width: 12 },
+      { header: "Project", width: 40 },
+      { header: "Task / Phase", width: 28 },
+      { header: "Consultant", width: 22 },
+      { header: "Description", width: 60 },
+      { header: "Duration (h)", width: 12, numFmt: "0.00" },
+      ...(showClass ? [
+        { header: "Billable", width: 10 },
+        { header: "Utilized", width: 10 },
+        { header: "Productive", width: 11 },
+      ] : []),
+      { header: "Status", width: 18 },
+    ];
+    const yn = (b: boolean) => (b ? "Yes" : "No");
+    const rows: XlsxCell[][] = visible.map(e => [
+      e.date,
+      projectById.get(e.projectId)?.label ?? `Project #${e.projectId}`,
+      e.taskName ?? "",
+      e.employeeName,
+      e.memo,
+      e.hours,
+      ...(showClass ? [yn(e.isBillable), yn(e.isUtilized), yn(e.isProductive)] : []),
+      e.approvalStatus,
+    ]);
+    const suffix = range ? `${range[0]}_to_${range[1]}` : "export";
+    downloadXlsx(`time-entries_${suffix}.xlsx`, buildXlsx("Time Entries", columns, rows));
+  }
+
+  // ── Approve ──
+  async function approveTime() {
+    if (approving || approvable.length === 0) return;
+    const hrs = approvable.reduce((s, e) => s + e.hours, 0);
+    const skippedRejected = visible.filter(e => e.approvalStatus.toLowerCase() === "rejected").length;
+    const ok = window.confirm(
+      `Approve ${approvable.length} time ${approvable.length === 1 ? "entry" : "entries"} (${fmtHours(hrs)}) in NetSuite?\n\n` +
+      `This is every entry currently shown that is not already approved.` +
+      (skippedRejected ? `\n${skippedRejected} rejected ${skippedRejected === 1 ? "entry is" : "entries are"} left alone.` : ""),
+    );
+    if (!ok) return;
+
+    setApproving(true); setApproveResult(null);
+    try {
+      const res  = await fetch("/api/time-entries/approve", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ ids: approvable.map(e => e.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+
+      const approvedIds = new Set<number>(data.approved ?? []);
+      setEntries(prev => prev.map(e => approvedIds.has(e.id) ? { ...e, approvalStatus: "Approved" } : e));
+
+      const failed  = (data.failed  ?? []) as Array<{ id: number; error: string }>;
+      const skipped = (data.skipped ?? []) as Array<{ id: number; reason: string }>;
+      const parts = [`Approved ${approvedIds.size} ${approvedIds.size === 1 ? "entry" : "entries"}.`];
+      if (skipped.length) parts.push(`${skipped.length} skipped (${[...new Set(skipped.map(s => s.reason))].join("; ")}).`);
+      if (failed.length)  parts.push(`${failed.length} failed — NetSuite said: ${failed[0].error}`);
+      setApproveResult({ kind: failed.length ? (approvedIds.size ? "warn" : "error") : "ok", text: parts.join(" ") });
+    } catch (e) {
+      setApproveResult({ kind: "error", text: e instanceof Error ? e.message : "Approval failed." });
+    } finally {
+      setApproving(false);
+    }
+  }
 
   // ── Styles ──
   const selectStyle: React.CSSProperties = {
@@ -149,6 +247,10 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
     padding: "6px 10px", fontSize: 11, fontWeight: 700, color: C.textMid, textAlign: "left",
     textTransform: "uppercase", letterSpacing: "0.04em", background: C.alt,
     borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
+  };
+  const btnStyle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 600, fontFamily: C.font, padding: "5px 11px", borderRadius: 6,
+    background: C.surface, color: C.textMid, border: `1px solid ${C.border}`, whiteSpace: "nowrap",
   };
   const td: React.CSSProperties = {
     padding: "7px 10px", fontSize: 12, color: C.text, borderBottom: `1px solid ${C.border}`, verticalAlign: "top",
@@ -202,11 +304,52 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
           </div>
         )}
 
-        <div style={{ marginLeft: "auto", fontSize: 12, color: C.textSub }}>
-          {range && <>{fmtDate(range[0])} – {fmtDate(range[1])} · </>}
-          {visible.length} entries · <span style={{ fontFamily: C.mono, color: C.text, fontWeight: 600 }}>{fmtHours(totalHours)}</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
+          <input type="checkbox" checked={showClass} onChange={e => setShowClass(e.target.checked)} style={{ cursor: "pointer" }} />
+          Show billable, utilized and productive?
+        </label>
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: C.textSub }}>
+            {range && <>{fmtDate(range[0])} – {fmtDate(range[1])} · </>}
+            {visible.length} entries · <span style={{ fontFamily: C.mono, color: C.text, fontWeight: 600 }}>{fmtHours(totalHours)}</span>
+          </span>
+          <button
+            onClick={exportXlsx}
+            disabled={visible.length === 0}
+            title="Download the entries shown as an Excel file"
+            style={{ ...btnStyle, opacity: visible.length === 0 ? 0.5 : 1, cursor: visible.length === 0 ? "default" : "pointer" }}
+          >
+            ⬇ Export to Excel
+          </button>
+          <button
+            onClick={approveTime}
+            disabled={approving || approvable.length === 0}
+            title={approvable.length === 0 ? "Nothing shown is waiting for approval" : `Approve ${approvable.length} entries in NetSuite`}
+            style={{
+              ...btnStyle,
+              background: C.blue, color: "#fff", border: `1px solid ${C.blue}`,
+              opacity: approving || approvable.length === 0 ? 0.5 : 1,
+              cursor: approving || approvable.length === 0 ? "default" : "pointer",
+            }}
+          >
+            {approving ? "Approving…" : `✓ Approve Time${approvable.length ? ` (${approvable.length})` : ""}`}
+          </button>
         </div>
       </div>
+
+      {approveResult && (
+        <div style={{
+          margin: "12px 22px 0", padding: "8px 11px", borderRadius: 6, fontSize: 12,
+          display: "flex", justifyContent: "space-between", gap: 12,
+          background: approveResult.kind === "ok" ? C.greenBg : approveResult.kind === "warn" ? C.yellowBg : C.redBg,
+          border: `1px solid ${approveResult.kind === "ok" ? C.greenBd : approveResult.kind === "warn" ? C.yellowBd : C.redBd}`,
+          color: approveResult.kind === "ok" ? C.green : approveResult.kind === "warn" ? C.yellow : C.red,
+        }}>
+          <span style={{ wordBreak: "break-word" }}>{approveResult.text}</span>
+          <button onClick={() => setApproveResult(null)} aria-label="Dismiss" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       {/* ── Table ── */}
       {error ? (
@@ -230,6 +373,12 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
                 <th style={{ ...th, width: 140 }}>Consultant</th>
                 <th style={th}>Description</th>
                 <th style={{ ...th, width: 80, textAlign: "right" }}>Duration</th>
+                {showClass && <>
+                  <th style={{ ...th, width: 70, textAlign: "center" }}>Billable</th>
+                  <th style={{ ...th, width: 70, textAlign: "center" }}>Utilized</th>
+                  <th style={{ ...th, width: 84, textAlign: "center" }}>Productive</th>
+                </>}
+                <th style={{ ...th, width: 120 }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -242,7 +391,20 @@ export function TimeEntries({ projects }: { projects: Project[] }) {
                     <td style={{ ...td, color: e.taskName ? C.text : C.textSub }}>{e.taskName ?? "—"}</td>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>{e.employeeName}</td>
                     <td style={{ ...td, whiteSpace: "pre-wrap", wordBreak: "break-word", color: e.memo ? C.text : C.textSub }}>{e.memo || "—"}</td>
-                    <td style={{ ...td, textAlign: "right", fontFamily: C.mono, whiteSpace: "nowrap" }}>{fmtHours(e.hours)}</td>
+                    <td style={{
+                      ...td, textAlign: "right", fontFamily: C.mono, whiteSpace: "nowrap",
+                      fontWeight: e.hours > LONG_ENTRY_HOURS ? 700 : 400,
+                    }}>
+                      {fmtHours(e.hours)}
+                    </td>
+                    {showClass && <>
+                      <td style={{ ...td, textAlign: "center" }}><Check on={e.isBillable} /></td>
+                      <td style={{ ...td, textAlign: "center" }}><Check on={e.isUtilized} /></td>
+                      <td style={{ ...td, textAlign: "center" }}><Check on={e.isProductive} /></td>
+                    </>}
+                    <td style={{ ...td, whiteSpace: "nowrap", color: e.approvalStatus.toLowerCase() === "approved" ? C.textMid : C.text }}>
+                      {e.approvalStatus || "—"}
+                    </td>
                   </tr>
                 );
               })}
