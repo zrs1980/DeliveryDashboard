@@ -29,6 +29,7 @@ export interface ServiceRequest {
   assignedTo: string | null;
   assignedToId: number | null;
   statusLabel: string | null;
+  statusId: string | null;        // raw entitystatus id — what the Status dropdown writes back
   memo: string | null;
   actionItem: string | null;
   noteCount: number;
@@ -67,6 +68,7 @@ export async function GET(req: Request) {
              t.projectedTotal, t.expectedCloseDate, t.tranDate,
              t.lastModifiedDate, t.daysOpen, t.memo, t.actionItem,
              t.custbody10, t.custbody9,
+             t.entitystatus AS entitystatus_id,
              BUILTIN.DF(t.entitystatus) AS entitystatus_label,
              ${withOpportunityType ? "BUILTIN.DF(t.custbody5) AS opportunity_type," : ""}
              t.custbody_ceba_sales_pipeline AS identified_by_raw,
@@ -168,6 +170,7 @@ export async function GET(req: Request) {
         assignedTo:        assignedToId ? (roster.byId[assignedToId]?.name ?? null) : null,
         assignedToId:      assignedToId,
         statusLabel:       r.entitystatus_label ?? null,
+        statusId:          r.entitystatus_id != null ? String(r.entitystatus_id) : null,
         memo:              r.memo ?? null,
         actionItem:        r.actionitem ?? null,
         noteCount:         noteCountMap[parseInt(r.id)] ?? 0,

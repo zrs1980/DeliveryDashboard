@@ -534,6 +534,8 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
   const [briefs, setBriefs]         = useState<Record<number, AiBrief>>({});
   const [employees, setEmployees]   = useState<NsEmployee[]>([]);
   const [assigning, setAssigning]   = useState<Record<number, boolean>>({});
+  const [statusOptions, setStatusOptions] = useState<{ id: string; label: string }[]>([]);
+  const [statusSaving,  setStatusSaving]  = useState<Record<number, boolean>>({});
   const [noteDraft,    setNoteDraft]    = useState<Record<number, string>>({});
   const [noteAddOpen,  setNoteAddOpen]  = useState<Record<number, boolean>>({});
   const [noteSaving,   setNoteSaving]   = useState<Record<number, boolean>>({});
@@ -599,7 +601,38 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
       .then(r => r.json())
       .then(d => setEmployees(d.employees ?? []))
       .catch(() => {});
+    // If this fails the Status column stays read-only rather than offering an
+    // empty dropdown.
+    fetch("/api/service-requests/status")
+      .then(r => r.json())
+      .then(d => setStatusOptions(d.statuses ?? []))
+      .catch(() => {});
   }, [filter]);
+
+  // Writes entitystatus on the opportunity — the service request IS the opportunity.
+  const changeStatus = async (opp: ServiceRequest, statusId: string) => {
+    if (!statusId || statusId === opp.statusId) return;
+    setStatusSaving(prev => ({ ...prev, [opp.id]: true }));
+    try {
+      const res  = await fetch("/api/service-requests/status", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: opp.id, statusId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const label = data.statusLabel ?? statusOptions.find(s => s.id === statusId)?.label ?? opp.statusLabel;
+      setAllRequests(prev => prev.map(r => {
+        if (r.id !== opp.id) return r;
+        // NetSuite may move probability with the status; take what it reports back.
+        const probability = typeof data.probability === "number" ? data.probability : r.probability;
+        return { ...r, statusId, statusLabel: label, probability, weightedTotal: Math.round(r.projectedTotal * probability) };
+      }));
+    } catch (e) {
+      alert("Failed to update status: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setStatusSaving(prev => ({ ...prev, [opp.id]: false }));
+    }
+  };
 
   const assignEmployee = async (opp: ServiceRequest, employeeId: number | null) => {
     setAssigning(prev => ({ ...prev, [opp.id]: true }));
@@ -840,7 +873,30 @@ export function ServiceRequestsView({ filter }: { filter?: "Active" | "Nurturing
 
                     {/* Col 2: Status */}
                     <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                      {r.statusLabel
+                      {statusOptions.length > 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ position: "relative" }}>
+                            <select
+                              value={r.statusId ?? ""}
+                              disabled={statusSaving[r.id]}
+                              onChange={e => changeStatus(r, e.target.value)}
+                              title="Change the opportunity status in NetSuite"
+                              style={{ fontSize: 11, fontWeight: 700, padding: "2px 20px 2px 8px", borderRadius: 9, background: statusSaving[r.id] ? C.alt : C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`, fontFamily: C.font, cursor: statusSaving[r.id] ? "not-allowed" : "pointer", appearance: "none", WebkitAppearance: "none", maxWidth: 220 }}
+                            >
+                              {!r.statusId && <option value="">—</option>}
+                              {/* Keep the current status selectable even if it isn't in the
+                                  list (inactive, or a lead status), so the dropdown never
+                                  silently shows a different value from NetSuite's. */}
+                              {r.statusId && !statusOptions.some(s => s.id === r.statusId) && (
+                                <option value={r.statusId}>{r.statusLabel ?? `Status ${r.statusId}`}</option>
+                              )}
+                              {statusOptions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                            </select>
+                            <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 8, color: C.blue }}>▼</span>
+                          </div>
+                          {statusSaving[r.id] && <span style={{ width: 12, height: 12, flexShrink: 0, display: "inline-block", border: `2px solid ${C.blueBd}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />}
+                        </div>
+                      ) : r.statusLabel
                         ? <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 9, background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}` }}>{r.statusLabel}</span>
                         : <span style={{ fontSize: 12, color: C.textSub }}>—</span>
                       }
