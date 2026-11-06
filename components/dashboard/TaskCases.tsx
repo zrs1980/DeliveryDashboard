@@ -32,8 +32,25 @@ export interface TaskCase {
 
 const CLOSED_STATUSES = ["closed", "resolved"];
 
-/** Same rule as the Cases tab: anything whose status reads closed or resolved. */
+/** Lower-case, punctuation collapsed — "Resolved-Pending Customer Review" → "resolved pending customer review". */
+function normStatus(status: string): string {
+  return status.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Resolved but still waiting on the customer to confirm — the case isn't off
+ * the consultant's plate yet, so it stays on the list despite reading "resolved".
+ */
+function isPendingCustomerReview(status: string): boolean {
+  return normStatus(status) === "resolved pending customer review";
+}
+
+/**
+ * The Cases tab's rule (anything that reads closed or resolved is done), except
+ * Resolved-Pending Customer Review, which still needs following up.
+ */
 export function isOpenCase(c: TaskCase): boolean {
+  if (isPendingCustomerReview(c.status)) return true;
   const s = c.status.toLowerCase();
   return !CLOSED_STATUSES.some(x => s.includes(x));
 }
@@ -99,7 +116,10 @@ const CASE_STATUS_STYLES: Record<string, { bg: string; color: string; bd: string
 };
 
 function CaseStatusBadge({ status }: { status: string }) {
-  const sty = CASE_STATUS_STYLES[status.toLowerCase()] ?? { bg: C.alt, color: C.textMid, bd: C.border };
+  // Pending customer review shares "pending customer"'s colour: the ball is in
+  // the customer's court either way.
+  const key = isPendingCustomerReview(status) ? "pending customer" : status.toLowerCase();
+  const sty = CASE_STATUS_STYLES[key] ?? { bg: C.alt, color: C.textMid, bd: C.border };
   return (
     <span style={{ fontSize: 10, fontWeight: 600, borderRadius: 3, padding: "1px 5px", background: sty.bg, color: sty.color, border: `1px solid ${sty.bd}`, whiteSpace: "nowrap" }}>
       {status}
