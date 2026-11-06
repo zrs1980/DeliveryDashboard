@@ -3209,7 +3209,7 @@ The dashboard otherwise deals only in *projects*, so resolving a customer needs 
 | `job.companyname` | The **project** name in this account, not the client's. Never use it as a customer identifier |
 | `BUILTIN.DF(customer)` | The customer's display *label*, not its id. `fetchActiveProjects()` selects both — use `customer_ns_id` for identity, `customer_name` for display |
 | `timebill.customer` | A **job** id, not a customer id. Roll up `timebill.customer → job.id → job.customer` |
-| `supportcase.company` | `/api/cases` resolves this to `entity.altname` and drops the id. Add the id if a case ever needs to join to a customer |
+| `supportcase.company` | A customer id OR a job id. `/api/cases` returns it raw as `companyId` (the Tasks tab's Cases sub-tab matches it to a project) plus the resolved `customerNsId` |
 
 `lib/cs-customers.ts` owns all of it: `fetchCsCustomers()` (the canonical list),
 `fetchCustomerProjectIndex()` (job ↔ customer, both directions),

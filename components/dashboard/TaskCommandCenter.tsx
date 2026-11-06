@@ -9,11 +9,12 @@ import { nsProjectUrl } from "@/lib/constants";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
+import { TaskCasesTable, isOpenCase, samePerson, caseMatchesProject, casePriorityRank, type TaskCase } from "@/components/dashboard/TaskCases";
 import type { Project, CUTask, ProjectNote } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabId = "overdue" | "this_week" | "next_week" | "upcoming" | "milestones" | "blocked" | "client";
+type TabId = "overdue" | "this_week" | "next_week" | "upcoming" | "milestones" | "blocked" | "client" | "cases";
 
 /**
  * Accepts an updater as well as a plain array. The status dropdown writes twice
@@ -27,6 +28,9 @@ interface Props {
   projects: Project[];
   onProjectsChange: (updated: ProjectsUpdate) => void;
   initialTab?: TabId;
+  /** NetSuite support cases (the page's /api/cases load) for the Cases sub-tab. */
+  cases?: TaskCase[];
+  casesError?: string | null;
 }
 
 interface TaskRow {
@@ -44,6 +48,16 @@ const TAB_DEFS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "milestones", label: "Milestones", icon: "★" },
   { id: "blocked",    label: "Blocked",    icon: "⚠" },
   { id: "client",     label: "Client",     icon: "🤝" },
+  // NetSuite support cases, not ClickUp tasks — filterForTab returns none for it.
+  { id: "cases",      label: "Cases",      icon: "🎫" },
+];
+
+/** Case priority filter — NetSuite's three, matched on casePriorityRank. */
+const CASE_PRIORITY_OPTIONS = [
+  { value: "1",    label: "High" },
+  { value: "2",    label: "Medium" },
+  { value: "3",    label: "Low" },
+  { value: "none", label: "No priority" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -696,7 +710,7 @@ function TaskTable({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Props) {
+export function TaskCommandCenter({ projects, onProjectsChange, initialTab, cases = [], casesError = null }: Props) {
   const { data: session } = useSession();
   const [tab, setTab]                       = useState<TabId>(initialTab ?? "overdue");
 
@@ -719,6 +733,10 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
   const [selectedStatus, setSelectedStatus]   = useState<string>("");
   // "" = all, "none" = no priority set, otherwise ClickUp's orderindex "1"–"4".
   const [selectedPriority, setSelectedPriority] = useState<string>("");
+  // Cases have their own status/priority vocabularies, so the Status and Priority
+  // dropdowns switch to these while the Cases sub-tab is open.
+  const [caseStatus, setCaseStatus]           = useState<string>("");
+  const [casePriority, setCasePriority]       = useState<string>("");
   const [groupByProject, setGroupByProject]   = useState<boolean>(false);
   const [myWork, setMyWork]                   = useState<boolean>(false);
   const [scheduleFilter, setScheduleFilter]   = useState<"all" | "scheduled" | "unscheduled">("all");
@@ -847,9 +865,45 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
       .map(t => ({ task: t, project: p }))
   );
 
-  const allResources = Array.from(new Set(
-    projects.flatMap(p => p.tasks.flatMap(t => t.assignees.map(a => a.username)))
-  )).sort();
+  const openCases = useMemo(() => cases.filter(isOpenCase), [cases]);
+
+  // ── Cases sub-tab rows ──
+  // The shared filters apply here too: picking a resource shows their ClickUp
+  // tasks on the other sub-tabs and their NetSuite cases on this one. Names are
+  // matched with samePerson because the two systems spell people separately.
+  const caseRows: TaskCase[] = openCases
+    .filter(c => !selectedProject || visibleProjects.some(p => caseMatchesProject(c, p)))
+    .filter(c => !selectedResource || samePerson(c.assigned, selectedResource))
+    .filter(c => !caseStatus || c.status.toLowerCase() === caseStatus)
+    .filter(c => !casePriority || String(casePriorityRank(c.priority) ?? "none") === casePriority)
+    .filter(c => !myWork || !sessionName || samePerson(c.assigned, sessionName));
+
+  const caseStatusOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const c of openCases) {
+      const key = c.status.toLowerCase();
+      if (key && !seen.has(key)) seen.set(key, c.status);
+    }
+    return Array.from(seen.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [openCases]);
+
+  // ClickUp assignees plus anyone who only holds cases (e.g. a support consultant
+  // with no ClickUp tasks). A case assignee who IS a ClickUp user is not listed
+  // twice — the ClickUp spelling wins, and matches their cases via samePerson.
+  const allResources = useMemo(() => {
+    const names = Array.from(new Set(
+      projects.flatMap(p => p.tasks.flatMap(t => t.assignees.map(a => a.username)))
+    ));
+    for (const c of openCases) {
+      if (!c.assigned || c.assigned === "Unassigned") continue;
+      if (!names.some(n => samePerson(n, c.assigned))) names.push(c.assigned);
+    }
+    return names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [projects, openCases]);
+
+  const onCasesTab = tab === "cases";
 
   /**
    * Statuses actually present on the loaded tasks, keyed lower-case with the
@@ -881,6 +935,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
     milestones: filterForTab(allRows, "milestones").length,
     blocked:    filterForTab(allRows, "blocked").length,
     client:     filterForTab(allRows, "client").length,
+    cases:      caseRows.length,
   };
 
   const activeRows = filterForTab(allRows, tab);
@@ -944,12 +999,12 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
         <div style={{ display: "flex", alignItems: "center" }}>
           <label style={labelStyle}>Status</label>
           <select
-            value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
+            value={onCasesTab ? caseStatus : selectedStatus}
+            onChange={e => (onCasesTab ? setCaseStatus : setSelectedStatus)(e.target.value)}
             style={selectStyle}
           >
             <option value="">All</option>
-            {statusOptions.map(s => (
+            {(onCasesTab ? caseStatusOptions : statusOptions).map(s => (
               <option key={s.key} value={s.key}>{s.label}</option>
             ))}
           </select>
@@ -958,18 +1013,19 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
         <div style={{ display: "flex", alignItems: "center" }}>
           <label style={labelStyle}>Priority</label>
           <select
-            value={selectedPriority}
-            onChange={e => setSelectedPriority(e.target.value)}
+            value={onCasesTab ? casePriority : selectedPriority}
+            onChange={e => (onCasesTab ? setCasePriority : setSelectedPriority)(e.target.value)}
             style={selectStyle}
           >
             <option value="">All</option>
-            {PRIORITY_OPTIONS.map(p => (
+            {(onCasesTab ? CASE_PRIORITY_OPTIONS : PRIORITY_OPTIONS).map(p => (
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center" }}>
+        {/* Calendar scheduling and project grouping are ClickUp-task concepts. */}
+        {!onCasesTab && <div style={{ display: "flex", alignItems: "center" }}>
           <label style={labelStyle}>Schedule</label>
           <select
             value={scheduleFilter}
@@ -980,7 +1036,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             <option value="scheduled">Scheduled</option>
             <option value="unscheduled">Unscheduled</option>
           </select>
-        </div>
+        </div>}
 
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: myWork ? C.blue : C.textMid, cursor: "pointer", userSelect: "none", fontWeight: myWork ? 700 : 400 }}>
           <input
@@ -992,7 +1048,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
           My Work
         </label>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
+        {!onCasesTab && <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
           <input
             type="checkbox"
             checked={groupByProject}
@@ -1000,13 +1056,15 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             style={{ cursor: "pointer" }}
           />
           Group by Project
-        </label>
+        </label>}
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12, color: C.textSub }}>
-            {totalDone} / {allRows.length} done
+            {onCasesTab
+              ? `${caseRows.length} open case${caseRows.length === 1 ? "" : "s"}`
+              : `${totalDone} / ${allRows.length} done`}
           </span>
-          <button
+          {!onCasesTab && <button
             onClick={() => setSlackModalOpen(true)}
             title="Prepend current view to Weekly Deliverables canvas in #oxide"
             style={{
@@ -1026,7 +1084,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
             }}
           >
             ↗ Post to Slack
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -1102,16 +1160,20 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab }: Pr
         overflow: "hidden",
         boxShadow: C.sh,
       }}>
-        <TaskTable
-          rows={activeRows}
-          groupByProject={groupByProject}
-          scheduledMap={scheduledMap}
-          statusesByList={statusesByList}
-          savingTaskId={savingTaskId}
-          onStatusChange={changeStatus}
-          onOpenComments={setCommentTask}
-          onOpenDescription={setDescTask}
-        />
+        {onCasesTab ? (
+          <TaskCasesTable cases={caseRows} error={casesError} />
+        ) : (
+          <TaskTable
+            rows={activeRows}
+            groupByProject={groupByProject}
+            scheduledMap={scheduledMap}
+            statusesByList={statusesByList}
+            savingTaskId={savingTaskId}
+            onStatusChange={changeStatus}
+            onOpenComments={setCommentTask}
+            onOpenDescription={setDescTask}
+          />
+        )}
       </div>
 
       {/* ── ClickUp description ── */}

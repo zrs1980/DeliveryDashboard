@@ -101,6 +101,9 @@ export async function GET() {
         priority:     r.priority || "—",
         stage:        "",
         company:      r.cust_name || "—",
+        // Raw supportcase.company (customer OR job) — lets the Tasks tab match a
+        // case to a project, which customerNsId alone can't do for job-level cases.
+        companyId:    r.company_id != null ? String(r.company_id) : null,
         customerNsId: customerOf(r.company_id),
         assigned,
         createdDate:  r.createddate,

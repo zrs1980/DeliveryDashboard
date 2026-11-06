@@ -526,6 +526,8 @@ export default function DashboardPage() {
                 projects: typeof updated === "function" ? updated(d.projects) : updated,
               }))}
               initialTab={taskSubTab}
+              cases={cases}
+              casesError={casesError}
             />
           </div>
         )}
