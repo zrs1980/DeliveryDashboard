@@ -81,8 +81,28 @@ interface CUList { id: string; name: string; folder: string | null; space: strin
 let _listCache: { lists: CUList[]; ts: number } | null = null;
 const LIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+/**
+ * fetch, retried on a 429. ClickUp allows 100 requests/min per token, and the
+ * Tasks tab spends much of that loading tasks before it asks for each list's
+ * statuses — a 429 there used to leave the status cells read-only.
+ *
+ * Waits until ClickUp's reset time (capped short, so a serverless request can't
+ * stall), at most twice. Only used for idempotent calls (GET, and PUTs that set
+ * fields to a value), so a repeat is harmless.
+ */
+async function cuFetch(url: string, init: RequestInit): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let attempt = 1; res.status === 429 && attempt <= 2; attempt++) {
+    const reset = Number(res.headers.get("x-ratelimit-reset")) * 1000;   // epoch seconds
+    const wait  = reset > Date.now() ? reset - Date.now() : 1000 * attempt;
+    await new Promise(r => setTimeout(r, Math.min(wait, 4000)));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
 async function cuGet(path: string) {
-  const res = await fetch(`${BASE_URL}${path}`, { headers: headers() });
+  const res = await cuFetch(`${BASE_URL}${path}`, { headers: headers() });
   if (!res.ok) {
     // ClickUp puts a human-readable reason in the body; the bare status doesn't help.
     const text = await res.text().catch(() => "");
@@ -308,7 +328,7 @@ export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
 // (ClickUp Settings → Apps) — see the attribution note on postTaskComment.
 
 async function cuPut(path: string, body: unknown) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await cuFetch(`${BASE_URL}${path}`, {
     method: "PUT",
     headers: headers(),
     body: JSON.stringify(body),
@@ -360,6 +380,34 @@ export async function fetchListStatuses(listId: string): Promise<CUStatus[]> {
 export async function updateTaskStatus(taskId: string, status: string): Promise<string> {
   const data = await cuPut(`/task/${taskId}`, { status });
   return String(data?.status?.status ?? status);
+}
+
+/**
+ * Set a task's priority and/or due date. Omit a field to leave it alone; null
+ * clears it.
+ *
+ *   priority — ClickUp's 1 urgent · 2 high · 3 normal · 4 low
+ *   dueDate  — Unix ms. Sent as a date-only due (due_date_time: false), which is
+ *              how the grid shows it.
+ *
+ * Returns both fields as ClickUp reports them after the write, so the grid
+ * renders what landed — same reasoning as updateTaskStatus.
+ */
+export async function updateTaskFields(
+  taskId: string,
+  fields: { priority?: number | null; dueDate?: number | null },
+): Promise<{ priority: CUTask["priority"]; due_date: string | null }> {
+  const body: Record<string, unknown> = {};
+  if (fields.priority !== undefined) body.priority = fields.priority;
+  if (fields.dueDate !== undefined) {
+    body.due_date      = fields.dueDate;
+    body.due_date_time = false;
+  }
+  const data = await cuPut(`/task/${taskId}`, body);
+  return {
+    priority: data?.priority ?? null,
+    due_date: data?.due_date != null ? String(data.due_date) : null,
+  };
 }
 
 export interface CUComment {

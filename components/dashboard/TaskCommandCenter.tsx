@@ -38,6 +38,12 @@ interface TaskRow {
   project: Project;
 }
 
+/** An inline priority / due-date edit. Omitted = unchanged, null = clear. */
+interface TaskFieldsPatch {
+  priority?: number | null;
+  dueDate?:  number | null;
+}
+
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
 const TAB_DEFS: Array<{ id: TabId; label: string; icon: string }> = [
@@ -59,6 +65,9 @@ const CASE_PRIORITY_OPTIONS = [
   { value: "3",    label: "Low" },
   { value: "none", label: "No priority" },
 ];
+
+/** Lists per /api/clickup/statuses request (the route caps at 40). */
+const STATUS_LISTS_PER_REQUEST = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -160,18 +169,158 @@ function sortRows(rows: TaskRow[], key: SortKey, dir: SortDir, scheduledMap: Map
 // ─── Priority ─────────────────────────────────────────────────────────────────
 
 /**
- * ClickUp's flag, in ClickUp's own colour so it reads the same as it does there.
- * Not a RAG signal — the label carries the meaning, the colour only matches ClickUp.
+ * ClickUp's four priorities as its API writes them back — used to update the row
+ * optimistically before the response lands. Colours are ClickUp's defaults, so
+ * the flag reads as it does there; not a RAG signal — the label carries meaning.
  */
-function PriorityFlag({ task }: { task: CUTask }) {
-  const p = task.priority;
-  if (!p?.priority) return <span style={{ color: C.textSub, fontSize: 11 }}>—</span>;
-  const label = p.priority.charAt(0).toUpperCase() + p.priority.slice(1);
+const CU_PRIORITIES: Record<number, NonNullable<CUTask["priority"]>> = {
+  1: { id: "1", priority: "urgent", color: "#f50000", orderindex: "1" },
+  2: { id: "2", priority: "high",   color: "#f8ae00", orderindex: "2" },
+  3: { id: "3", priority: "normal", color: "#6fddff", orderindex: "3" },
+  4: { id: "4", priority: "low",    color: "#d8d8d8", orderindex: "4" },
+};
+
+/** The flag, editable in place: a native <select> styled as the flag and label. */
+function PrioritySelect({
+  task,
+  saving,
+  onChange,
+}: {
+  task: CUTask;
+  saving: boolean;
+  onChange: (next: number | null) => void;
+}) {
+  const rank = priorityRank(task);
+  const p    = task.priority;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: C.textMid, whiteSpace: "nowrap" }}>
-      <span style={{ color: p.color || C.textSub, fontSize: 12 }}>⚑</span>
-      {label}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" }}>
+      <span style={{ color: p?.color || C.mid, fontSize: 12 }}>⚑</span>
+      <select
+        value={rank ?? ""}
+        disabled={saving}
+        onChange={e => onChange(e.target.value ? parseInt(e.target.value) : null)}
+        title={saving ? "Saving…" : "Change priority in ClickUp"}
+        style={{
+          appearance: "none",
+          WebkitAppearance: "none",
+          border: "1px solid transparent",
+          borderRadius: 3,
+          background: "transparent",
+          padding: "1px 3px",
+          fontSize: 11,
+          fontFamily: C.font,
+          color: rank ? C.textMid : C.textSub,
+          cursor: saving ? "wait" : "pointer",
+          opacity: saving ? 0.55 : 1,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = C.border; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; }}
+      >
+        <option value="">—</option>
+        {PRIORITY_OPTIONS.filter(o => o.value !== "none").map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
     </span>
+  );
+}
+
+// ─── Due date ─────────────────────────────────────────────────────────────────
+
+function pad2(n: number): string { return String(n).padStart(2, "0"); }
+
+/** Unix-ms string → local "YYYY-MM-DD" for <input type="date">. Local, never toISOString. */
+function dueInputValue(dueDateMs: string | null): string {
+  if (!dueDateMs) return "";
+  const d = new Date(parseInt(dueDateMs));
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * Local "YYYY-MM-DD" → Unix ms at local NOON. Noon rather than midnight so the
+ * date reads the same in ClickUp for anyone within ±11h of the person who set it.
+ */
+function dueFromInput(value: string): number | null {
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), 12).getTime();
+}
+
+/**
+ * The due date, editable in place. Shows the short date as before; clicking it
+ * opens the browser's date picker. Clearing the picker removes the due date.
+ */
+function DueDateInput({
+  task,
+  saving,
+  overdue,
+  onChange,
+}: {
+  task: CUTask;
+  saving: boolean;
+  overdue: boolean;
+  onChange: (next: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const color = overdue ? C.red : C.textMid;
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => setEditing(true)}
+        title={saving ? "Saving…" : "Change due date in ClickUp"}
+        style={{
+          background: "none",
+          border: "1px solid transparent",
+          borderRadius: 3,
+          padding: "1px 4px",
+          margin: "0 -4px",
+          fontSize: 12,
+          fontFamily: C.font,
+          fontWeight: overdue ? 600 : 400,
+          color,
+          cursor: saving ? "wait" : "pointer",
+          opacity: saving ? 0.55 : 1,
+          whiteSpace: "nowrap",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = C.border; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; }}
+      >
+        {formatDue(task.due_date)}
+      </button>
+    );
+  }
+
+  const current = dueInputValue(task.due_date);
+  // Commit on blur rather than on every change: typing a date into the field
+  // fires change events for each partial value, and each would be a ClickUp write.
+  return (
+    <input
+      type="date"
+      autoFocus
+      defaultValue={current}
+      onBlur={e => {
+        setEditing(false);
+        const v = e.target.value;
+        if (v === current) return;
+        onChange(v ? dueFromInput(v) : null);
+      }}
+      onKeyDown={e => {
+        if (e.key === "Enter")  e.currentTarget.blur();
+        if (e.key === "Escape") { e.currentTarget.value = current; e.currentTarget.blur(); }
+      }}
+      style={{
+        fontSize: 11,
+        fontFamily: C.font,
+        padding: "1px 3px",
+        border: `1px solid ${C.blue}`,
+        borderRadius: 3,
+        color: C.text,
+        background: C.surface,
+      }}
+    />
   );
 }
 
@@ -354,6 +503,7 @@ function TaskTableRow({
   statuses,
   saving,
   onStatusChange,
+  onFieldChange,
   onOpenComments,
   onOpenDescription,
 }: {
@@ -364,6 +514,7 @@ function TaskTableRow({
   statuses: CUStatus[] | undefined;
   saving: boolean;
   onStatusChange: (task: CUTask, next: string) => void;
+  onFieldChange: (task: CUTask, fields: TaskFieldsPatch) => void;
   onOpenComments: (task: CUTask) => void;
   onOpenDescription: (task: CUTask) => void;
 }) {
@@ -411,7 +562,11 @@ function TaskTableRow({
 
       {/* Priority */}
       <td style={td}>
-        <PriorityFlag task={task} />
+        <PrioritySelect
+          task={task}
+          saving={saving}
+          onChange={priority => onFieldChange(task, { priority })}
+        />
       </td>
 
       {/* Task name */}
@@ -482,13 +637,13 @@ function TaskTableRow({
       </td>
 
       {/* Due date */}
-      <td style={{
-        ...td,
-        color: taskBucket(task) === "overdue" && !done ? C.red : C.textMid,
-        fontWeight: taskBucket(task) === "overdue" && !done ? 600 : 400,
-        whiteSpace: "nowrap",
-      }}>
-        {formatDue(task.due_date)}
+      <td style={{ ...td, whiteSpace: "nowrap" }}>
+        <DueDateInput
+          task={task}
+          saving={saving}
+          overdue={taskBucket(task) === "overdue" && !done}
+          onChange={dueDate => onFieldChange(task, { dueDate })}
+        />
       </td>
 
       {/* Scheduled */}
@@ -588,6 +743,7 @@ function TaskTable({
   statusesByList,
   savingTaskId,
   onStatusChange,
+  onFieldChange,
   onOpenComments,
   onOpenDescription,
 }: {
@@ -597,6 +753,7 @@ function TaskTable({
   statusesByList: Record<string, CUStatus[]>;
   savingTaskId: string | null;
   onStatusChange: (task: CUTask, next: string) => void;
+  onFieldChange: (task: CUTask, fields: TaskFieldsPatch) => void;
   onOpenComments: (task: CUTask) => void;
   onOpenDescription: (task: CUTask) => void;
 }) {
@@ -641,6 +798,7 @@ function TaskTable({
       statuses={task.list?.id ? statusesByList[task.list.id] : undefined}
       saving={savingTaskId === task.id}
       onStatusChange={onStatusChange}
+      onFieldChange={onFieldChange}
       onOpenComments={onOpenComments}
       onOpenDescription={onOpenDescription}
     />
@@ -778,16 +936,65 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
   useEffect(() => {
     if (!listIdsKey) return;
     let cancelled = false;
-    fetch(`/api/clickup/statuses?listIds=${encodeURIComponent(listIdsKey)}`)
-      .then(r => r.json())
-      .then((d: { statuses?: Record<string, CUStatus[]> }) => {
-        // Silent on failure by design: without statuses the dropdown degrades to
-        // the read-only badge it has always been, which is not worth a banner.
-        if (!cancelled && d.statuses) setStatusesByList(d.statuses);
-      })
-      .catch(() => {});
+
+    // Small chunks, so one slow or rate-limited batch can't time out the whole
+    // lookup (and the route's MAX_LISTS cap can never drop lists). Failed lists
+    // are retried once; until then the cell uses statusesSeenByList below.
+    const fetchChunk = (ids: string[]) =>
+      fetch(`/api/clickup/statuses?listIds=${encodeURIComponent(ids.join(","))}`)
+        .then(r => r.json())
+        .then((d: { statuses?: Record<string, CUStatus[]>; failed?: Record<string, string>; error?: string }) => {
+          if (d.error) throw new Error(d.error);
+          if (!cancelled && d.statuses && Object.keys(d.statuses).length) {
+            setStatusesByList(prev => ({ ...prev, ...d.statuses }));
+          }
+          return Object.keys(d.failed ?? {});
+        })
+        .catch(e => { console.warn("[Tasks] list statuses request failed:", e); return ids; });
+
+    const ids = listIdsKey.split(",");
+    (async () => {
+      let failed: string[] = [];
+      for (let i = 0; i < ids.length && !cancelled; i += STATUS_LISTS_PER_REQUEST) {
+        failed = failed.concat(await fetchChunk(ids.slice(i, i + STATUS_LISTS_PER_REQUEST)));
+      }
+      if (!failed.length || cancelled) return;
+      await new Promise(r => setTimeout(r, 3000));
+      if (cancelled) return;
+      const still = await fetchChunk(failed);
+      if (still.length) console.warn("[Tasks] statuses unavailable for lists (using statuses seen on tasks):", still);
+    })();
     return () => { cancelled = true; };
   }, [listIdsKey]);
+
+  /**
+   * Fallback status options per list: the statuses its loaded tasks are in.
+   *
+   * Incomplete — a list status nothing currently sits in won't be offered — but
+   * it keeps the Status cell editable when ClickUp's list lookup fails, rather
+   * than dropping to a read-only badge (which is what kept happening). Replaced
+   * by the full list as soon as the lookup succeeds.
+   */
+  const statusesSeenByList = useMemo(() => {
+    const out: Record<string, CUStatus[]> = {};
+    for (const p of projects) {
+      for (const t of p.tasks) {
+        const listId = t.list?.id;
+        const name   = t.status?.status;
+        if (!listId || !name) continue;
+        const arr = (out[listId] ??= []);
+        if (!arr.some(s => s.status.toLowerCase() === name.toLowerCase())) {
+          arr.push({ status: name, color: t.status.color ?? "", orderindex: arr.length, type: "custom" });
+        }
+      }
+    }
+    return out;
+  }, [projects]);
+
+  const statusOptionsByList = useMemo(
+    () => ({ ...statusesSeenByList, ...statusesByList }),
+    [statusesSeenByList, statusesByList],
+  );
 
   /**
    * Write one task's status into the in-memory Project graph.
@@ -797,15 +1004,56 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
    * here also leaves Portfolio's Blocked KPI — those are stored arrays, not live
    * predicates, and would otherwise stay stale until the next Refresh Data.
    */
-  const applyStatus = useCallback((taskId: string, status: string) => {
+  const applyTask = useCallback((taskId: string, update: (t: CUTask) => CUTask) => {
     onProjectsChange(prev => prev.map(p => {
       if (!p.tasks.some(t => t.id === taskId)) return p;
-      const tasks = p.tasks.map(t =>
-        t.id === taskId ? { ...t, status: { ...t.status, status } } : t,
-      );
+      const tasks = p.tasks.map(t => (t.id === taskId ? update(t) : t));
       return { ...p, tasks, ...deriveTaskRollup(tasks) };
     }));
   }, [onProjectsChange]);
+
+  const applyStatus = useCallback((taskId: string, status: string) => {
+    applyTask(taskId, t => ({ ...t, status: { ...t.status, status } }));
+  }, [applyTask]);
+
+  /**
+   * Inline priority / due-date edit. Same shape as changeStatus: optimistic, then
+   * whatever ClickUp reports back, reverting with a banner on failure. A new due
+   * date re-buckets the row immediately (it may move to another sub-tab).
+   */
+  const changeFields = useCallback(async (task: CUTask, fields: TaskFieldsPatch) => {
+    const previous = { priority: task.priority ?? null, due_date: task.due_date };
+    const optimistic: Partial<CUTask> = {};
+    if (fields.priority !== undefined) optimistic.priority = fields.priority ? CU_PRIORITIES[fields.priority] : null;
+    if (fields.dueDate  !== undefined) optimistic.due_date = fields.dueDate != null ? String(fields.dueDate) : null;
+
+    setSavingTaskId(task.id);
+    setActionError(null);
+    applyTask(task.id, t => ({ ...t, ...optimistic }));
+
+    try {
+      const res = await fetch("/api/clickup/task-fields", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ taskId: task.id, ...fields }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+
+      const landed: Partial<CUTask> = {};
+      if (fields.priority !== undefined) landed.priority = data.priority ?? null;
+      if (fields.dueDate  !== undefined) landed.due_date = data.due_date ?? null;
+      applyTask(task.id, t => ({ ...t, ...landed }));
+    } catch (e) {
+      applyTask(task.id, t => ({ ...t, ...previous }));
+      const what = fields.priority !== undefined ? "priority" : "due date";
+      setActionError(
+        `Could not change the ${what} of "${task.name}": ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+    } finally {
+      setSavingTaskId(null);
+    }
+  }, [applyTask]);
 
   const changeStatus = useCallback(async (task: CUTask, next: string) => {
     const previous = task.status.status;
@@ -1167,9 +1415,10 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
             rows={activeRows}
             groupByProject={groupByProject}
             scheduledMap={scheduledMap}
-            statusesByList={statusesByList}
+            statusesByList={statusOptionsByList}
             savingTaskId={savingTaskId}
             onStatusChange={changeStatus}
+            onFieldChange={changeFields}
             onOpenComments={setCommentTask}
             onOpenDescription={setDescTask}
           />
