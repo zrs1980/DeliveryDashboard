@@ -91,7 +91,35 @@ function Check({ on }: { on: boolean }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function TimeEntries({ projects }: { projects: Project[] }) {
+/** What this section needs of a project — Active Projects and MSAs both supply it. */
+type EntryProject = Pick<Project, "id" | "label" | "pm">;
+
+export function TimeEntries({ projects: activeProjects }: { projects: Project[] }) {
+  // Managed Services Agreements aren't in Active Projects (that list is
+  // Implementation/Service jobs only), so they're loaded here from /api/msa —
+  // the same In-Progress MSA list the Customers tab uses. They have no PM.
+  const [msaProjects, setMsaProjects] = useState<EntryProject[]>([]);
+  useEffect(() => {
+    fetch("/api/msa")
+      .then(r => r.json())
+      .then((d: { projects?: Array<{ id: number; projectName: string; customerName: string }> }) => {
+        setMsaProjects((d.projects ?? []).map(m => ({
+          id:    m.id,
+          label: m.customerName && m.customerName !== m.projectName
+            ? `${m.customerName} — ${m.projectName}`
+            : m.projectName,
+          pm:    "",
+        })));
+      })
+      // Non-fatal: the section still works for Active Projects without them.
+      .catch(e => console.warn("[Time Entries] could not load MSA projects:", e));
+  }, []);
+
+  const projects: EntryProject[] = useMemo(() => {
+    const seen = new Set(activeProjects.map(p => p.id));
+    return [...activeProjects, ...msaProjects.filter(m => !seen.has(m.id))];
+  }, [activeProjects, msaProjects]);
+
   const [period, setPeriod]           = useState<Period>("thisWeek");
   const [customFrom, setCustomFrom]   = useState("");
   const [customTo, setCustomTo]       = useState("");
