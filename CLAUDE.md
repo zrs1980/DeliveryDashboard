@@ -1171,8 +1171,14 @@ tab's non-internal projects, with an Excel export and an **Approve Time** button
   so the approve route reads the id off an entry NetSuite already labels Approved
   and PATCHes `approvalStatus` with that. Current status is re-read server-side:
   already-approved entries are skipped and **rejected entries are never approved**.
-- **Approve Time acts on every entry currently shown** that isn't approved or
-  rejected, behind a confirm dialog. Anyone signed in can use it — there is no
+- **A 204 from the PATCH does not mean approved.** NetSuite accepts and silently
+  ignores approvalStatus when an approval workflow/timesheet governs the entry. The
+  route re-reads every entry after writing, falls back to `supervisorApproval: true`,
+  and only reports an entry approved once NetSuite labels it so; the rest come back
+  as failures naming the status NetSuite still shows.
+- **Approve acts on the ticked entries, or with none ticked on every entry shown**
+  that isn't approved or rejected, behind a confirm dialog. Ticks hidden by a
+  filter are never approved. Anyone signed in can use it — there is no
   approver check yet. The route logs who approved what.
 - **Export is exactly what is on screen** — the filtered rows, with B/U/P only when
   that checkbox is ticked. `lib/xlsx.ts` exists instead of exceljs, which pulled in
