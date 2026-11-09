@@ -5,7 +5,6 @@ import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
-import { nsProjectUrl } from "@/lib/constants";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
@@ -695,13 +694,6 @@ function TaskTableRow({
             bg={C.blueBg}
             bd={C.blueBd}
             label="CU"
-          />
-          <LinkBtn
-            href={nsProjectUrl(project.id)}
-            color={C.purple}
-            bg={C.purpleBg}
-            bd={C.purpleBd}
-            label="NS"
           />
         </div>
       </td>
