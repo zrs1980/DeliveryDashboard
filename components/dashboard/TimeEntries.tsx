@@ -134,6 +134,7 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   const [error, setError]     = useState<string | null>(null);
 
   const [approving, setApproving]     = useState(false);
+  const [selected, setSelected]       = useState<Set<number>>(new Set());
   const [approveResult, setApproveResult] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
 
   const projectById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects]);
@@ -192,6 +193,25 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   const totalHours = visible.reduce((s, e) => s + e.hours, 0);
   const approvable = visible.filter(isApprovable);
 
+  // Row checkboxes. Only entries still awaiting approval can be ticked. The
+  // selection is intersected with what's shown, so a ticked entry hidden by a
+  // filter change is never approved unseen.
+  const selectedShown = approvable.filter(e => selected.has(e.id));
+  // Ticked entries win; with none ticked the button approves everything shown.
+  const toApprove     = selectedShown.length ? selectedShown : approvable;
+  const allTicked     = approvable.length > 0 && selectedShown.length === approvable.length;
+
+  function toggleEntry(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allTicked ? new Set() : new Set(approvable.map(e => e.id)));
+  }
+
   // ── Export ──
   // Exactly what is on screen: the filtered rows, and the B/U/P columns only
   // when they are showing.
@@ -227,13 +247,15 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
 
   // ── Approve ──
   async function approveTime() {
-    if (approving || approvable.length === 0) return;
-    const hrs = approvable.reduce((s, e) => s + e.hours, 0);
+    if (approving || toApprove.length === 0) return;
+    const hrs = toApprove.reduce((s, e) => s + e.hours, 0);
     const skippedRejected = visible.filter(e => e.approvalStatus.toLowerCase() === "rejected").length;
     const ok = window.confirm(
-      `Approve ${approvable.length} time ${approvable.length === 1 ? "entry" : "entries"} (${fmtHours(hrs)}) in NetSuite?\n\n` +
-      `This is every entry currently shown that is not already approved.` +
-      (skippedRejected ? `\n${skippedRejected} rejected ${skippedRejected === 1 ? "entry is" : "entries are"} left alone.` : ""),
+      `Approve ${toApprove.length} time ${toApprove.length === 1 ? "entry" : "entries"} (${fmtHours(hrs)}) in NetSuite?\n\n` +
+      (selectedShown.length
+        ? `These are the entries you ticked.`
+        : `This is every entry currently shown that is not already approved.` +
+          (skippedRejected ? `\n${skippedRejected} rejected ${skippedRejected === 1 ? "entry is" : "entries are"} left alone.` : "")),
     );
     if (!ok) return;
 
@@ -242,13 +264,15 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
       const res  = await fetch("/api/time-entries/approve", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ ids: approvable.map(e => e.id) }),
+        body:    JSON.stringify({ ids: toApprove.map(e => e.id) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
 
       const approvedIds = new Set<number>(data.approved ?? []);
       setEntries(prev => prev.map(e => approvedIds.has(e.id) ? { ...e, approvalStatus: "Approved" } : e));
+      // Untick what went through; anything that failed stays ticked for a retry.
+      setSelected(prev => new Set([...prev].filter(id => !approvedIds.has(id))));
 
       const failed  = (data.failed  ?? []) as Array<{ id: number; error: string }>;
       const skipped = (data.skipped ?? []) as Array<{ id: number; reason: string }>;
@@ -352,16 +376,22 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
           </button>
           <button
             onClick={approveTime}
-            disabled={approving || approvable.length === 0}
-            title={approvable.length === 0 ? "Nothing shown is waiting for approval" : `Approve ${approvable.length} entries in NetSuite`}
+            disabled={approving || toApprove.length === 0}
+            title={
+              toApprove.length === 0 ? "Nothing shown is waiting for approval"
+              : selectedShown.length ? `Approve the ${toApprove.length} ticked entries in NetSuite`
+              : `Approve all ${toApprove.length} entries shown in NetSuite (tick entries to approve only those)`
+            }
             style={{
               ...btnStyle,
               background: C.blue, color: "#fff", border: `1px solid ${C.blue}`,
-              opacity: approving || approvable.length === 0 ? 0.5 : 1,
-              cursor: approving || approvable.length === 0 ? "default" : "pointer",
+              opacity: approving || toApprove.length === 0 ? 0.5 : 1,
+              cursor: approving || toApprove.length === 0 ? "default" : "pointer",
             }}
           >
-            {approving ? "Approving…" : `✓ Approve Time${approvable.length ? ` (${approvable.length})` : ""}`}
+            {approving ? "Approving…"
+              : selectedShown.length ? `✓ Approve Selected (${selectedShown.length})`
+              : `✓ Approve Time${approvable.length ? ` (${approvable.length})` : ""}`}
           </button>
         </div>
       </div>
@@ -395,6 +425,18 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
               <tr>
+                <th style={{ ...th, width: 28, textAlign: "center", padding: "6px 4px 6px 10px" }}>
+                  <input
+                    type="checkbox"
+                    checked={allTicked}
+                    ref={el => { if (el) el.indeterminate = selectedShown.length > 0 && !allTicked; }}
+                    disabled={approvable.length === 0 || approving}
+                    onChange={toggleAll}
+                    title={allTicked ? "Untick all" : "Tick every entry awaiting approval"}
+                    aria-label="Select all entries awaiting approval"
+                    style={{ cursor: approvable.length === 0 ? "default" : "pointer", accentColor: C.blue }}
+                  />
+                </th>
                 <th style={{ ...th, width: 100 }}>Date</th>
                 <th style={{ ...th, width: 220 }}>Project</th>
                 <th style={{ ...th, width: 180 }}>Task / Phase</th>
@@ -413,7 +455,20 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
               {visible.map((e, i) => {
                 const p = projectById.get(e.projectId);
                 return (
-                  <tr key={e.id} style={{ background: i % 2 === 1 ? C.alt : C.surface }}>
+                  <tr key={e.id} style={{ background: selected.has(e.id) && isApprovable(e) ? C.blueBg : i % 2 === 1 ? C.alt : C.surface }}>
+                    <td style={{ ...td, textAlign: "center", padding: "7px 4px 7px 10px" }}>
+                      {/* Already approved or rejected entries can't be approved, so no box. */}
+                      {isApprovable(e) && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(e.id)}
+                          disabled={approving}
+                          onChange={() => toggleEntry(e.id)}
+                          aria-label={`Select ${e.employeeName}'s entry on ${fmtDate(e.date)}`}
+                          style={{ cursor: "pointer", accentColor: C.blue }}
+                        />
+                      )}
+                    </td>
                     <td style={{ ...td, whiteSpace: "nowrap", color: C.textMid }}>{fmtDate(e.date)}</td>
                     <td style={td}>{p?.label ?? `Project #${e.projectId}`}</td>
                     <td style={{ ...td, color: e.taskName ? C.text : C.textSub }}>{e.taskName ?? "—"}</td>
