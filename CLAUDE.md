@@ -579,8 +579,8 @@ Both now open an inline input on click.
   "Project only", or type a name to create a task (`POST /api/resources/tasks`,
   which returns an existing task of the same name instead of duplicating). The
   allocation is then created with `projectTask`. Both the task GET and POST refuse
-  any project outside that set. Creating the task uses the REST field `company` for
-  the project, falling back to `project`.
+  any project outside that set. The task is created with REST field `project`
+  (`company` is rejected: "Please enter a value for [project]").
 - The first `NEAR_WEEKS` (4) week columns are tinted lavender (`nearWeekBg`) in
   both grids.
 

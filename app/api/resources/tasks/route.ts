@@ -65,17 +65,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ id: String(existing[0].id), title: (existing[0].title ?? title).trim(), existed: true });
     }
 
-    // The project task's project reference is `company` on the REST record (the
-    // SuiteQL column is `project`). Fall back to `project` in case an account
-    // exposes it under that name.
-    let id: string;
-    try {
-      id = await postRecord("projectTask", { title, company: { id: String(projectId) } });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      if (!/company/i.test(msg)) throw e;
-      id = await postRecord("projectTask", { title, project: { id: String(projectId) } });
-    }
+    // The project reference is `project` on the REST record, same as the SuiteQL
+    // column. Verified: sending `company` instead fails with FIELD_PARAM_REQD
+    // "Please enter a value for [project]".
+    const id = await postRecord("projectTask", { title, project: { id: String(projectId) } });
 
     console.log(`[resources/tasks] ${session.user.email ?? "unknown"} created task ${id} "${title}" on project ${projectId}`);
     return NextResponse.json({ id, title });
