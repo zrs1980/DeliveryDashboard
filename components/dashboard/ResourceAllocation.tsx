@@ -1,8 +1,11 @@
 "use client";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { C } from "@/lib/constants";
+import { C, TASK_ALLOCATION_PROJECT_IDS } from "@/lib/constants";
 import type { NSAllocation, ConsultantRosterEntry } from "@/lib/types";
 import type { AllocatableProject } from "@/app/api/resources/projects/route";
+
+/** A project task an allocation can be made against (see TASK_ALLOCATION_PROJECT_IDS). */
+interface AllocTask { id: string; title: string }
 
 interface Props {
   allocations: NSAllocation[];
@@ -654,7 +657,56 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
   // exactly the way clicking "+" on any other row creates one.
   const [allocatableProjects, setAllocatableProjects] = useState<AllocatableProject[]>([]);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [addedRows, setAddedRows] = useState<Array<{ employeeId: number; employeeName: string; project: AllocatableProject }>>([]);
+  const [addedRows, setAddedRows] = useState<Array<{ employeeId: number; employeeName: string; project: AllocatableProject; task: AllocTask | null }>>([]);
+
+  // Task-allocated projects (TASK_ALLOCATION_PROJECT_IDS — the capacity
+  // placeholder) take a second step in the picker: choose a task or create one.
+  const [taskPick, setTaskPick]           = useState<{ employeeId: number; project: AllocatableProject } | null>(null);
+  const [tasksByProject, setTasksByProject] = useState<Record<number, AllocTask[] | "error">>({});
+  const [newTaskName, setNewTaskName]     = useState("");
+  const [creatingTask, setCreatingTask]   = useState(false);
+  const [taskError, setTaskError]         = useState<string | null>(null);
+
+  function loadTasks(projectId: number, force = false) {
+    if (!force && Array.isArray(tasksByProject[projectId])) return;
+    fetch(`/api/resources/tasks?projectId=${projectId}`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d?.error ?? `Request failed (${r.status})`);
+        setTasksByProject(prev => ({ ...prev, [projectId]: d.tasks ?? [] }));
+      })
+      .catch(e => {
+        setTasksByProject(prev => ({ ...prev, [projectId]: "error" }));
+        setTaskError(e instanceof Error ? e.message : "Could not load tasks");
+      });
+  }
+
+  /** Create a task on a task-allocated project in NetSuite, then add the row for it. */
+  async function createTaskAndAdd(employeeId: number, employeeName: string, project: AllocatableProject) {
+    const title = newTaskName.trim();
+    if (!title || creatingTask) return;
+    setCreatingTask(true); setTaskError(null);
+    try {
+      const res = await fetch("/api/resources/tasks", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ projectId: project.id, title }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error ?? `Request failed (${res.status})`);
+      const task: AllocTask = { id: String(d.id), title: d.title ?? title };
+      setTasksByProject(prev => {
+        const list = Array.isArray(prev[project.id]) ? prev[project.id] as AllocTask[] : [];
+        return list.some(t => t.id === task.id) ? prev : { ...prev, [project.id]: [...list, task].sort((a, b) => a.title.localeCompare(b.title)) };
+      });
+      setAddedRows(prev => [...prev, { employeeId, employeeName, project, task }]);
+      setTaskPick(null); setNewTaskName("");
+    } catch (e) {
+      setTaskError(e instanceof Error ? e.message : "Could not create the task");
+    } finally {
+      setCreatingTask(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/resources/projects")
@@ -907,12 +959,17 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
    */
   function renderAddRows(emp: { employeeId: number; name: string; rows: NSAllocation[] }, ei: number) {
     const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
-    // Projects this person already has an untasked row for are not offered again —
-    // more hours there go into that row's cells.
-    const has = (projectId: number) => emp.rows.some(a => a.projectId === projectId && !a.taskId);
-    const pending = addedRows.filter(r => r.employeeId === emp.employeeId && !has(r.project.id));
+    // A project (or project + task) this person already has a row for is not offered
+    // again — more hours there go into that row's cells.
+    const has = (projectId: number, taskId: string | null) =>
+      emp.rows.some(a => a.projectId === projectId && (a.taskId ?? null) === taskId);
+    const pending = addedRows.filter(r =>
+      r.employeeId === emp.employeeId && !has(r.project.id, r.task?.id ?? null));
+    const isPending = (projectId: number, taskId: string | null) =>
+      pending.some(r => r.project.id === projectId && (r.task?.id ?? null) === taskId);
     const options = allocatableProjects
-      .filter(p => !has(p.id) && !pending.some(r => r.project.id === p.id))
+      // Task-allocated projects stay listed: there's always another task to add.
+      .filter(p => TASK_ALLOCATION_PROJECT_IDS.has(p.id) || (!has(p.id, null) && !isPending(p.id, null)))
       .sort((a, b) =>
         compareProjectTypes(projectTypeLabel(a.projectType), projectTypeLabel(b.projectType))
         || `${a.companyName} ${a.name}`.localeCompare(`${b.companyName} ${b.name}`));
@@ -925,11 +982,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
     const tdBase: React.CSSProperties = { borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` };
 
     return [
-      ...pending.map(({ project: p }) => {
-        const rowKey = rowKeyOf(emp.employeeId, p.id, null);
+      ...pending.map(({ project: p, task }) => {
+        const taskId = task?.id ?? null;
+        const rowKey = rowKeyOf(emp.employeeId, p.id, taskId);
         const tint   = projectTypeTint(p.projectType);
         return (
-          <tr key={`${emp.name}-added-${p.id}`} style={{ background: rowBgSub }}>
+          <tr key={`${emp.name}-added-${p.id}-${taskId ?? ""}`} style={{ background: rowBgSub }}>
             <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 440, ...stickyLeft, background: rowBgSub }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
                 <span style={{ color: C.mid }}>└</span>
@@ -939,10 +997,12 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
                   {p.companyName && <span style={{ color: C.textSub }}>{p.companyName} — </span>}
                   {p.name}
+                  <TaskChip name={task?.title ?? null} />
                 </span>
                 <span style={{ fontSize: 9, fontWeight: 700, color: C.blue, background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 3, padding: "0 4px" }}>NEW</span>
                 <button
-                  onClick={() => setAddedRows(prev => prev.filter(r => !(r.employeeId === emp.employeeId && r.project.id === p.id)))}
+                  onClick={() => setAddedRows(prev => prev.filter(r =>
+                    !(r.employeeId === emp.employeeId && r.project.id === p.id && (r.task?.id ?? null) === taskId)))}
                   title="Remove this row (nothing has been saved to NetSuite yet)"
                   style={{ marginLeft: "auto", background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}
                 >×</button>
@@ -960,15 +1020,16 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 editingCell.weekMs     === w.getTime() &&
                 editingCell.employeeId === emp.employeeId &&
                 editingCell.projectId  === p.id &&
-                !editingCell.taskId;
+                (editingCell.taskId ?? null) === taskId;
               const rowError = cellError?.rowKey === rowKey && cellError.weekMs === w.getTime();
               const busy     = savingRef.current;
               const cellContext: CellEdit = {
                 allocationId:   null,
                 employeeId:     emp.employeeId,
                 employeeName:   emp.name,
-                taskId:         null,
-                taskName:       null,
+                // Sent with the create, so the allocation lands on the task.
+                taskId,
+                taskName:       task?.title ?? null,
                 projectId:      p.id,
                 projectName:    p.name,
                 projectType:    p.projectType,
@@ -999,7 +1060,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                     />
                   ) : rowError ? (
                     <span title={cellError!.msg} style={{ color: C.red }}>!</span>
-                  ) : savingId === `${emp.employeeId}-${p.id}--${w.getTime()}` ? (
+                  ) : savingId === `${emp.employeeId}-${p.id}-${taskId ?? ""}-${w.getTime()}` ? (
                     <span style={{ color: C.blue }}>…</span>
                   ) : "+"}
                 </td>
@@ -1018,7 +1079,15 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               disabled={options.length === 0}
               onChange={e => {
                 const p = allocatableProjects.find(x => x.id === Number(e.target.value));
-                if (p) setAddedRows(prev => [...prev, { employeeId: emp.employeeId, employeeName: emp.name, project: p }]);
+                if (!p) return;
+                if (TASK_ALLOCATION_PROJECT_IDS.has(p.id)) {
+                  // Second step: which task (or a new one) — see the task picker below.
+                  setTaskPick({ employeeId: emp.employeeId, project: p });
+                  setNewTaskName(""); setTaskError(null);
+                  loadTasks(p.id);
+                } else {
+                  setAddedRows(prev => [...prev, { employeeId: emp.employeeId, employeeName: emp.name, project: p, task: null }]);
+                }
               }}
               style={{ fontSize: 11, fontFamily: C.font, padding: "3px 6px", borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, color: C.text, maxWidth: 420 }}
             >
@@ -1035,6 +1104,71 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
             </select>
             {projectsError && <span style={{ fontSize: 10, color: C.red }}>{projectsError}</span>}
           </div>
+
+          {/* ── Task step, for task-allocated projects only ── */}
+          {taskPick?.employeeId === emp.employeeId && (() => {
+            const p        = taskPick.project;
+            const loaded   = tasksByProject[p.id];
+            const tasks    = Array.isArray(loaded) ? loaded : [];
+            const free     = tasks.filter(t => !has(p.id, t.id) && !isPending(p.id, t.id));
+            const canPlain = !has(p.id, null) && !isPending(p.id, null);
+            const add = (task: AllocTask | null) => {
+              setAddedRows(prev => [...prev, { employeeId: emp.employeeId, employeeName: emp.name, project: p, task }]);
+              setTaskPick(null);
+            };
+            const ctl: React.CSSProperties = { fontSize: 11, fontFamily: C.font, padding: "3px 6px", borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, color: C.text };
+            return (
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 8px", border: `1px dashed ${C.blueBd}`, borderRadius: 5, background: C.surface }}>
+                <span style={{ fontSize: 11, color: C.textMid }}>
+                  Task on <b style={{ color: C.text }}>{p.name}</b>:
+                </span>
+                <select
+                  value=""
+                  disabled={loaded === undefined}
+                  onChange={e => {
+                    const v = e.target.value;
+                    if (v === "__plain") add(null);
+                    else { const t = tasks.find(x => x.id === v); if (t) add(t); }
+                  }}
+                  style={{ ...ctl, maxWidth: 280 }}
+                >
+                  <option value="">
+                    {loaded === undefined ? "Loading tasks…" : loaded === "error" ? "Tasks unavailable" : free.length || canPlain ? "Choose a task…" : "All tasks already added"}
+                  </option>
+                  {canPlain && <option value="__plain">Project only (no task)</option>}
+                  {free.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                </select>
+                <span style={{ fontSize: 11, color: C.textSub }}>or new task</span>
+                <input
+                  value={newTaskName}
+                  onChange={e => setNewTaskName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") { e.preventDefault(); createTaskAndAdd(emp.employeeId, emp.name, p); }
+                    if (e.key === "Escape") setTaskPick(null);
+                  }}
+                  placeholder="e.g. Yaffe"
+                  maxLength={200}
+                  disabled={creatingTask}
+                  style={{ ...ctl, width: 160 }}
+                />
+                <button
+                  onClick={() => createTaskAndAdd(emp.employeeId, emp.name, p)}
+                  disabled={!newTaskName.trim() || creatingTask}
+                  title="Create this task on the project in NetSuite"
+                  style={{ ...ctl, fontWeight: 600, background: C.blue, color: "#fff", border: `1px solid ${C.blue}`, cursor: !newTaskName.trim() || creatingTask ? "default" : "pointer", opacity: !newTaskName.trim() || creatingTask ? 0.5 : 1 }}
+                >
+                  {creatingTask ? "Creating…" : "Create task"}
+                </button>
+                <button
+                  onClick={() => setTaskPick(null)}
+                  style={{ ...ctl, cursor: "pointer", color: C.textMid }}
+                >
+                  Cancel
+                </button>
+                {taskError && <span style={{ fontSize: 10, color: C.red, flexBasis: "100%" }}>{taskError}</span>}
+              </div>
+            );
+          })()}
         </td>
       </tr>,
     ];

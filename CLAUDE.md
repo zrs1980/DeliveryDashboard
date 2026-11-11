@@ -574,6 +574,13 @@ Both now open an inline input on click.
   saves, the real allocation renders and the NEW row drops away. NetSuite may refuse
   an allocation for someone who isn't a resource on that project — the error shows
   on the row.
+- **Task-allocated projects (`TASK_ALLOCATION_PROJECT_IDS`, today only 18414 — the
+  capacity placeholder)** take a second picker step: choose one of its tasks,
+  "Project only", or type a name to create a task (`POST /api/resources/tasks`,
+  which returns an existing task of the same name instead of duplicating). The
+  allocation is then created with `projectTask`. Both the task GET and POST refuse
+  any project outside that set. Creating the task uses the REST field `company` for
+  the project, falling back to `project`.
 - The first `NEAR_WEEKS` (4) week columns are tinted lavender (`nearWeekBg`) in
   both grids.
 

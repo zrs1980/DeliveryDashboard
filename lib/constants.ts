@@ -258,6 +258,16 @@ export function isFixedFeeProject(projectId: number, _jobBillingType?: string | 
   return FIXED_FEE_PROJECT_IDS.has(projectId);
 }
 
+/**
+ * Projects whose allocations are made per TASK from the Resource Allocation tab:
+ * the "+ Add project" picker asks for a task (or creates one) for these.
+ *
+ * 18414 is "Placeholder Project for Capacity Planning" — each unsold deal is a
+ * task on it, and hours held for the deal are allocated to that task. Task
+ * creation from the dashboard is restricted to this list.
+ */
+export const TASK_ALLOCATION_PROJECT_IDS = new Set([18414]);
+
 export const NS_BASE_URL = "https://system.na1.netsuite.com";
 
 export function nsProjectUrl(id: number) {
