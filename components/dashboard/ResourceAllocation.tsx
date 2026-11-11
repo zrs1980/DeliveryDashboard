@@ -850,6 +850,57 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
   }
 
   /**
+   * Take a resource off a project (one row of the resource grid) from this week on.
+   *
+   * History is kept: an allocation that started before this week is trimmed to end
+   * last Sunday; one starting this week or later is deleted. Each record is handled
+   * on its own and the grid is updated per success, so a failure part-way leaves
+   * the grid matching what NetSuite actually holds.
+   */
+  async function removeRow(allocs: NSAllocation[], label: string) {
+    if (savingRef.current || allocs.length === 0) return;
+    const first = allocs[0];
+    if (!window.confirm(
+      `Remove ${first.employeeName} from ${label}?\n\n` +
+      `This deletes their allocation on it in NetSuite from this week onward. Past weeks are kept.`,
+    )) return;
+
+    const rowKey = rowKeyOf(first.employeeId, first.projectId, first.taskId);
+    savingRef.current = true;
+    setSavingId(`remove:${rowKey}`);
+    setCellError(null);
+
+    // Local date, never toISOString — that shifts the day east of UTC.
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const lastSunday = new Date(today); lastSunday.setDate(lastSunday.getDate() - 1);
+
+    try {
+      for (const a of allocs) {
+        const start = parseNSDate(a.startDate);
+        const keepPast = !!start && start < today;
+        const res = keepPast
+          ? await fetch(`/api/resources/${a.id}`, {
+              method:  "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body:    JSON.stringify({ endDate: ymd(lastSunday) }),
+            })
+          : await fetch(`/api/resources/${a.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error ?? `Remove failed (${res.status})`);
+        }
+        // Either way it no longer covers this week or later, which is all the grid shows.
+        setLocalAllocs(prev => prev.filter(x => x.id !== a.id));
+      }
+    } catch (err) {
+      setCellError({ rowKey, weekMs: -1, msg: `Could not remove: ${err instanceof Error ? err.message : "failed"}` });
+    } finally {
+      setSavingId(null);
+      savingRef.current = false;
+    }
+  }
+
+  /**
    * Rows added from the picker but not yet saved, plus the picker itself, for one
    * expanded resource. An added row drops away on its own once its first week
    * saves: the new allocation lands in localAllocs and renders as a normal row.
@@ -1456,7 +1507,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                               <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 440, ...stickyLeft, background: rowBgSub }} title={companyName ? `${companyName} — ${name}` : name}>
                                 {/* Title line keeps the single-line clipping; the note sits
                                     below it so a long project name can't push it out of view. */}
-                                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: "0 1 auto", minWidth: 0 }}>
                                   <span style={{ color: C.mid, marginRight: 6 }}>└</span>
                                   <span
                                     style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}`, marginRight: 6 }}
@@ -1470,6 +1522,32 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                   {companyName && <span style={{ fontWeight: 400, color: C.textSub, marginRight: 4 }}>{companyName} —</span>}
                                   {name}
                                   <TaskChip name={taskName} />
+                                </div>
+                                {/* Remove this resource from the project (from this week on). */}
+                                {(() => {
+                                  const removing = savingId === `remove:${rowKeyOf(allocs[0].employeeId, projectId, allocs[0].taskId)}`;
+                                  const label = `${companyName ? `${companyName} — ` : ""}${name}${taskName ? ` (${taskName})` : ""}`;
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled={removing || savingRef.current}
+                                      onClick={e => { e.stopPropagation(); removeRow(allocs, label); }}
+                                      title={`Remove ${emp.name} from this project in NetSuite (this week onward)`}
+                                      aria-label={`Remove ${emp.name} from ${label}`}
+                                      style={{
+                                        flexShrink: 0, width: 16, height: 16, lineHeight: "14px", padding: 0,
+                                        fontSize: 11, textAlign: "center", borderRadius: 3,
+                                        border: `1px solid ${C.border}`, background: C.surface,
+                                        color: removing ? C.blue : C.textSub,
+                                        cursor: removing ? "wait" : "pointer",
+                                      }}
+                                      onMouseEnter={e => { if (!removing) { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.redBd; } }}
+                                      onMouseLeave={e => { e.currentTarget.style.color = C.textSub; e.currentTarget.style.borderColor = C.border; }}
+                                    >
+                                      {removing ? "…" : "×"}
+                                    </button>
+                                  );
+                                })()}
                                 </div>
                                 <NoteLine note={resourceNoteOf(allocs)} />
                                 {cellError?.rowKey === rowKeyOf(allocs[0].employeeId, projectId, allocs[0].taskId) && (
