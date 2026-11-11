@@ -567,6 +567,15 @@ Both now open an inline input on click.
   trimmed, split around the week, or (if it covered only that week) deleted via
   `DELETE /api/resources/[id]`. Zeroing a row's only week drops the row off the
   grid, since the grid is built from allocation records. 0 on an empty cell is a no-op.
+- **"+ Add project" under an expanded resource** lists every In Progress job
+  (`GET /api/resources/projects`, any jobtype) the person has no untasked row on.
+  Picking one adds an empty NEW row; nothing is written until hours go into a week,
+  which creates the allocation through the normal `handleSave` create path. Once it
+  saves, the real allocation renders and the NEW row drops away. NetSuite may refuse
+  an allocation for someone who isn't a resource on that project — the error shows
+  on the row.
+- The first `NEAR_WEEKS` (4) week columns are tinted lavender (`nearWeekBg`) in
+  both grids.
 
 ### Allocation bands — three, and only three
 

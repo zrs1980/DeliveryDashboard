@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { C } from "@/lib/constants";
 import type { NSAllocation, ConsultantRosterEntry } from "@/lib/types";
+import type { AllocatableProject } from "@/app/api/resources/projects/route";
 
 interface Props {
   allocations: NSAllocation[];
@@ -54,6 +55,19 @@ function generateWeeks(n = 10): Date[] {
     d.setDate(mon.getDate() + i * 7);
     return d;
   });
+}
+
+/**
+ * The first NEAR_WEEKS columns (this week and the next three) get a light tint —
+ * the window most worth keeping accurate. Lavender on purpose: distinct from the
+ * blue current-week header and the grey row striping, and green/amber/red
+ * are reserved for RAG.
+ */
+const NEAR_WEEKS = 4;
+const NEAR_WEEK_BG      = "#F4F1FC";
+const NEAR_WEEK_HEAD_BG = "#E9E3F8";
+function nearWeekBg(weekIndex: number): string | undefined {
+  return weekIndex < NEAR_WEEKS ? NEAR_WEEK_BG : undefined;
 }
 
 function fmtWeekHeader(d: Date): string {
@@ -633,6 +647,25 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
   const [cellError,   setCellError]   = useState<{ rowKey: string; weekMs: number; msg: string } | null>(null);
   const savingRef = useRef(false);
 
+  // ── "Add project" under an expanded resource ──
+  // Picking a project adds an empty row for that resource; nothing is written to
+  // NetSuite until hours go into a week cell — an allocation needs hours, and that
+  // cell save is the existing create path (handleSave), so the record is created
+  // exactly the way clicking "+" on any other row creates one.
+  const [allocatableProjects, setAllocatableProjects] = useState<AllocatableProject[]>([]);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [addedRows, setAddedRows] = useState<Array<{ employeeId: number; employeeName: string; project: AllocatableProject }>>([]);
+
+  useEffect(() => {
+    fetch("/api/resources/projects")
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d?.error ?? `Request failed (${r.status})`);
+        setAllocatableProjects(d.projects ?? []);
+      })
+      .catch(e => setProjectsError(e instanceof Error ? e.message : "Could not load projects"));
+  }, []);
+
   const [subTab, setSubTab] = useState<SubTab>("allocation");
   const [forecastPeriod, setForecastPeriod] = useState<ForecastPeriod>("week");
   const [customRange, setCustomRange]       = useState<CustomRange>(() => defaultCustomRange(new Date()));
@@ -814,6 +847,146 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  /**
+   * Rows added from the picker but not yet saved, plus the picker itself, for one
+   * expanded resource. An added row drops away on its own once its first week
+   * saves: the new allocation lands in localAllocs and renders as a normal row.
+   */
+  function renderAddRows(emp: { employeeId: number; name: string; rows: NSAllocation[] }, ei: number) {
+    const rowBgSub = ei % 2 === 0 ? "#F7FAFF" : "#F0F4F8";
+    // Projects this person already has an untasked row for are not offered again —
+    // more hours there go into that row's cells.
+    const has = (projectId: number) => emp.rows.some(a => a.projectId === projectId && !a.taskId);
+    const pending = addedRows.filter(r => r.employeeId === emp.employeeId && !has(r.project.id));
+    const options = allocatableProjects
+      .filter(p => !has(p.id) && !pending.some(r => r.project.id === p.id))
+      .sort((a, b) =>
+        compareProjectTypes(projectTypeLabel(a.projectType), projectTypeLabel(b.projectType))
+        || `${a.companyName} ${a.name}`.localeCompare(`${b.companyName} ${b.name}`));
+    const optionGroups = new Map<string, AllocatableProject[]>();
+    for (const p of options) {
+      const g = projectTypeLabel(p.projectType);
+      if (!optionGroups.has(g)) optionGroups.set(g, []);
+      optionGroups.get(g)!.push(p);
+    }
+    const tdBase: React.CSSProperties = { borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` };
+
+    return [
+      ...pending.map(({ project: p }) => {
+        const rowKey = rowKeyOf(emp.employeeId, p.id, null);
+        const tint   = projectTypeTint(p.projectType);
+        return (
+          <tr key={`${emp.name}-added-${p.id}`} style={{ background: rowBgSub }}>
+            <td style={{ padding: "7px 14px 7px 36px", fontSize: 11, color: C.textMid, borderBottom: `1px solid ${C.border}`, maxWidth: 440, ...stickyLeft, background: rowBgSub }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", overflow: "hidden" }}>
+                <span style={{ color: C.mid }}>└</span>
+                <span style={{ display: "inline-block", padding: "0 5px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: tint.bg, color: tint.color, border: `1px solid ${tint.bd}` }} title={projectTypeLabel(p.projectType)}>
+                  {projectTypeShort(p.projectType)}
+                </span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {p.companyName && <span style={{ color: C.textSub }}>{p.companyName} — </span>}
+                  {p.name}
+                </span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: C.blue, background: C.blueBg, border: `1px solid ${C.blueBd}`, borderRadius: 3, padding: "0 4px" }}>NEW</span>
+                <button
+                  onClick={() => setAddedRows(prev => prev.filter(r => !(r.employeeId === emp.employeeId && r.project.id === p.id)))}
+                  title="Remove this row (nothing has been saved to NetSuite yet)"
+                  style={{ marginLeft: "auto", background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}
+                >×</button>
+              </div>
+              <div style={{ marginTop: 2, fontSize: 10, color: C.textSub, whiteSpace: "normal" }}>
+                Enter hours in a week to create the allocation in NetSuite.
+              </div>
+              {cellError?.rowKey === rowKey && (
+                <div style={{ marginTop: 2, fontSize: 10, color: C.red, whiteSpace: "normal" }}>{cellError.msg}</div>
+              )}
+            </td>
+            {weeks.map((w, wi) => {
+              const isEditingThis =
+                editingCell !== null &&
+                editingCell.weekMs     === w.getTime() &&
+                editingCell.employeeId === emp.employeeId &&
+                editingCell.projectId  === p.id &&
+                !editingCell.taskId;
+              const rowError = cellError?.rowKey === rowKey && cellError.weekMs === w.getTime();
+              const busy     = savingRef.current;
+              const cellContext: CellEdit = {
+                allocationId:   null,
+                employeeId:     emp.employeeId,
+                employeeName:   emp.name,
+                taskId:         null,
+                taskName:       null,
+                projectId:      p.id,
+                projectName:    p.name,
+                projectType:    p.projectType,
+                companyName:    p.companyName,
+                remainingHours: p.budgetHours,
+                budgetHours:    p.budgetHours,
+                weekMs:         w.getTime(),
+                classifyAsBillable:   p.classifyAsBillable,
+                classifyAsUtilized:   p.classifyAsUtilized,
+                classifyAsProductive: p.classifyAsProductive,
+              };
+              return (
+                <td key={wi}
+                    title={busy ? undefined : "Click to add hours"}
+                    onClick={() => { if (busy) return; setEditingCell(cellContext); setEditValue(""); }}
+                    style={{ ...tdBase, padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, color: C.mid, cursor: busy ? "default" : "pointer", background: isEditingThis ? "#EBF5FF" : nearWeekBg(wi) }}>
+                  {isEditingThis ? (
+                    <input
+                      autoFocus type="number" min={0} max={40} step={0.5}
+                      value={editValue}
+                      onChange={e => setEditValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { e.preventDefault(); handleSave(); }
+                        if (e.key === "Escape") setEditingCell(null);
+                      }}
+                      onBlur={() => handleSave()}
+                      style={{ width: 50, padding: "2px 4px", fontSize: 11, fontFamily: C.mono, border: `1.5px solid ${C.blue}`, borderRadius: 3, textAlign: "center", outline: "none", background: "#fff" }}
+                    />
+                  ) : rowError ? (
+                    <span title={cellError!.msg} style={{ color: C.red }}>!</span>
+                  ) : savingId === `${emp.employeeId}-${p.id}--${w.getTime()}` ? (
+                    <span style={{ color: C.blue }}>…</span>
+                  ) : "+"}
+                </td>
+              );
+            })}
+          </tr>
+        );
+      }),
+
+      <tr key={`${emp.name}-add-project`} style={{ background: rowBgSub }}>
+        <td colSpan={weeks.length + 1} style={{ padding: "6px 14px 8px 36px", borderBottom: `1px solid ${C.border}`, ...stickyLeft, background: rowBgSub }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.blue }}>+ Add project</span>
+            <select
+              value=""
+              disabled={options.length === 0}
+              onChange={e => {
+                const p = allocatableProjects.find(x => x.id === Number(e.target.value));
+                if (p) setAddedRows(prev => [...prev, { employeeId: emp.employeeId, employeeName: emp.name, project: p }]);
+              }}
+              style={{ fontSize: 11, fontFamily: C.font, padding: "3px 6px", borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, color: C.text, maxWidth: 420 }}
+            >
+              <option value="">
+                {projectsError ? "Projects unavailable" : allocatableProjects.length === 0 ? "Loading projects…" : `Select a project for ${emp.name.split(" ")[0]}…`}
+              </option>
+              {[...optionGroups.entries()].map(([group, list]) => (
+                <optgroup key={group} label={group}>
+                  {list.map(p => (
+                    <option key={p.id} value={p.id}>{p.companyName ? `${p.companyName} — ${p.name}` : p.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {projectsError && <span style={{ fontSize: 10, color: C.red }}>{projectsError}</span>}
+          </div>
+        </td>
+      </tr>,
+    ];
   }
 
   async function handleSave() {
@@ -1159,7 +1332,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 <th key={w.toISOString()} style={{
                   ...thStyle,
                   minWidth: 94,   // fits the Bill/Util/Prod/Tot stack without wrapping
-                  background:   w.getTime() === todayMs ? "#EBF5FF" : C.alt,
+                  background:   w.getTime() === todayMs ? "#EBF5FF" : weeks.indexOf(w) < NEAR_WEEKS ? NEAR_WEEK_HEAD_BG : C.alt,
                   color:        w.getTime() === todayMs ? C.blue    : C.textSub,
                   borderBottom: w.getTime() === todayMs ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
                 }}>
@@ -1206,7 +1379,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                       );
 
                       return (
-                        <td key={wi} style={{ padding: "5px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                        <td key={wi} style={{ padding: "5px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, background: nearWeekBg(wi) }}>
                           {pct > 0 ? (
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                               {/* Billable — top, bold, RAG-coloured against the allocation bands */}
@@ -1357,7 +1530,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                         setEditingCell(cellContext);
                                         setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
                                       }}
-                                      style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400, cursor: !rowSaving ? "pointer" : "default", background: isEditingThis ? "#EBF5FF" : undefined, transition: "background 0.1s" }}>
+                                      style={{ padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, color: hrs > 0 ? C.textMid : C.mid, fontWeight: hrs > 0 ? 500 : 400, cursor: !rowSaving ? "pointer" : "default", background: isEditingThis ? "#EBF5FF" : nearWeekBg(wi), transition: "background 0.1s" }}>
                                     {isEditingThis ? (
                                       <input
                                         autoFocus type="number" min={0} max={40} step={0.5}
@@ -1425,6 +1598,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                       ];
                     });
                   })()}
+                  {isExp && renderAddRows(emp, ei)}
                 </>
               );
             })}
@@ -1433,7 +1607,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: C.textSub }}>
-        Showing {weeks.length} weeks from current week. Hours per week = allocation % × 40h.
+        Showing {weeks.length} weeks from current week; the first {NEAR_WEEKS} are shaded. Hours per week = allocation % × 40h.
       </div>
 
       {/* ═══ SECTION 2: Project Budget vs Allocation ════════════════════════ */}
@@ -1498,7 +1672,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 <th key={w.toISOString()} style={{
                   ...thStyle,
                   minWidth: 70,
-                  background:   w.getTime() === todayMs ? "#EBF5FF" : C.alt,
+                  background:   w.getTime() === todayMs ? "#EBF5FF" : weeks.indexOf(w) < NEAR_WEEKS ? NEAR_WEEK_HEAD_BG : C.alt,
                   color:        w.getTime() === todayMs ? C.blue    : C.textSub,
                   borderBottom: w.getTime() === todayMs ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
                 }}>
@@ -1676,7 +1850,7 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
 
                     {/* Weekly totals */}
                     {weekTotals.map((hrs, wi) => (
-                      <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                      <td key={wi} style={{ padding: "6px 8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`, background: nearWeekBg(wi) }}>
                         {hrs > 0 ? (
                           <span style={{ fontFamily: C.mono, fontSize: 11, color: C.textMid, fontWeight: 500 }}>
                             {hrs.toFixed(1)}
@@ -1782,7 +1956,7 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                                   borderBottom: isLast ? `1px solid ${C.border}` : `1px solid ${C.border}8`,
                                   borderLeft:   `1px solid ${C.border}`,
                                   cursor:       !empSaving ? "pointer" : "default",
-                                  background:   isEditingThis ? "#EBF5FF" : undefined,
+                                  background:   isEditingThis ? "#EBF5FF" : nearWeekBg(wi),
                                   transition:   "background 0.1s",
                                 }}
                                 onClick={() => {
