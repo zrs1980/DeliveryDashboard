@@ -61,16 +61,24 @@ function generateWeeks(n = 10): Date[] {
 }
 
 /**
- * The first NEAR_WEEKS columns (this week and the next three) get a light tint —
- * the window most worth keeping accurate. Lavender on purpose: distinct from the
- * blue current-week header and the grey row striping, and green/amber/red
- * are reserved for RAG.
+ * Column tint by week: the current week (index 0) is light grey, the NEAR_WEEKS
+ * after it light green — the window most worth keeping accurate. Weeks are
+ * generated from this week's Monday, so the tint rolls forward on its own.
  */
 const NEAR_WEEKS = 4;
-const NEAR_WEEK_BG      = "#F4F1FC";
-const NEAR_WEEK_HEAD_BG = "#E9E3F8";
+const CURRENT_WEEK_BG      = "#EDEFF2";
+const CURRENT_WEEK_HEAD_BG = "#E0E3E8";
+const NEAR_WEEK_BG         = "#EAF6EC";
+const NEAR_WEEK_HEAD_BG    = "#D6EEDB";
 function nearWeekBg(weekIndex: number): string | undefined {
-  return weekIndex < NEAR_WEEKS ? NEAR_WEEK_BG : undefined;
+  if (weekIndex === 0)         return CURRENT_WEEK_BG;
+  if (weekIndex <= NEAR_WEEKS) return NEAR_WEEK_BG;
+  return undefined;
+}
+function weekHeadBg(weekIndex: number): string {
+  if (weekIndex === 0)         return CURRENT_WEEK_HEAD_BG;
+  if (weekIndex <= NEAR_WEEKS) return NEAR_WEEK_HEAD_BG;
+  return C.alt;
 }
 
 function fmtWeekHeader(d: Date): string {
@@ -632,9 +640,11 @@ const stickyLeft: React.CSSProperties = {
 
 export function ResourceAllocation({ allocations, consultantRoster = [], error }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const weeks    = useMemo(() => generateWeeks(10), []);
   const today    = getMondayOf(new Date());
   const todayMs  = today.getTime();
+  // Keyed on this week's Monday so a tab left open over a weekend rolls the
+  // columns (and their tint) forward on the next render.
+  const weeks    = useMemo(() => generateWeeks(10), [todayMs]);
 
   // Local copy of allocations — updated optimistically after edits
   const [localAllocs, setLocalAllocs] = useState<NSAllocation[]>(allocations);
@@ -1517,7 +1527,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 <th key={w.toISOString()} style={{
                   ...thStyle,
                   minWidth: 94,   // fits the Bill/Util/Prod/Tot stack without wrapping
-                  background:   w.getTime() === todayMs ? "#EBF5FF" : weeks.indexOf(w) < NEAR_WEEKS ? NEAR_WEEK_HEAD_BG : C.alt,
+                  background:   weekHeadBg(weeks.indexOf(w)),
                   color:        w.getTime() === todayMs ? C.blue    : C.textSub,
                   borderBottom: w.getTime() === todayMs ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
                 }}>
@@ -1819,7 +1829,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: C.textSub }}>
-        Showing {weeks.length} weeks from current week; the first {NEAR_WEEKS} are shaded. Hours per week = allocation % × 40h.
+        Showing {weeks.length} weeks from current week; the current week is grey and the next {NEAR_WEEKS} are green. Hours per week = allocation % × 40h.
       </div>
 
       {/* ═══ SECTION 2: Project Budget vs Allocation ════════════════════════ */}
@@ -1884,7 +1894,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                 <th key={w.toISOString()} style={{
                   ...thStyle,
                   minWidth: 70,
-                  background:   w.getTime() === todayMs ? "#EBF5FF" : weeks.indexOf(w) < NEAR_WEEKS ? NEAR_WEEK_HEAD_BG : C.alt,
+                  background:   weekHeadBg(weeks.indexOf(w)),
                   color:        w.getTime() === todayMs ? C.blue    : C.textSub,
                   borderBottom: w.getTime() === todayMs ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
                 }}>
