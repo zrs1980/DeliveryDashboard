@@ -42,6 +42,10 @@ const hColor = (h: string) =>
 const healthRank = (h: string) =>
   h === "red" ? 0 : h === "yellow" ? 1 : 2;
 
+// Hours Left column: total budget − billable hours logged. Same total as the
+// Billable column (actual + rem = budget_hours), so the two cells reconcile.
+const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
+
 function getActivePhase(phases: ProjectPhase[], projectId: number): ProjectPhase | null {
   const projectPhases = phases.filter(ph => ph.projectId === projectId);
   if (projectPhases.length === 0) return null;
@@ -115,7 +119,7 @@ function sortProjects(
         cmp = a.billableHours - b.billableHours;
         break;
       case "rem":
-        cmp = a.rem - b.rem;
+        cmp = billableLeft(a) - billableLeft(b);
         break;
       case "phase": {
         const phA = getActivePhase(phases, a.id)?.phaseName ?? "";
@@ -630,7 +634,8 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
         </thead>
         <tbody>
           {sorted.map((p, i) => {
-            const remColor    = p.rem < 20 ? C.red : p.rem < 50 ? C.yellow : C.green;
+            const hoursLeft   = billableLeft(p);
+            const remColor    = hoursLeft < 20 ? C.red : hoursLeft < 50 ? C.yellow : C.green;
             const rowBg       = hoveredRow === p.id
               ? "#ECF0F7"
               : i % 2 === 0 ? C.surface : C.alt;
@@ -794,8 +799,11 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
 
                   {/* Hours Left */}
                   <td style={cellStyle()}>
-                    <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}>
-                      {p.rem.toFixed(1)}h
+                    <span
+                      style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}
+                      title={`${fmtH(p.actual + p.rem)} budget − ${fmtH(p.billableHours)} billable logged`}
+                    >
+                      {hoursLeft.toFixed(1)}h
                     </span>
                   </td>
 
