@@ -100,6 +100,17 @@ type TypeFilter = "all" | "internal" | "external";
 const matchesType = (p: EntryProject | undefined, t: TypeFilter) =>
   t === "all" || (t === "internal") === (p?.internal === true);
 
+/**
+ * Status filter. Pending = anything Approve Time can act on (not approved, not
+ * rejected) — in practice NetSuite's "Pending Approval", the only other status
+ * in use (checked Nov 2026). A rejected entry shows under All only.
+ */
+type StatusFilter = "all" | "pending" | "approved";
+
+const matchesStatus = (e: TimeEntry, s: StatusFilter) =>
+  s === "all" ||
+  (s === "approved" ? e.approvalStatus.toLowerCase() === "approved" : isApprovable(e));
+
 type SortKey = "date" | "project" | "task" | "consultant" | "memo" | "hours"
              | "billable" | "utilized" | "productive" | "status";
 type SortDir = "asc" | "desc";
@@ -165,6 +176,7 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   const [projectFilter, setProjectFilter]       = useState<number | null>(null);
   const [pmFilter, setPmFilter]                 = useState("");
   const [consultantFilter, setConsultantFilter] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter]         = useState<StatusFilter>("all");
 
   const [showClass, setShowClass] = useState(false);
 
@@ -237,8 +249,9 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
     if (projectFilter !== null && e.projectId !== projectFilter) return false;
     if (pmFilter && p?.pm !== pmFilter) return false;
     if (consultantFilter !== null && e.employeeId !== consultantFilter) return false;
+    if (!matchesStatus(e, statusFilter)) return false;
     return true;
-  }), [entries, projectById, typeFilter, projectFilter, pmFilter, consultantFilter]);
+  }), [entries, projectById, typeFilter, projectFilter, pmFilter, consultantFilter, statusFilter]);
 
   // ── Sorting ── Starts newest first, the order the API returns. Ties fall back
   // to date then id (newest first), so equal rows keep a stable order.
@@ -447,6 +460,15 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
           <select value={consultantFilter ?? ""} onChange={e => setConsultantFilter(e.target.value ? parseInt(e.target.value) : null)} style={selectStyle}>
             <option value="">All</option>
             {consultantOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <label style={labelStyle}>Status</label>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as StatusFilter)} style={selectStyle}>
+            <option value="all">All</option>
+            <option value="pending">Pending Approval</option>
+            <option value="approved">Approved</option>
           </select>
         </div>
 
