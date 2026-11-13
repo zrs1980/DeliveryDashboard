@@ -4,11 +4,11 @@ import { C, STATUS_STYLES, nsProjectUrl } from "@/lib/constants";
 import { useStaff } from "@/lib/use-staff";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, isOverdueTask } from "@/lib/clickup";
 import { fmtH, fmtD, fmtPct } from "@/lib/health";
-import { HealthBadge } from "@/components/health/HealthBadge";
+import { HealthBadge, healthColors } from "@/components/health/HealthBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import SentimentPrompt from "@/components/dashboard/SentimentPrompt";
-import type { Project, CUTask } from "@/lib/types";
+import type { Project, ProjectHealth, CUTask } from "@/lib/types";
 import type { Healthcheck } from "@/app/api/healthchecks/route";
 import MyWorkPanel from "@/components/dashboard/MyWorkPanel";
 
@@ -460,8 +460,7 @@ export function ConsultantView({ projects, cases }: Props) {
 
   // ── Project card helpers ─────────────────────────────────────────────────────
 
-  const hColor = (h: string) =>
-    h === "green" ? C.green : h === "yellow" ? C.yellow : C.red;
+  const hColor = (h: ProjectHealth) => healthColors(h).color;
 
   function projectOpenTasks(p: Project): CUTask[] {
     return p.tasks.filter(
@@ -966,7 +965,7 @@ export function ConsultantView({ projects, cases }: Props) {
                             # {p.entityid}
                           </div>
                         </div>
-                        <HealthBadge health={p.health} score={p.score} size="sm" />
+                        <HealthBadge health={p.health} size="sm" />
                       </div>
 
                       {/* Task counts */}

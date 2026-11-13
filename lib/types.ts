@@ -53,6 +53,8 @@ export interface CUTask {
 
 // ─── Derived Project (enriched with ClickUp + health) ────────────────────────
 
+export type ProjectHealth = "green" | "yellow" | "red" | "unset";
+
 export interface Project {
   id: number;
   entityid: string;
@@ -78,8 +80,10 @@ export interface Project {
   burnRate: number;
   spi: number;
   budgetGap: number;
-  score: number;
-  health: "green" | "yellow" | "red";
+  /** Set by hand on the Projects tab (Supabase project_status); "unset" until a PM picks one. */
+  health: ProjectHealth;
+  healthSetBy: string | null;
+  healthSetAt: string | null;
   nsUrl: string;
   clickupUrl: string | null;
   clickupListId: string | null;

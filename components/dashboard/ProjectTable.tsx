@@ -3,13 +3,13 @@ import { useState } from "react";
 import { C } from "@/lib/constants";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
-import { HealthBadge } from "@/components/health/HealthBadge";
+import { HealthSelect, healthColors } from "@/components/health/HealthBadge";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { TaskModal } from "@/components/dashboard/TaskModal";
 import { fmtH, fmtPct, fmtD } from "@/lib/health";
 import { isDone, isBlocked } from "@/lib/clickup";
 import { STATUS_STYLES } from "@/lib/constants";
-import type { Project, ProjectNote, ProjectPhase, CUTask } from "@/lib/types";
+import type { Project, ProjectHealth, ProjectNote, ProjectPhase, CUTask } from "@/lib/types";
 import { ProjectTaskPanel } from "@/components/dashboard/ProjectTaskPanel";
 
 interface Props {
@@ -36,11 +36,11 @@ type SortDir = "asc" | "desc";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const hColor = (h: string) =>
-  h === "green" ? C.green : h === "yellow" ? C.yellow : C.red;
+const hColor = (h: ProjectHealth) => healthColors(h).color;
 
-const healthRank = (h: string) =>
-  h === "red" ? 0 : h === "yellow" ? 1 : 2;
+// Ascending puts Critical first; "Not set" sorts last.
+const healthRank = (h: ProjectHealth) =>
+  h === "red" ? 0 : h === "yellow" ? 1 : h === "green" ? 2 : 3;
 
 // Hours Left column: total budget − billable hours logged. Same total as the
 // Billable column (actual + rem = budget_hours), so the two cells reconcile.
@@ -492,6 +492,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
   const [editingGoLive, setEditingGoLive] = useState<number | null>(null);
   const [goLiveDraft, setGoLiveDraft]     = useState<string>("");
   const [goLiveSaving, setGoLiveSaving]   = useState<number | null>(null);
+  const [statusSaving, setStatusSaving]   = useState<number | null>(null);
 
   function handleSort(col: SortKey) {
     if (col === sortKey) {
@@ -570,6 +571,31 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
       setEditingGoLive(null);
     } finally {
       setGoLiveSaving(null);
+    }
+  }
+
+  async function saveStatus(projectId: number, status: ProjectHealth) {
+    setStatusSaving(projectId);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert("Failed to save status: " + (data.error ?? res.statusText));
+        return;
+      }
+      onProjectsChange(
+        projects.map(p =>
+          p.id === projectId
+            ? { ...p, health: data.health, healthSetBy: data.healthSetBy, healthSetAt: data.healthSetAt }
+            : p
+        )
+      );
+    } finally {
+      setStatusSaving(null);
     }
   }
 
@@ -721,7 +747,16 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                   {/* Project / Client */}
                   <td style={cellStyle()}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <HealthBadge health={p.health} size="sm" />
+                      {p.isInternal ? null : (
+                        <HealthSelect
+                          health={p.health}
+                          onChange={h => saveStatus(p.id, h)}
+                          disabled={statusSaving === p.id}
+                          title={p.healthSetAt
+                            ? `Set by ${p.healthSetBy ?? "unknown"} on ${new Date(p.healthSetAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`
+                            : "Status not set yet. Pick one."}
+                        />
+                      )}
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.client}</div>
                         <div style={{ fontSize: 11, color: C.textSub }}>{p.projectName || `# ${p.entityid}`}</div>

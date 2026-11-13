@@ -174,7 +174,7 @@ function StepRecap({ report, set }: { report: StatusReport; set: (r: StatusRepor
     <div>
       <SectionCard
         title="Overall status"
-        sub="Suggested from the health score — override if you know better."
+        sub="Taken from the status set on the Projects tab — override if you know better."
       >
         <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 14 }}>
           <div>

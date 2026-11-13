@@ -1,29 +1,7 @@
 import type { ProjectPhase } from "./types";
 
-export function calcHealthScore(p: {
-  actual: number;
-  rem: number;
-  pct: number;
-  isOverdue: boolean;
-}): { score: number; health: "green" | "yellow" | "red" } {
-  const totalH   = p.actual + p.rem;
-  const burnRate = totalH > 0 ? p.actual / totalH : 0;
-  const spi      = burnRate > 0.01 ? Math.min(p.pct / burnRate, 2) : 1;
-  const budgetGap = burnRate - p.pct;
-
-  let score = 100;
-  if (p.isOverdue)           score -= 35;
-  if (budgetGap > 0.2)       score -= 25;
-  else if (budgetGap > 0.1)  score -= 12;
-  if (spi < 0.7)             score -= 20;
-  else if (spi < 0.85)       score -= 10;
-  if (p.rem < 15 && p.pct < 0.85) score -= 20;
-
-  // Hard override: no remaining budget = always red, regardless of score
-  const overBudget = p.rem <= 0;
-  const health = overBudget || score < 45 ? "red" : score < 70 ? "yellow" : "green";
-  return { score: Math.max(0, score), health };
-}
+// Project status (On Track / At Risk / Critical) is set by hand on the Projects
+// tab — see supabase/project-status.sql. There is no computed health score.
 
 export function phaseTimelineRAG(
   phase: { phaseStart: string | null; phaseEnd: string | null; pctComplete: number },

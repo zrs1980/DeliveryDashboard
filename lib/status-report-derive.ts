@@ -422,8 +422,15 @@ export function deriveStatusReport({
   const weekEndMs   = weekStartMs + 7 * dayMs;
   const now         = Date.now();
 
+  // The PM-set status from the Projects tab. When none is set, carry last
+  // week's report forward (else On Track); statusReason below says so, and the
+  // wizard's status dropdown is where it gets confirmed.
+  const statusUnset = project.health === "unset";
   const overallStatus: OverallStatus =
-    project.health === "green" ? "on_track" : project.health === "yellow" ? "at_risk" : "critical";
+    project.health === "green"  ? "on_track" :
+    project.health === "yellow" ? "at_risk"  :
+    project.health === "red"    ? "critical" :
+    prevReport?.recap.overallStatus ?? "on_track";
 
   // Narrow the project's task rows to the real phases once, then feed both the
   // tracker and the budget table from the same set so they can't disagree.
@@ -587,9 +594,11 @@ export function deriveStatusReport({
   if (project.blocked.length)     reasons.push(`${project.blocked.length} blocked task${project.blocked.length > 1 ? "s" : ""}`);
   if (project.clientPending.length) reasons.push(`${project.clientPending.length} item${project.clientPending.length > 1 ? "s" : ""} awaiting client`);
 
-  const statusReason = reasons.length
-    ? `Health score ${project.score}/100 — driven by ${reasons.join(", ")}.`
-    : `Health score ${project.score}/100 — no material schedule or budget variance this week.`;
+  const statusReason =
+    (statusUnset ? "Status not set on the Projects tab — confirm before sending. " : "") +
+    (reasons.length
+      ? `Watch items: ${reasons.join(", ")}.`
+      : "No material schedule or budget variance this week.");
 
   // ── Placeholder prose (Claude fills these in via /draft) ──
   const doneStr  = `${metrics.tasksDone} of ${metrics.tasksTotal} tasks complete (${Math.round(project.pct * 100)}%)`;

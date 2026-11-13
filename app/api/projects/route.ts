@@ -1,10 +1,27 @@
 import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
-import { calcHealthScore } from "@/lib/health";
 import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
 import { getPmRoster } from "@/lib/roster";
-import type { Project, ProjectNote } from "@/lib/types";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import type { Project, ProjectHealth, ProjectNote } from "@/lib/types";
+
+type StoredStatus = { status: Exclude<ProjectHealth, "unset">; updated_by: string | null; updated_at: string };
+
+// Manually set statuses (supabase/project-status.sql). A failed read leaves
+// every project "Not set" rather than failing the whole Projects tab.
+async function fetchProjectStatuses(): Promise<Record<number, StoredStatus>> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("project_status")
+    .select("ns_project_id, status, updated_by, updated_at");
+  if (error) {
+    console.error("[/api/projects] project_status:", error.message);
+    return {};
+  }
+  const out: Record<number, StoredStatus> = {};
+  for (const r of data ?? []) out[r.ns_project_id] = r;
+  return out;
+}
 
 export const revalidate = 0; // always fresh
 
@@ -37,10 +54,11 @@ export async function GET() {
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
     // The PM roster comes along: PM attribution is "the PM with the most hours on
     // the project", so it needs to know who counts as a PM.
-    const [timebillRows, billableRows, pmRoster] = await Promise.all([
+    const [timebillRows, billableRows, pmRoster, statuses] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
       getPmRoster({ includeInactive: true }),
+      fetchProjectStatuses().catch(() => ({} as Record<number, StoredStatus>)),
     ]);
 
     // Build timebill map: projectId → total hours logged
@@ -126,7 +144,7 @@ export async function GET() {
           isOverdue = daysLeft < 0 && pct < 1;
         }
 
-        const { score, health } = calcHealthScore({ actual, rem: remaining, pct, isOverdue });
+        const stored = statuses[id];
 
         // Find PM from timebill rows (employee with most hours who is a PM)
         const pmEntry = timebillRows
@@ -164,8 +182,9 @@ export async function GET() {
           burnRate,
           spi,
           budgetGap,
-          score,
-          health,
+          health:        stored?.status ?? "unset",
+          healthSetBy:   stored?.updated_by ?? null,
+          healthSetAt:   stored?.updated_at ?? null,
           nsUrl:         nsProjectUrl(id),
           clickupUrl:    p.clickup_url ?? null,
           clickupListId,
@@ -216,8 +235,9 @@ export async function GET() {
           burnRate:      0,
           spi:           1,
           budgetGap:     0,
-          score:         100,
-          health:        "green" as const,
+          health:        "unset" as const,
+          healthSetBy:   null,
+          healthSetAt:   null,
           nsUrl:         "",
           clickupUrl:    `https://app.clickup.com/42022327/v/l/li/${listId}`,
           clickupListId: listId,

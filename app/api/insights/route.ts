@@ -67,7 +67,7 @@ ${projectLines}`;
 (2) 'Recommended Next Steps:' as 4 bullet points, each starting with an action verb. Be specific.
 
 Project: ${p.label}
-Health: ${p.health.toUpperCase()} (score ${p.score}/100), SPI: ${p.spi.toFixed(2)}
+PM-set status: ${p.health === "unset" ? "NOT SET" : p.health.toUpperCase()}, SPI: ${p.spi.toFixed(2)}
 Progress: ${fmtPct(p.pct)} | Burn: ${fmtPct(p.burnRate)} | Budget gap: ${fmtPct(p.budgetGap)}
 Hours: ${fmtH(p.actual)} logged / ${fmtH(p.actual + p.rem)} budget | ${fmtH(p.rem)} remaining
 End date: ${p.goliveDate ?? "Not set"} (${fmtD(p.daysLeft)})
@@ -78,7 +78,7 @@ PM Notes: ${p.notes.map(n => n.text).join("; ") || "None"}
 Task summary: ${p.tasks.filter(t => !isDone(t)).length} open, ${p.tasks.filter(t => isDone(t)).length} done`;
     } else {
       const lines = projects.map(p =>
-        `${p.label}: ${p.health} health, SPI ${p.spi.toFixed(2)}, ${fmtPct(p.pct)} done, ${fmtD(p.daysLeft)}, ${p.blocked.length} blocked, ${p.clientPending.length} client-pending`
+        `${p.label}: status ${p.health === "unset" ? "not set" : p.health}, SPI ${p.spi.toFixed(2)}, ${fmtPct(p.pct)} done, ${fmtD(p.daysLeft)}, ${p.blocked.length} blocked, ${p.clientPending.length} client-pending`
       ).join("\n");
 
       prompt = `You are a senior NetSuite PM advisor. Review this portfolio of active projects and provide:

@@ -82,7 +82,7 @@ The goal is to give PMs a single-pane-of-glass view of project health without ne
 
 ### 1. Portfolio Overview (Landing Page)
 - List of all active projects with health status indicators (Green / Amber / Red)
-- Health score derived from: budget variance, schedule variance, open blockers
+- Project status (On Track / At Risk / Critical) set by hand by the PM — see "Project Status"
 - Quick filters: by PM, by client, by status, by project type
 
 ### 2. Project Detail Page
@@ -313,39 +313,21 @@ Map ClickUp statuses to health signals:
 
 ---
 
-## Health Score Logic
+## Project Status — set by hand
 
-Calculate a composite score (0–100) per project. This is the **exact algorithm** used in the dashboard:
+The On Track / At Risk / Critical status on the Projects tab is **chosen by the PM**, not computed. It is a dropdown on each row (`HealthSelect` in `components/health/HealthBadge.tsx`) that PATCHes `/api/projects/[id]/status`, stored in the Supabase `project_status` table (`supabase/project-status.sql`, one row per NetSuite project).
 
-```typescript
-function calcHealthScore(p: Project): { score: number; health: "green" | "yellow" | "red" } {
-  const totalH    = p.actual + p.rem;               // budget hours
-  const burnRate  = totalH > 0 ? p.actual / totalH : 0; // hours consumed ratio
-  const spi       = burnRate > 0.01 ? Math.min(p.pct / burnRate, 2) : 1; // schedule perf index
-  const budgetGap = burnRate - p.pct;               // positive = burning faster than progressing
+- `Project.health` is `"green" | "yellow" | "red" | "unset"`. **No row = `"unset"`, shown as a grey "Not set"** — never defaulted to green, so nothing looks healthy by accident. Choosing "Not set" deletes the row.
+- `healthSetBy` / `healthSetAt` drive the badge tooltip.
+- If the `project_status` read fails, every project reads "Not set" rather than the Projects tab failing.
+- The weekly status report takes its overall status from this; when unset it carries last week's report forward (else On Track) and the status reason says to confirm it.
 
-  let score = 100;
-  if (p.isOverdue)           score -= 35;           // past custentity_project_golive_date and not complete
-  if (budgetGap > 0.2)       score -= 25;
-  else if (budgetGap > 0.1)  score -= 12;
-  if (spi < 0.7)             score -= 20;
-  else if (spi < 0.85)       score -= 10;
-  if (p.rem < 15 && p.pct < 0.85) score -= 20;     // nearly out of hours but not near done
+> Replaced November 2026. The old `calcHealthScore` (score 0–100 from overdue go-live, budget gap, SPI and low runway) ran on the hand-maintained `custentity_project_remaining_hours` and equal-weighted ClickUp task counts, and is gone along with `Project.score`. Do not reintroduce a computed status.
 
-  const health = score >= 70 ? "green" : score >= 45 ? "yellow" : "red";
-  return { score, health };
-}
-```
-
-**Key derived metrics:**
+**Key derived metrics** (still computed and shown, but no longer feed the status):
 - `burnRate` = `actual / (actual + rem)` — what fraction of total hours have been consumed
 - `spi` = `pct / burnRate` — SPI < 1.0 means burning hours faster than making progress
 - `budgetGap` = `burnRate - pct` — positive = over-burning; > 20% is critical
-
-**RAG thresholds:**
-- Score ≥ 70 → 🟢 Green (On Track)
-- Score 45–69 → 🟡 Amber (At Risk)
-- Score < 45 → 🔴 Red (Critical)
 
 ---
 
@@ -893,7 +875,7 @@ interface ProjectPhase {
 /lib
   netsuite.ts                  → OAuth 1.0a signing + SuiteQL + REST Record API helpers
   clickup.ts                   → ClickUp task fetching and classification helpers
-  health.ts                    → Health score, phase RAG, formatting helpers
+  health.ts                    → Phase RAG, formatting helpers (project status is manual — no score)
   types.ts                     → Shared TypeScript interfaces
   constants.ts                 → EMPLOYEES, PMS, color tokens (C), STATUS_STYLES
 .env.local                     → Secrets (gitignored — never commit)

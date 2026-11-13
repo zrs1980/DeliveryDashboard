@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { C } from "@/lib/constants";
 import { useStaff } from "@/lib/use-staff";
 import type { Project } from "@/lib/types";
+import { healthColors, healthLabel } from "@/components/health/HealthBadge";
 import { ProjectManagementView } from "./ProjectManagementView";
 import { StatusReportWizard } from "./StatusReportWizard";
 import { ProjectSummaryHeader } from "./ProjectSummaryHeader";
@@ -344,11 +345,7 @@ function NativeProjectCard({ project, onClick }: { project: PMProject; onClick: 
 }
 
 function NSProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
-  const hColors = {
-    green:  { bg: C.greenBg,  color: C.green,  bd: C.greenBd,  label: "On Track" },
-    yellow: { bg: C.yellowBg, color: C.yellow, bd: C.yellowBd, label: "At Risk" },
-    red:    { bg: C.redBg,    color: C.red,     bd: C.redBd,    label: "Critical" },
-  }[project.health];
+  const hColors = { ...healthColors(project.health), label: healthLabel(project.health) };
 
   const pct = Math.round(project.pct * 100);
 
@@ -477,8 +474,8 @@ function PMHomeScreen({
       {/* ── KPI row ── */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
         <KpiCard icon="📁" label="Active Projects" value={nsProjects.length + nativeProjects.filter(p => p.status === "active").length} color={C.blue} sub="NS + native" />
-        <KpiCard icon="🔴" label="Critical"  value={critical}  color={critical  > 0 ? C.red    : C.textSub} sub="health score < 45" />
-        <KpiCard icon="🟡" label="At Risk"   value={atRisk}    color={atRisk    > 0 ? C.yellow : C.textSub} sub="health score 45–69" />
+        <KpiCard icon="🔴" label="Critical"  value={critical}  color={critical  > 0 ? C.red    : C.textSub} sub="set by PM" />
+        <KpiCard icon="🟡" label="At Risk"   value={atRisk}    color={atRisk    > 0 ? C.yellow : C.textSub} sub="set by PM" />
         <KpiCard icon="⏰" label="Overdue"   value={overdue}   color={overdue   > 0 ? C.red    : C.textSub} sub="past go-live date" />
         <KpiCard icon="📋" label="Total Tasks" value={totalTasks} color={C.textMid} sub="across all projects" />
       </div>
@@ -804,8 +801,9 @@ function NativeOnlyProjectView({
     burnRate:      0,
     spi:           1,
     budgetGap:     0,
-    score:         100,
-    health:        "green",
+    health:        "unset",
+    healthSetBy:   null,
+    healthSetAt:   null,
     nsUrl:         "",
     clickupUrl:    null,
     clickupListId: null,

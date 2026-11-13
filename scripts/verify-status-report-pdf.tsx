@@ -76,7 +76,7 @@ function project(tasks: CUTask[], over: Partial<Project> = {}): Project {
     budget_hours: 451, actual: 301, billableHours: 288, rem: 150,
     pct: tasks.filter(isDoneT).length / Math.max(1, tasks.length),
     burnRate: 301 / 451, spi: 0.41, budgetGap: 0.4,
-    score: 55, health: "yellow",
+    health: "yellow", healthSetBy: null, healthSetAt: null,
     nsUrl: "", clickupUrl: null, clickupListId: null,
     tasks,
     blocked:       tasks.filter(t => ["on hold", "blocked"].includes(t.status.status.toLowerCase())),

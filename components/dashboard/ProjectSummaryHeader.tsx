@@ -6,12 +6,12 @@
 
 import { C } from "@/lib/constants";
 import { fmtD, fmtH, fmtPct } from "@/lib/health";
-import { HealthBadge } from "@/components/health/HealthBadge";
+import { HealthBadge, healthColors } from "@/components/health/HealthBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
-import type { Project } from "@/lib/types";
+import type { Project, ProjectHealth } from "@/lib/types";
 
-const hColor = (h: string) => (h === "green" ? C.green : h === "yellow" ? C.yellow : C.red);
+const hColor = (h: ProjectHealth) => healthColors(h).color;
 
 function Metric({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
@@ -39,7 +39,7 @@ export function ProjectSummaryHeader({ project: p }: { project: Project }) {
             <span style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{p.client}</span>
             <span style={{ color: C.mid }}>·</span>
             <span style={{ fontSize: 14, fontWeight: 600, color: C.textMid }}>{p.projectName}</span>
-            <HealthBadge health={p.health} score={p.score} size="sm" />
+            <HealthBadge health={p.health} size="sm" />
           </div>
           <div style={{ fontSize: 11.5, color: C.textSub, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
             {p.entityid && <span>#{p.entityid}</span>}
