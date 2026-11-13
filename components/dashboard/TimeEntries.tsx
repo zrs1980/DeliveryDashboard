@@ -91,7 +91,7 @@ function Check({ on }: { on: boolean }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-/** What this section needs of a project — Active Projects and MSAs both supply it. */
+/** What this section needs of a project — Active Projects, MSAs and Internal projects all supply it. */
 type EntryProject = Pick<Project, "id" | "label" | "pm">;
 
 export function TimeEntries({ projects: activeProjects }: { projects: Project[] }) {
@@ -115,10 +115,31 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
       .catch(e => console.warn("[Time Entries] could not load MSA projects:", e));
   }, []);
 
+  // Internal projects (admin, PTO, meetings, …) aren't in Active Projects either.
+  // Labelled "Internal — …" so they group together in the Project filter.
+  const [internalProjects, setInternalProjects] = useState<EntryProject[]>([]);
+  useEffect(() => {
+    fetch("/api/internal-projects")
+      .then(r => r.json())
+      .then((d: { projects?: Array<{ id: number; projectName: string; pm: string }> }) => {
+        setInternalProjects((d.projects ?? []).map(p => ({
+          id:    p.id,
+          label: `Internal — ${p.projectName}`,
+          pm:    p.pm,
+        })));
+      })
+      .catch(e => console.warn("[Time Entries] could not load internal projects:", e));
+  }, []);
+
   const projects: EntryProject[] = useMemo(() => {
     const seen = new Set(activeProjects.map(p => p.id));
-    return [...activeProjects, ...msaProjects.filter(m => !seen.has(m.id))];
-  }, [activeProjects, msaProjects]);
+    const extra = [...msaProjects, ...internalProjects].filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+    return [...activeProjects, ...extra];
+  }, [activeProjects, msaProjects, internalProjects]);
 
   const [period, setPeriod]           = useState<Period>("thisWeek");
   const [customFrom, setCustomFrom]   = useState("");
