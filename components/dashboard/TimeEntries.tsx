@@ -92,7 +92,13 @@ function Check({ on }: { on: boolean }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 /** What this section needs of a project — Active Projects, MSAs and Internal projects all supply it. */
-type EntryProject = Pick<Project, "id" | "label" | "pm">;
+type EntryProject = Pick<Project, "id" | "label" | "pm"> & { internal?: boolean };
+
+/** Type filter: Internal = NetSuite "Internal" jobtype; External = everything else. */
+type TypeFilter = "all" | "internal" | "external";
+
+const matchesType = (p: EntryProject | undefined, t: TypeFilter) =>
+  t === "all" || (t === "internal") === (p?.internal === true);
 
 export function TimeEntries({ projects: activeProjects }: { projects: Project[] }) {
   // Managed Services Agreements aren't in Active Projects (that list is
@@ -126,6 +132,7 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
           id:    p.id,
           label: `Internal — ${p.projectName}`,
           pm:    p.pm,
+          internal: true,
         })));
       })
       .catch(e => console.warn("[Time Entries] could not load internal projects:", e));
@@ -144,6 +151,7 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   const [period, setPeriod]           = useState<Period>("thisWeek");
   const [customFrom, setCustomFrom]   = useState("");
   const [customTo, setCustomTo]       = useState("");
+  const [typeFilter, setTypeFilter]             = useState<TypeFilter>("all");
   const [projectFilter, setProjectFilter]       = useState<number | null>(null);
   const [pmFilter, setPmFilter]                 = useState("");
   const [consultantFilter, setConsultantFilter] = useState<number | null>(null);
@@ -188,14 +196,24 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   }, [rangeKey, projectIdsKey]);
 
   // ── Filter options ──
+  // Project and PM lists follow the Type filter, so they only offer what can match.
+  const typedProjects = useMemo(() => projects.filter(p => matchesType(p, typeFilter)), [projects, typeFilter]);
   const projectOptions = useMemo(
-    () => [...projects].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
-    [projects],
+    () => [...typedProjects].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
+    [typedProjects],
   );
   const pmOptions = useMemo(
-    () => [...new Set(projects.map(p => p.pm).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [projects],
+    () => [...new Set(typedProjects.map(p => p.pm).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [typedProjects],
   );
+
+  // Changing type clears a Project/PM pick that the new type no longer offers,
+  // rather than leaving a hidden filter that shows nothing.
+  function changeType(t: TypeFilter) {
+    setTypeFilter(t);
+    if (projectFilter !== null && !matchesType(projectById.get(projectFilter), t)) setProjectFilter(null);
+    if (pmFilter && !projects.some(p => p.pm === pmFilter && matchesType(p, t))) setPmFilter("");
+  }
   // From the loaded entries, so the list only offers people with time in range.
   const consultantOptions = useMemo(() => {
     const seen = new Map<number, string>();
@@ -205,11 +223,12 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
 
   const visible = useMemo(() => entries.filter(e => {
     const p = projectById.get(e.projectId);
+    if (!matchesType(p, typeFilter)) return false;
     if (projectFilter !== null && e.projectId !== projectFilter) return false;
     if (pmFilter && p?.pm !== pmFilter) return false;
     if (consultantFilter !== null && e.employeeId !== consultantFilter) return false;
     return true;
-  }), [entries, projectById, projectFilter, pmFilter, consultantFilter]);
+  }), [entries, projectById, typeFilter, projectFilter, pmFilter, consultantFilter]);
 
   const totalHours = visible.reduce((s, e) => s + e.hours, 0);
   const approvable = visible.filter(isApprovable);
@@ -333,6 +352,15 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
     <div style={{ fontFamily: C.font }}>
       {/* ── Filters ── */}
       <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", padding: "14px 22px", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <label style={labelStyle}>Type</label>
+          <select value={typeFilter} onChange={e => changeType(e.target.value as TypeFilter)} style={selectStyle}>
+            <option value="all">All</option>
+            <option value="internal">Internal</option>
+            <option value="external">External</option>
+          </select>
+        </div>
+
         <div style={{ display: "flex", alignItems: "center" }}>
           <label style={labelStyle}>Project</label>
           <select value={projectFilter ?? ""} onChange={e => setProjectFilter(e.target.value ? parseInt(e.target.value) : null)} style={selectStyle}>
