@@ -100,6 +100,16 @@ type TypeFilter = "all" | "internal" | "external";
 const matchesType = (p: EntryProject | undefined, t: TypeFilter) =>
   t === "all" || (t === "internal") === (p?.internal === true);
 
+type SortKey = "date" | "project" | "task" | "consultant" | "memo" | "hours"
+             | "billable" | "utilized" | "productive" | "status";
+type SortDir = "asc" | "desc";
+
+/** First click on a column: dates and numbers newest/largest first, text A→Z. */
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  date: "desc", hours: "desc", billable: "desc", utilized: "desc", productive: "desc",
+  project: "asc", task: "asc", consultant: "asc", memo: "asc", status: "asc",
+};
+
 export function TimeEntries({ projects: activeProjects }: { projects: Project[] }) {
   // Managed Services Agreements aren't in Active Projects (that list is
   // Implementation/Service jobs only), so they're loaded here from /api/msa —
@@ -230,6 +240,43 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
     return true;
   }), [entries, projectById, typeFilter, projectFilter, pmFilter, consultantFilter]);
 
+  // ── Sorting ── Starts newest first, the order the API returns. Ties fall back
+  // to date then id (newest first), so equal rows keep a stable order.
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(DEFAULT_DIR[key]); }
+  }
+
+  const sorted = useMemo(() => {
+    const text = (s: string) => s.toLowerCase();
+    const val = (e: TimeEntry): string | number => {
+      switch (sortKey) {
+        case "date":       return e.date;
+        case "project":    return text(projectById.get(e.projectId)?.label ?? "");
+        case "task":       return text(e.taskName ?? "");
+        case "consultant": return text(e.employeeName);
+        case "memo":       return text(e.memo);
+        case "hours":      return e.hours;
+        case "billable":   return e.isBillable ? 1 : 0;
+        case "utilized":   return e.isUtilized ? 1 : 0;
+        case "productive": return e.isProductive ? 1 : 0;
+        case "status":     return text(e.approvalStatus);
+      }
+    };
+    const sign = sortDir === "asc" ? 1 : -1;
+    return [...visible].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      const cmp = typeof va === "number" && typeof vb === "number"
+        ? va - vb
+        : String(va).localeCompare(String(vb));
+      if (cmp !== 0) return cmp * sign;
+      return b.date.localeCompare(a.date) || b.id - a.id;
+    });
+  }, [visible, sortKey, sortDir, projectById]);
+
   const totalHours = visible.reduce((s, e) => s + e.hours, 0);
   const approvable = visible.filter(isApprovable);
 
@@ -253,8 +300,8 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   }
 
   // ── Export ──
-  // Exactly what is on screen: the filtered rows, and the B/U/P columns only
-  // when they are showing.
+  // Exactly what is on screen: the filtered rows in their current sort order,
+  // and the B/U/P columns only when they are showing.
   function exportXlsx() {
     const columns: XlsxColumn[] = [
       { header: "Date", width: 12 },
@@ -271,7 +318,7 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
       { header: "Status", width: 18 },
     ];
     const yn = (b: boolean) => (b ? "Yes" : "No");
-    const rows: XlsxCell[][] = visible.map(e => [
+    const rows: XlsxCell[][] = sorted.map(e => [
       e.date,
       projectById.get(e.projectId)?.label ?? `Project #${e.projectId}`,
       e.taskName ?? "",
@@ -346,6 +393,24 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
   };
   const td: React.CSSProperties = {
     padding: "7px 10px", fontSize: 12, color: C.text, borderBottom: `1px solid ${C.border}`, verticalAlign: "top",
+  };
+
+  /** A clickable column header: ▲/▼ on the active column, a faint ↕ on the rest. */
+  const sortTh = (key: SortKey, label: string, style?: React.CSSProperties) => {
+    const active = sortKey === key;
+    return (
+      <th
+        onClick={() => handleSort(key)}
+        title={`Sort by ${label.toLowerCase()}`}
+        aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+        style={{ ...th, ...style, cursor: "pointer", userSelect: "none", color: active ? C.text : th.color }}
+      >
+        {label}
+        <span style={{ marginLeft: 4, fontSize: 9, color: active ? C.blue : C.mid }}>
+          {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </th>
+    );
   };
 
   return (
@@ -486,22 +551,22 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
                     style={{ cursor: approvable.length === 0 ? "default" : "pointer", accentColor: C.blue }}
                   />
                 </th>
-                <th style={{ ...th, width: 100 }}>Date</th>
-                <th style={{ ...th, width: 220 }}>Project</th>
-                <th style={{ ...th, width: 180 }}>Task / Phase</th>
-                <th style={{ ...th, width: 140 }}>Consultant</th>
-                <th style={th}>Description</th>
-                <th style={{ ...th, width: 80, textAlign: "right" }}>Duration</th>
+                {sortTh("date",       "Date",         { width: 100 })}
+                {sortTh("project",    "Project",      { width: 220 })}
+                {sortTh("task",       "Task / Phase", { width: 180 })}
+                {sortTh("consultant", "Consultant",   { width: 140 })}
+                {sortTh("memo",       "Description")}
+                {sortTh("hours",      "Duration",     { width: 80, textAlign: "right" })}
                 {showClass && <>
-                  <th style={{ ...th, width: 70, textAlign: "center" }}>Billable</th>
-                  <th style={{ ...th, width: 70, textAlign: "center" }}>Utilized</th>
-                  <th style={{ ...th, width: 84, textAlign: "center" }}>Productive</th>
+                  {sortTh("billable",   "Billable",   { width: 70, textAlign: "center" })}
+                  {sortTh("utilized",   "Utilized",   { width: 70, textAlign: "center" })}
+                  {sortTh("productive", "Productive", { width: 84, textAlign: "center" })}
                 </>}
-                <th style={{ ...th, width: 120 }}>Status</th>
+                {sortTh("status",     "Status",       { width: 120 })}
               </tr>
             </thead>
             <tbody>
-              {visible.map((e, i) => {
+              {sorted.map((e, i) => {
                 const p = projectById.get(e.projectId);
                 return (
                   <tr key={e.id} style={{ background: selected.has(e.id) && isApprovable(e) ? C.blueBg : i % 2 === 1 ? C.alt : C.surface }}>
