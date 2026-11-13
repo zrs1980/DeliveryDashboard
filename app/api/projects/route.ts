@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
-import { getPmRoster } from "@/lib/roster";
+import { getPmRoster, getStaffRoster, nameFor } from "@/lib/roster";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { Project, ProjectHealth, ProjectNote } from "@/lib/types";
 
@@ -52,12 +52,13 @@ export async function GET() {
     const projectIds  = rawProjects.map(p => parseInt(p.id));
 
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
-    // The PM roster comes along: PM attribution is "the PM with the most hours on
-    // the project", so it needs to know who counts as a PM.
-    const [timebillRows, billableRows, pmRoster, statuses] = await Promise.all([
+    // The rosters come along: staff resolves the projectmanager field to a name,
+    // and the PM roster drives the most-hours fallback when that field is empty.
+    const [timebillRows, billableRows, pmRoster, staffRoster, statuses] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
       getPmRoster({ includeInactive: true }),
+      getStaffRoster(),
       fetchProjectStatuses().catch(() => ({} as Record<number, StoredStatus>)),
     ]);
 
@@ -146,11 +147,17 @@ export async function GET() {
 
         const stored = statuses[id];
 
-        // Find PM from timebill rows (employee with most hours who is a PM)
-        const pmEntry = timebillRows
-          .filter(r => parseInt(r.project_id) === id && pmRoster.byId[parseInt(r.employee)])
-          .sort((a, b) => parseFloat(b.total_hours) - parseFloat(a.total_hours))[0];
-        const pm = pmEntry ? pmRoster.byId[parseInt(pmEntry.employee)].name : "—";
+        // PM is the NetSuite projectmanager field. Only when that is empty does it
+        // fall back to the PM-roster employee with the most hours on the project.
+        let pm: string;
+        if (p.project_manager_id) {
+          pm = nameFor(staffRoster, p.project_manager_id);
+        } else {
+          const pmEntry = timebillRows
+            .filter(r => parseInt(r.project_id) === id && pmRoster.byId[parseInt(r.employee)])
+            .sort((a, b) => parseFloat(b.total_hours) - parseFloat(a.total_hours))[0];
+          pm = pmEntry ? pmRoster.byId[parseInt(pmEntry.employee)].name : "—";
+        }
 
         // Timebill integrity warning. timebillByProject is actual time only
         // (timetype='A') — allocated time is a forecast, not work done, and

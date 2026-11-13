@@ -311,6 +311,7 @@ export async function fetchActiveProjects() {
     golive_date: string | null;
     entitystatus: string;
     jobtype: string;
+    project_manager_id: string | null;
     clickup_url: string | null;
     budget_hours: string;
     remaining_hours: string;
@@ -332,6 +333,7 @@ export async function fetchActiveProjects() {
       custentity_project_golive_date       AS golive_date,
       entitystatus,
       jobtype,
+      projectmanager                       AS project_manager_id,
       custentity20                         AS clickup_url,
       custentity_ceba_project_budget_hours AS budget_hours,
       custentity_project_remaining_hours   AS remaining_hours,
