@@ -22,8 +22,21 @@ interface TimeEntry {
   approvalStatus: string;   // NetSuite's label, e.g. "Approved" / "Pending Approval"
 }
 
-/** Entries over this many hours have their duration in bold. */
-const LONG_ENTRY_HOURS = 5;
+/** Entries of this many hours or more are shown in bold, the whole row. */
+const LONG_ENTRY_HOURS = 4;
+
+/**
+ * Row background by approval status: approved green, pending yellow. A ticked
+ * entry shows blue instead, so the selection stays visible. Anything else
+ * (rejected) keeps the plain striping.
+ */
+function rowBg(e: TimeEntry, ticked: boolean, i: number): string {
+  if (ticked && isApprovable(e)) return C.blueBg;
+  const s = e.approvalStatus.toLowerCase();
+  if (s === "approved") return C.greenBg;
+  if (isApprovable(e))  return C.yellowBg;
+  return i % 2 === 1 ? C.alt : C.surface;
+}
 
 /** What Approve Time will act on — anything not already approved, and never a rejected entry. */
 const isApprovable = (e: TimeEntry) => {
@@ -591,7 +604,10 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
               {sorted.map((e, i) => {
                 const p = projectById.get(e.projectId);
                 return (
-                  <tr key={e.id} style={{ background: selected.has(e.id) && isApprovable(e) ? C.blueBg : i % 2 === 1 ? C.alt : C.surface }}>
+                  <tr key={e.id} style={{
+                    background: rowBg(e, selected.has(e.id), i),
+                    fontWeight: e.hours >= LONG_ENTRY_HOURS ? 700 : 400,
+                  }}>
                     <td style={{ ...td, textAlign: "center", padding: "7px 4px 7px 10px" }}>
                       {/* Already approved or rejected entries can't be approved, so no box. */}
                       {isApprovable(e) && (
@@ -612,7 +628,6 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
                     <td style={{ ...td, whiteSpace: "pre-wrap", wordBreak: "break-word", color: e.memo ? C.text : C.textSub }}>{e.memo || "—"}</td>
                     <td style={{
                       ...td, textAlign: "right", fontFamily: C.mono, whiteSpace: "nowrap",
-                      fontWeight: e.hours > LONG_ENTRY_HOURS ? 700 : 400,
                     }}>
                       {fmtHours(e.hours)}
                     </td>
