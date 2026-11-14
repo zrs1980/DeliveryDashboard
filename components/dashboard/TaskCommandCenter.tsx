@@ -70,22 +70,25 @@ const STATUS_LISTS_PER_REQUEST = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function filterForTab(rows: TaskRow[], tabId: TabId): TaskRow[] {
+/** Done tasks are hidden on every sub-tab unless the "Show Done" box is ticked. */
+function filterForTab(rows: TaskRow[], tabId: TabId, showDone: boolean): TaskRow[] {
+  const shown = (task: CUTask) => showDone || !isDone(task);
   switch (tabId) {
     case "overdue":
-      return rows.filter(({ task }) => taskBucket(task) === "overdue" && !isDone(task));
+      // Never holds a done task: taskBucket files a past-due done task under This Week.
+      return rows.filter(({ task }) => taskBucket(task) === "overdue");
     case "this_week":
-      return rows.filter(({ task }) => taskBucket(task) === "this_week" && !isDone(task));
+      return rows.filter(({ task }) => taskBucket(task) === "this_week" && shown(task));
     case "next_week":
-      return rows.filter(({ task }) => taskBucket(task) === "next_week" && !isDone(task));
+      return rows.filter(({ task }) => taskBucket(task) === "next_week" && shown(task));
     case "upcoming":
-      return rows.filter(({ task }) => taskBucket(task) === "upcoming" && !isDone(task));
+      return rows.filter(({ task }) => taskBucket(task) === "upcoming" && shown(task));
     case "milestones":
-      return rows.filter(({ task }) => isMilestone(task));
+      return rows.filter(({ task }) => isMilestone(task) && shown(task));
     case "blocked":
-      return rows.filter(({ task }) => isBlocked(task));
+      return rows.filter(({ task }) => isBlocked(task) && shown(task));
     case "client":
-      return rows.filter(({ task }) => isClientPending(task) && !isDone(task));
+      return rows.filter(({ task }) => isClientPending(task) && shown(task));
     default:
       return [];
   }
@@ -881,6 +884,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
   );
   const [selectedResource, setSelectedResource] = useState<string>("");
   const [selectedStatus, setSelectedStatus]   = useState<string>("");
+  const [showDone, setShowDone]               = useState(false);
   // "" = all, "none" = no priority set, otherwise ClickUp's orderindex "1"–"4".
   const [selectedPriority, setSelectedPriority] = useState<string>("");
   // Cases have their own status/priority vocabularies, so the Status and Priority
@@ -1157,6 +1161,8 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
     const seen = new Map<string, string>();
     for (const p of projects) {
       for (const t of p.tasks) {
+        // Done tasks are shown via the "Show Done" box, not this filter.
+        if (isDone(t)) continue;
         const key = t.status.status.toLowerCase();
         if (key && !seen.has(key)) seen.set(key, t.status.status);
       }
@@ -1168,17 +1174,17 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
 
   // Precompute counts for each tab
   const tabCounts: Record<TabId, number> = {
-    overdue:    filterForTab(allRows, "overdue").length,
-    this_week:  filterForTab(allRows, "this_week").length,
-    next_week:  filterForTab(allRows, "next_week").length,
-    upcoming:   filterForTab(allRows, "upcoming").length,
-    milestones: filterForTab(allRows, "milestones").length,
-    blocked:    filterForTab(allRows, "blocked").length,
-    client:     filterForTab(allRows, "client").length,
+    overdue:    filterForTab(allRows, "overdue", showDone).length,
+    this_week:  filterForTab(allRows, "this_week", showDone).length,
+    next_week:  filterForTab(allRows, "next_week", showDone).length,
+    upcoming:   filterForTab(allRows, "upcoming", showDone).length,
+    milestones: filterForTab(allRows, "milestones", showDone).length,
+    blocked:    filterForTab(allRows, "blocked", showDone).length,
+    client:     filterForTab(allRows, "client", showDone).length,
     cases:      caseRows.length,
   };
 
-  const activeRows = filterForTab(allRows, tab);
+  const activeRows = filterForTab(allRows, tab, showDone);
 
   const totalDone = allRows.filter(({ task }) => isDone(task)).length;
 
@@ -1296,6 +1302,16 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
             style={{ cursor: "pointer" }}
           />
           Group by Project
+        </label>}
+
+        {!onCasesTab && <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMid, cursor: "pointer", userSelect: "none" }}>
+          <input
+            type="checkbox"
+            checked={showDone}
+            onChange={e => setShowDone(e.target.checked)}
+            style={{ cursor: "pointer" }}
+          />
+          Show Done
         </label>}
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
