@@ -72,16 +72,25 @@ export function DeliverablesReportModal({ project, tasks, sectionLabel, onClose 
   const [posting, setPosting] = useState(false);
   const [result,  setResult]  = useState<{ ok: boolean; error?: string } | null>(null);
   const [channel, setChannel] = useState<string | null | undefined>(undefined);  // undefined = loading
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/projects/folders")
       .then(r => r.json())
-      .then((d: { projects?: Array<{ id: number; slackChannel: string | null }> }) => {
+      // The route passes the SuiteQL id through, so it arrives as a string ("18380")
+      // while Project.id is a number — compare as numbers or nothing ever matches.
+      .then((d: { projects?: Array<{ id: number | string; slackChannel: string | null }>; error?: string }) => {
         if (cancelled) return;
-        setChannel(d.projects?.find(p => p.id === project.id)?.slackChannel ?? null);
+        if (!d.projects) throw new Error(d.error ?? "No project list returned");
+        setChannel(d.projects.find(p => Number(p.id) === project.id)?.slackChannel ?? null);
       })
-      .catch(() => { if (!cancelled) setChannel(null); });
+      // A failed lookup is not "the field is empty" — say which it was.
+      .catch(e => {
+        if (cancelled) return;
+        setChannel(null);
+        setLoadError(e instanceof Error ? e.message : "Request failed");
+      });
     return () => { cancelled = true; };
   }, [project.id]);
 
@@ -165,7 +174,9 @@ export function DeliverablesReportModal({ project, tasks, sectionLabel, onClose 
             margin: "0 18px 8px", padding: "8px 12px", borderRadius: 6, fontSize: 12,
             background: C.yellowBg, color: C.yellow, border: `1px solid ${C.yellowBd}`,
           }}>
-            This project has no Slack channel. Set custentity_slack_channel on the NetSuite project record.
+            {loadError
+              ? `Couldn't look up this project's Slack channel: ${loadError}`
+              : "This project has no Slack channel. Set custentity_slack_channel on the NetSuite project record."}
           </div>
         )}
 
