@@ -92,6 +92,24 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         console.error("[/api/time-entries] task title lookup failed:", err);
       }
+
+      // casetaskevent can also point at a support case (MSA time is usually logged
+      // against one). Ids that aren't project tasks are looked up as cases and
+      // shown as "Case #1178 — title".
+      const caseIds = taskIds.filter(id => !(id in taskTitle));
+      if (caseIds.length > 0) {
+        try {
+          const caseRows = await runSuiteQLAll<{ id: string; casenumber: string | null; title: string | null }>(`
+            SELECT id, casenumber, title FROM supportcase WHERE id IN (${caseIds.join(",")})
+          `);
+          for (const c of caseRows) {
+            const title = (c.title ?? "").trim();
+            taskTitle[c.id] = c.casenumber ? `Case #${c.casenumber}${title ? ` — ${title}` : ""}` : title;
+          }
+        } catch (err) {
+          console.error("[/api/time-entries] case title lookup failed:", err);
+        }
+      }
     }
 
     const entries = rows.map(r => ({
