@@ -4,7 +4,7 @@ import { useSession } from "next-auth/react";
 import { C, STATUS_STYLES } from "@/lib/constants";
 import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
-import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
+import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, startOfToday, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
@@ -70,19 +70,29 @@ const STATUS_LISTS_PER_REQUEST = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * The timeline sub-tab a task sits under, by due date. taskBucket never calls a
+ * done task overdue (right for the overdue badge), which would drop every
+ * past-due done task into This Week; with "Show Done" ticked it belongs under
+ * Overdue, where its due date puts it.
+ */
+function timelineBucket(task: CUTask) {
+  if (isDone(task) && task.due_date && parseInt(task.due_date) < startOfToday()) return "overdue";
+  return taskBucket(task);
+}
+
 /** Done tasks are hidden on every sub-tab unless the "Show Done" box is ticked. */
 function filterForTab(rows: TaskRow[], tabId: TabId, showDone: boolean): TaskRow[] {
   const shown = (task: CUTask) => showDone || !isDone(task);
   switch (tabId) {
     case "overdue":
-      // Never holds a done task: taskBucket files a past-due done task under This Week.
-      return rows.filter(({ task }) => taskBucket(task) === "overdue");
+      return rows.filter(({ task }) => timelineBucket(task) === "overdue" && shown(task));
     case "this_week":
-      return rows.filter(({ task }) => taskBucket(task) === "this_week" && shown(task));
+      return rows.filter(({ task }) => timelineBucket(task) === "this_week" && shown(task));
     case "next_week":
-      return rows.filter(({ task }) => taskBucket(task) === "next_week" && shown(task));
+      return rows.filter(({ task }) => timelineBucket(task) === "next_week" && shown(task));
     case "upcoming":
-      return rows.filter(({ task }) => taskBucket(task) === "upcoming" && shown(task));
+      return rows.filter(({ task }) => timelineBucket(task) === "upcoming" && shown(task));
     case "milestones":
       return rows.filter(({ task }) => isMilestone(task) && shown(task));
     case "blocked":
