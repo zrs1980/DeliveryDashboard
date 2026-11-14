@@ -40,6 +40,7 @@ interface TaskRow {
 
 /** An inline priority / due-date edit. Omitted = unchanged, null = clear. */
 interface TaskFieldsPatch {
+  name?:     string;
   priority?: number | null;
   dueDate?:  number | null;
 }
@@ -121,6 +122,9 @@ function firstName(username: string): string {
 
 type SortKey = "status" | "priority" | "task" | "client" | "assignees" | "due" | "scheduled";
 type SortDir = "asc" | "desc";
+
+/** The table's order until a header is clicked (and after a third click). */
+const DEFAULT_SORT_KEY: SortKey = "priority";
 
 /**
  * Fixed rather than built from the loaded tasks (unlike the status filter):
@@ -532,6 +536,17 @@ function TaskTableRow({
   onOpenDescription: (task: CUTask) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  // Inline title edit: ✏️ opens an input; Enter or leaving the field saves,
+  // Esc cancels. An unchanged or blank title writes nothing.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft]     = useState(task.name);
+
+  const startEditName = () => { setNameDraft(task.name); setEditingName(true); };
+  const commitName = () => {
+    setEditingName(false);
+    const next = nameDraft.trim();
+    if (next && next !== task.name) onFieldChange(task, { name: next });
+  };
 
   const blocked    = isBlocked(task);
   const client     = isClientPending(task) && !isDone(task);
@@ -594,25 +609,58 @@ function TaskTableRow({
           {client && !blocked && (
             <span title="Awaiting client" style={{ color: C.orange, fontSize: 12, flexShrink: 0 }}>👤</span>
           )}
-          <a
-            href={task.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              color: done ? C.textSub : C.blue,
-              textDecoration: "none",
-              fontWeight: done ? 400 : 500,
-              fontSize: 12,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              display: "block",
-              opacity: done ? 0.7 : 1,
-            }}
-            title={task.name}
-          >
-            {task.name}
-          </a>
+          {editingName ? (
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={e => {
+                if (e.key === "Enter")  { e.preventDefault(); commitName(); }
+                if (e.key === "Escape") { e.preventDefault(); setEditingName(false); }
+              }}
+              style={{
+                flex: 1, minWidth: 0, fontSize: 12, fontFamily: C.font,
+                padding: "2px 6px", borderRadius: 4,
+                border: `1px solid ${C.blueBd}`, outline: "none", color: C.text,
+              }}
+            />
+          ) : (
+            <>
+              <a
+                href={task.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: done ? C.textSub : C.blue,
+                  textDecoration: "none",
+                  fontWeight: done ? 400 : 500,
+                  fontSize: 12,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  display: "block",
+                  opacity: done ? 0.7 : 1,
+                }}
+                title={task.name}
+              >
+                {task.name}
+              </a>
+              <button
+                onClick={startEditName}
+                disabled={saving}
+                title="Edit the task title"
+                aria-label="Edit title"
+                style={{
+                  flexShrink: 0, background: "none", border: "none", padding: "0 2px",
+                  fontSize: 11, lineHeight: 1, cursor: saving ? "not-allowed" : "pointer",
+                  opacity: hovered ? 0.8 : 0.35,
+                }}
+              >
+                ✏️
+              </button>
+            </>
+          )}
           {/* Only on tasks that have one — an icon that opens "no description"
               on most rows would teach people to stop clicking it. */}
           {taskDescription(task) && (
@@ -763,15 +811,15 @@ function TaskTable({
   onOpenComments: (task: CUTask) => void;
   onOpenDescription: (task: CUTask) => void;
 }) {
-  // Click a header to sort ascending, again for descending, a third time to go
-  // back to the default order (due-date buckets, as the tab defines them).
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  // Default: priority, Urgent first, no-priority last. Click a header to sort
+  // ascending, again for descending, a third time to go back to the default.
+  const [sortKey, setSortKey] = useState<SortKey | null>(DEFAULT_SORT_KEY);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const onSort = (key: SortKey) => {
     if (sortKey !== key)     { setSortKey(key); setSortDir("asc"); }
     else if (sortDir === "asc") setSortDir("desc");
-    else                     { setSortKey(null); setSortDir("asc"); }
+    else                     { setSortKey(DEFAULT_SORT_KEY); setSortDir("asc"); }
   };
 
   const sortedRows = useMemo(
@@ -1030,8 +1078,9 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
    * date re-buckets the row immediately (it may move to another sub-tab).
    */
   const changeFields = useCallback(async (task: CUTask, fields: TaskFieldsPatch) => {
-    const previous = { priority: task.priority ?? null, due_date: task.due_date };
+    const previous = { name: task.name, priority: task.priority ?? null, due_date: task.due_date };
     const optimistic: Partial<CUTask> = {};
+    if (fields.name     !== undefined) optimistic.name = fields.name;
     if (fields.priority !== undefined) optimistic.priority = fields.priority ? CU_PRIORITIES[fields.priority] : null;
     if (fields.dueDate  !== undefined) optimistic.due_date = fields.dueDate != null ? String(fields.dueDate) : null;
 
@@ -1049,12 +1098,14 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
       if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
 
       const landed: Partial<CUTask> = {};
+      if (fields.name     !== undefined && data.name) landed.name = data.name;
       if (fields.priority !== undefined) landed.priority = data.priority ?? null;
       if (fields.dueDate  !== undefined) landed.due_date = data.due_date ?? null;
       applyTask(task.id, t => ({ ...t, ...landed }));
     } catch (e) {
       applyTask(task.id, t => ({ ...t, ...previous }));
-      const what = fields.priority !== undefined ? "priority" : "due date";
+      const what = fields.name !== undefined ? "title"
+        : fields.priority !== undefined ? "priority" : "due date";
       setActionError(
         `Could not change the ${what} of "${task.name}": ${e instanceof Error ? e.message : "unknown error"}`,
       );

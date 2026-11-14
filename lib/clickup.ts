@@ -383,21 +383,23 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
 }
 
 /**
- * Set a task's priority and/or due date. Omit a field to leave it alone; null
- * clears it.
+ * Set a task's name, priority and/or due date. Omit a field to leave it alone;
+ * null clears priority / due date (a name can't be cleared).
  *
+ *   name     — the task title
  *   priority — ClickUp's 1 urgent · 2 high · 3 normal · 4 low
  *   dueDate  — Unix ms. Sent as a date-only due (due_date_time: false), which is
  *              how the grid shows it.
  *
- * Returns both fields as ClickUp reports them after the write, so the grid
+ * Returns the fields as ClickUp reports them after the write, so the grid
  * renders what landed — same reasoning as updateTaskStatus.
  */
 export async function updateTaskFields(
   taskId: string,
-  fields: { priority?: number | null; dueDate?: number | null },
-): Promise<{ priority: CUTask["priority"]; due_date: string | null }> {
+  fields: { name?: string; priority?: number | null; dueDate?: number | null },
+): Promise<{ name: string | null; priority: CUTask["priority"]; due_date: string | null }> {
   const body: Record<string, unknown> = {};
+  if (fields.name !== undefined) body.name = fields.name;
   if (fields.priority !== undefined) body.priority = fields.priority;
   if (fields.dueDate !== undefined) {
     body.due_date      = fields.dueDate;
@@ -405,6 +407,7 @@ export async function updateTaskFields(
   }
   const data = await cuPut(`/task/${taskId}`, body);
   return {
+    name:     typeof data?.name === "string" ? data.name : null,
     priority: data?.priority ?? null,
     due_date: data?.due_date != null ? String(data.due_date) : null,
   };

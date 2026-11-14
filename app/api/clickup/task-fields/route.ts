@@ -6,12 +6,13 @@ export const revalidate = 0;
 
 /**
  * POST /api/clickup/task-fields
- * { taskId, priority?, dueDate? }
+ * { taskId, name?, priority?, dueDate? }
  *
+ *   name     — new task title (non-empty)
  *   priority — 1 urgent · 2 high · 3 normal · 4 low · null to clear
  *   dueDate  — Unix ms · null to clear
  *
- * Omit a field to leave it unchanged. → { taskId, priority, due_date } as
+ * Omit a field to leave it unchanged. → { taskId, name, priority, due_date } as
  * ClickUp reports them after the write (see /api/clickup/task-status for why).
  */
 export async function POST(req: NextRequest) {
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { taskId?: unknown; priority?: unknown; dueDate?: unknown };
+  let body: { taskId?: unknown; name?: unknown; priority?: unknown; dueDate?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -35,7 +36,13 @@ export async function POST(req: NextRequest) {
   const taskId = String(body?.taskId ?? "").trim();
   if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
-  const fields: { priority?: number | null; dueDate?: number | null } = {};
+  const fields: { name?: string; priority?: number | null; dueDate?: number | null } = {};
+
+  if ("name" in body) {
+    const n = typeof body.name === "string" ? body.name.trim() : "";
+    if (!n) return NextResponse.json({ error: "name must be a non-empty string" }, { status: 400 });
+    fields.name = n;
+  }
 
   if ("priority" in body) {
     const p = body.priority;
@@ -53,8 +60,8 @@ export async function POST(req: NextRequest) {
     fields.dueDate = d as number | null;
   }
 
-  if (fields.priority === undefined && fields.dueDate === undefined) {
-    return NextResponse.json({ error: "Nothing to update — send priority and/or dueDate" }, { status: 400 });
+  if (fields.name === undefined && fields.priority === undefined && fields.dueDate === undefined) {
+    return NextResponse.json({ error: "Nothing to update — send name, priority and/or dueDate" }, { status: 400 });
   }
 
   try {
