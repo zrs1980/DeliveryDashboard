@@ -172,15 +172,33 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
       .catch(e => console.warn("[Time Entries] could not load internal projects:", e));
   }, []);
 
+  // General Consulting Agreement / Consulting Services jobs aren't in Active
+  // Projects either. External, so they fall under the "External" type filter.
+  const [consultingProjects, setConsultingProjects] = useState<EntryProject[]>([]);
+  useEffect(() => {
+    fetch("/api/consulting-projects")
+      .then(r => r.json())
+      .then((d: { projects?: Array<{ id: number; projectName: string; customerName: string; pm: string }> }) => {
+        setConsultingProjects((d.projects ?? []).map(p => ({
+          id:    p.id,
+          label: p.customerName && p.customerName !== p.projectName
+            ? `${p.customerName} — ${p.projectName}`
+            : p.projectName,
+          pm:    p.pm,
+        })));
+      })
+      .catch(e => console.warn("[Time Entries] could not load consulting projects:", e));
+  }, []);
+
   const projects: EntryProject[] = useMemo(() => {
     const seen = new Set(activeProjects.map(p => p.id));
-    const extra = [...msaProjects, ...internalProjects].filter(m => {
+    const extra = [...msaProjects, ...consultingProjects, ...internalProjects].filter(m => {
       if (seen.has(m.id)) return false;
       seen.add(m.id);
       return true;
     });
     return [...activeProjects, ...extra];
-  }, [activeProjects, msaProjects, internalProjects]);
+  }, [activeProjects, msaProjects, consultingProjects, internalProjects]);
 
   const [period, setPeriod]           = useState<Period>("thisWeek");
   const [customFrom, setCustomFrom]   = useState("");
