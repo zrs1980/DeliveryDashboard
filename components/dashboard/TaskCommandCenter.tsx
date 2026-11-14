@@ -1508,9 +1508,9 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
       {reportModalOpen && selectedProject && (() => {
         const proj = projects.find(p => p.id === selectedProject);
         if (!proj) return null;
-        // The selected section's tasks, done ones always included — the report's
-        // first group is what got done, whether or not "Show Done" is ticked.
-        const sectionTasks = filterForTab(allRows, tab, true)
+        // Exactly the rows on screen: the selected section under the current
+        // filters, so done tasks only appear when "Show Done" is ticked.
+        const sectionTasks = activeRows
           .filter(r => r.project.id === proj.id)
           .map(r => r.task);
         return (

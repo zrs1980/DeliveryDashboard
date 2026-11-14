@@ -17,7 +17,7 @@ import type { CUTask, Project } from "@/lib/types";
 
 interface Props {
   project: Project;
-  /** The section's tasks, done ones included whether or not "Show Done" is ticked. */
+  /** The tasks shown in the selected section, under the current filters. */
   tasks: CUTask[];
   sectionLabel: string;
   onClose: () => void;
