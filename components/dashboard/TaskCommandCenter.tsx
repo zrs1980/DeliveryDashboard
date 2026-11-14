@@ -6,6 +6,7 @@ import { LinkBtn } from "@/components/ui/LinkBtn";
 import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, startOfToday, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
+import { DeliverablesReportModal } from "@/components/dashboard/DeliverablesReportModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
 import { TaskCasesTable, isOpenCase, samePerson, caseMatchesProject, casePriorityRank, type TaskCase } from "@/components/dashboard/TaskCases";
@@ -907,6 +908,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
   // Map of task_id → scheduled_at ISO string
   const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
   const [slackModalOpen, setSlackModalOpen]   = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
 
   // ── ClickUp write state ──
   const [statusesByList, setStatusesByList] = useState<Record<string, CUStatus[]>>({});
@@ -1349,7 +1351,32 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
               whiteSpace:   "nowrap",
             }}
           >
-            ↗ Post to Slack
+            ↗ Post Open Deliverables to Slack
+          </button>}
+          {!onCasesTab && <button
+            onClick={() => setReportModalOpen(true)}
+            disabled={!selectedProject}
+            title={selectedProject
+              ? "Post this week's done and pending deliverables to the project's Slack channel"
+              : "Pick a project first — the report goes to that project's Slack channel"}
+            style={{
+              display:      "flex",
+              alignItems:   "center",
+              gap:          5,
+              padding:      "4px 11px",
+              fontSize:     12,
+              fontWeight:   700,
+              borderRadius: 5,
+              border:       `1px solid #3CB371`,
+              background:   "#E8F8EE",
+              color:        "#1A7A45",
+              cursor:       selectedProject ? "pointer" : "not-allowed",
+              opacity:      selectedProject ? 1 : 0.5,
+              fontFamily:   C.font,
+              whiteSpace:   "nowrap",
+            }}
+          >
+            ↗ Post Deliverables Week End Report
           </button>}
         </div>
       </div>
@@ -1476,6 +1503,12 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
           onClose={() => setSlackModalOpen(false)}
         />
       )}
+
+      {/* ── Deliverables week-end report modal ── */}
+      {reportModalOpen && selectedProject && (() => {
+        const proj = projects.find(p => p.id === selectedProject);
+        return proj ? <DeliverablesReportModal project={proj} onClose={() => setReportModalOpen(false)} /> : null;
+      })()}
 
       {/* ── Notes panel (single project selected) ── */}
       {selectedProject && (() => {

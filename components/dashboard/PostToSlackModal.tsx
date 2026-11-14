@@ -126,7 +126,7 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
           background:     C.alt,
         }}>
           <div>
-            <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Post to Slack</span>
+            <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Post Open Deliverables to Slack</span>
             <span style={{ marginLeft: 10, fontSize: 12, color: C.textSub }}>Weekly Deliverables · #oxide</span>
           </div>
           <button
