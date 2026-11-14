@@ -1507,7 +1507,20 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
       {/* ── Deliverables week-end report modal ── */}
       {reportModalOpen && selectedProject && (() => {
         const proj = projects.find(p => p.id === selectedProject);
-        return proj ? <DeliverablesReportModal project={proj} onClose={() => setReportModalOpen(false)} /> : null;
+        if (!proj) return null;
+        // The selected section's tasks, done ones always included — the report's
+        // first group is what got done, whether or not "Show Done" is ticked.
+        const sectionTasks = filterForTab(allRows, tab, true)
+          .filter(r => r.project.id === proj.id)
+          .map(r => r.task);
+        return (
+          <DeliverablesReportModal
+            project={proj}
+            tasks={sectionTasks}
+            sectionLabel={TAB_DEFS.find(t => t.id === tab)?.label ?? tab}
+            onClose={() => setReportModalOpen(false)}
+          />
+        );
       })()}
 
       {/* ── Notes panel (single project selected) ── */}

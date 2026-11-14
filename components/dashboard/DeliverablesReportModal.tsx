@@ -5,10 +5,10 @@ import { isDone } from "@/lib/clickup";
 import type { CUTask, Project } from "@/lib/types";
 
 /**
- * "Post Deliverables Week End Report" — posts a status report of the selected
- * project's deliverables for the current week (tasks due Mon–Sun) to the
- * project's Slack channel: done ones first with a ✅, then the rest with a ❌,
- * each group followed by its count.
+ * "Post Deliverables Week End Report" — posts a status report of the tasks in
+ * the Tasks tab's selected section (Overdue, This Week, …) for the selected
+ * project to the project's Slack channel: done ones first with a ✅, then the
+ * rest with a ❌, each group followed by its count.
  *
  * The channel is custentity_slack_channel on the NetSuite job, read through
  * /api/projects/folders (Project doesn't carry it). The text is built here so the
@@ -17,6 +17,9 @@ import type { CUTask, Project } from "@/lib/types";
 
 interface Props {
   project: Project;
+  /** The section's tasks, done ones included whether or not "Show Done" is ticked. */
+  tasks: CUTask[];
+  sectionLabel: string;
   onClose: () => void;
 }
 
@@ -31,18 +34,6 @@ function priorityRank(task: CUTask): number {
   return isNaN(n) ? 5 : n;
 }
 
-/** Monday 00:00 of this week → Monday 00:00 of next, local time. */
-function currentWeek(): { start: Date; end: Date } {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  const end = new Date(start);
-  end.setDate(end.getDate() + 7);
-  return { start, end };
-}
-
-const fmtDay = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
 /** Slack mrkdwn treats &, < and > as control characters. */
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -52,25 +43,19 @@ function taskLine(task: CUTask, icon: string): string {
   return `${icon} ${name}  ·  Priority: ${priorityLabel(task)}  ·  ${esc(assignees)}`;
 }
 
-function buildReport(project: Project, sentAt: Date): { text: string; done: number; open: number } {
-  const { start, end } = currentWeek();
-  const thisWeek = project.tasks.filter(t => {
-    if (!t.due_date) return false;
-    const due = parseInt(t.due_date);
-    return due >= start.getTime() && due < end.getTime();
-  });
+function buildReport(
+  project: Project, tasks: CUTask[], sectionLabel: string, sentAt: Date,
+): { text: string; done: number; open: number } {
   const byPriority = (a: CUTask, b: CUTask) =>
     priorityRank(a) - priorityRank(b) || a.name.localeCompare(b.name);
-  const done = thisWeek.filter(isDone).sort(byPriority);
-  const open = thisWeek.filter(t => !isDone(t)).sort(byPriority);
+  const done = tasks.filter(isDone).sort(byPriority);
+  const open = tasks.filter(t => !isDone(t)).sort(byPriority);
 
-  const lastDay = new Date(end);
-  lastDay.setDate(lastDay.getDate() - 1);
   const sentLabel = sentAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const lines = [
     `*📋 Weekly Deliverables Status Report — ${sentLabel}*`,
-    `_${esc(project.label)} · Week of ${fmtDay(start)} – ${fmtDay(lastDay)}_`,
+    `_${esc(project.label)} · ${esc(sectionLabel)}_`,
     "",
     "*Completed*",
     ...(done.length ? done.map(t => taskLine(t, "✅")) : ["_None_"]),
@@ -83,7 +68,7 @@ function buildReport(project: Project, sentAt: Date): { text: string; done: numb
   return { text: lines.join("\n"), done: done.length, open: open.length };
 }
 
-export function DeliverablesReportModal({ project, onClose }: Props) {
+export function DeliverablesReportModal({ project, tasks, sectionLabel, onClose }: Props) {
   const [posting, setPosting] = useState(false);
   const [result,  setResult]  = useState<{ ok: boolean; error?: string } | null>(null);
   const [channel, setChannel] = useState<string | null | undefined>(undefined);  // undefined = loading
@@ -100,7 +85,10 @@ export function DeliverablesReportModal({ project, onClose }: Props) {
     return () => { cancelled = true; };
   }, [project.id]);
 
-  const report = useMemo(() => buildReport(project, new Date()), [project]);
+  const report = useMemo(
+    () => buildReport(project, tasks, sectionLabel, new Date()),
+    [project, tasks, sectionLabel],
+  );
 
   async function handlePost() {
     if (!channel) return;
@@ -108,7 +96,7 @@ export function DeliverablesReportModal({ project, onClose }: Props) {
     setResult(null);
     try {
       // Rebuilt at send time so the title carries the date it was actually sent.
-      const { text } = buildReport(project, new Date());
+      const { text } = buildReport(project, tasks, sectionLabel, new Date());
       const res  = await fetch("/api/slack/deliverables-report", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,7 +148,7 @@ export function DeliverablesReportModal({ project, onClose }: Props) {
             fontSize: 11, fontWeight: 700, color: C.textSub,
             textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8,
           }}>
-            Preview — tasks due this week · {report.done} done · {report.open} pending
+            Preview — {sectionLabel} · {report.done} done · {report.open} pending
           </div>
           <pre style={{
             fontFamily: C.mono, fontSize: 11, lineHeight: 1.6,
