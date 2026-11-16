@@ -1,27 +1,15 @@
 import { NextResponse } from "next/server";
-import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours } from "@/lib/netsuite";
+import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
 import { getPmRoster, getStaffRoster, nameFor } from "@/lib/roster";
-import { getSupabaseAdmin } from "@/lib/supabase";
 import type { Project, ProjectHealth, ProjectNote } from "@/lib/types";
 
-type StoredStatus = { status: Exclude<ProjectHealth, "unset">; updated_by: string | null; updated_at: string };
-
-// Manually set statuses (supabase/project-status.sql). A failed read leaves
-// every project "Not set" rather than failing the whole Projects tab.
-async function fetchProjectStatuses(): Promise<Record<number, StoredStatus>> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("project_status")
-    .select("ns_project_id, status, updated_by, updated_at");
-  if (error) {
-    console.error("[/api/projects] project_status:", error.message);
-    return {};
-  }
-  const out: Record<number, StoredStatus> = {};
-  for (const r of data ?? []) out[r.ns_project_id] = r;
-  return out;
-}
+// List value name (custentity_loop_internal_status) → status. Anything else,
+// including "Not set" and an empty field, reads as "unset".
+const HEALTH_BY_NAME: Record<string, ProjectHealth> = Object.fromEntries(
+  Object.entries(PROJECT_STATUS_NAMES).map(([h, name]) => [name.toLowerCase(), h as ProjectHealth])
+);
 
 export const revalidate = 0; // always fresh
 
@@ -54,13 +42,23 @@ export async function GET() {
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
     // The rosters come along: staff resolves the projectmanager field to a name,
     // and the PM roster drives the most-hours fallback when that field is empty.
-    const [timebillRows, billableRows, pmRoster, staffRoster, statuses] = await Promise.all([
+    const [timebillRows, billableRows, pmRoster, staffRoster, statusRows] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
       getPmRoster({ includeInactive: true }),
       getStaffRoster(),
-      fetchProjectStatuses().catch(() => ({} as Record<number, StoredStatus>)),
+      // A failed read (e.g. the field not created yet) leaves every project
+      // "Not set" rather than failing the whole Projects tab.
+      fetchProjectStatuses(projectIds).catch(err => {
+        console.error("[/api/projects] project status:", err);
+        return [] as Awaited<ReturnType<typeof fetchProjectStatuses>>;
+      }),
     ]);
+
+    const healthByProject: Record<number, ProjectHealth> = {};
+    for (const r of statusRows) {
+      healthByProject[parseInt(r.id)] = HEALTH_BY_NAME[(r.status ?? "").trim().toLowerCase()] ?? "unset";
+    }
 
     // Build timebill map: projectId → total hours logged
     const timebillByProject: Record<number, number> = {};
@@ -145,7 +143,6 @@ export async function GET() {
           isOverdue = daysLeft < 0 && pct < 1;
         }
 
-        const stored = statuses[id];
 
         // PM is the NetSuite projectmanager field. Only when that is empty does it
         // fall back to the PM-roster employee with the most hours on the project.
@@ -189,9 +186,7 @@ export async function GET() {
           burnRate,
           spi,
           budgetGap,
-          health:        stored?.status ?? "unset",
-          healthSetBy:   stored?.updated_by ?? null,
-          healthSetAt:   stored?.updated_at ?? null,
+          health:        healthByProject[id] ?? "unset",
           nsUrl:         nsProjectUrl(id),
           clickupUrl:    p.clickup_url ?? null,
           clickupListId,
@@ -243,8 +238,6 @@ export async function GET() {
           spi:           1,
           budgetGap:     0,
           health:        "unset" as const,
-          healthSetBy:   null,
-          healthSetAt:   null,
           nsUrl:         "",
           clickupUrl:    `https://app.clickup.com/42022327/v/l/li/${listId}`,
           clickupListId: listId,

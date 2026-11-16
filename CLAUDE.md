@@ -315,11 +315,12 @@ Map ClickUp statuses to health signals:
 
 ## Project Status — set by hand
 
-The On Track / At Risk / Critical status on the Projects tab is **chosen by the PM**, not computed. It is a dropdown on each row (`HealthSelect` in `components/health/HealthBadge.tsx`) that PATCHes `/api/projects/[id]/status`, stored in the Supabase `project_status` table (`supabase/project-status.sql`, one row per NetSuite project).
+The On Track / At Risk / Critical status on the Projects tab is **chosen by the PM**, not computed. It is a dropdown on each row (`HealthSelect` in `components/health/HealthBadge.tsx`) that PATCHes `/api/projects/[id]/status`, which writes the NetSuite project field **`custentity_loop_internal_status`** — a List/Record field on `customlist_project_internal_statuses` with values **On Track · At Risk · Critical · Not set**.
 
-- `Project.health` is `"green" | "yellow" | "red" | "unset"`. **No row = `"unset"`, shown as a grey "Not set"** — never defaulted to green, so nothing looks healthy by accident. Choosing "Not set" deletes the row.
-- `healthSetBy` / `healthSetAt` drive the badge tooltip.
-- If the `project_status` read fails, every project reads "Not set" rather than the Projects tab failing.
+- `Project.health` is `"green" | "yellow" | "red" | "unset"`. **An empty field or "Not set" = `"unset"`, shown as a grey "Not set"** — never defaulted to green, so nothing looks healthy by accident.
+- **List values are matched by NAME, not internal id** (`PROJECT_STATUS_NAMES` in `lib/netsuite.ts`). Renaming a value in NetSuite breaks the mapping; reordering or re-creating it does not.
+- The status is read in its own query (`fetchProjectStatuses`), not in `fetchActiveProjects`, so if the field is missing every project reads "Not set" rather than the Projects tab failing.
+- Not stored in Supabase: the Supabase project is not accessible to the current team.
 - The weekly status report takes its overall status from this; when unset it carries last week's report forward (else On Track) and the status reason says to confirm it.
 
 > Replaced November 2026. The old `calcHealthScore` (score 0–100 from overdue go-live, budget gap, SPI and low runway) ran on the hand-maintained `custentity_project_remaining_hours` and equal-weighted ClickUp task counts, and is gone along with `Project.score`. Do not reintroduce a computed status.

@@ -348,6 +348,47 @@ export async function fetchActiveProjects() {
   `);
 }
 
+// ─── Manually set project status ─────────────────────────────────────────────
+//
+// custentity_loop_internal_status is a List/Record field on the project (job)
+// pointing at customlist_project_internal_statuses: On Track / At Risk / Critical /
+// Not set. The PM sets it from the Projects tab dropdown.
+//
+// Values are matched by NAME, never by internal id, so reordering or re-creating
+// the list values in NetSuite doesn't break the mapping. Read separately from
+// fetchActiveProjects so a missing field degrades to "Not set" instead of
+// failing the whole Projects tab.
+
+export const PROJECT_STATUS_FIELD = "custentity_loop_internal_status";
+export const PROJECT_STATUS_LIST  = "customlist_project_internal_statuses";
+
+export const PROJECT_STATUS_NAMES: Record<"green" | "yellow" | "red" | "unset", string> = {
+  green:  "On Track",
+  yellow: "At Risk",
+  red:    "Critical",
+  unset:  "Not set",
+};
+
+export async function fetchProjectStatuses(projectIds: number[]) {
+  if (projectIds.length === 0) return [];
+  const placeholders = projectIds.map(() => "?").join(", ");
+  return runSuiteQL<{ id: string; status: string | null }>(`
+    SELECT id, BUILTIN.DF(${PROJECT_STATUS_FIELD}) AS status
+    FROM job
+    WHERE id IN (${placeholders})
+  `, projectIds);
+}
+
+/** List value name → internal id, e.g. { "On Track": "1", ... }. */
+export async function fetchProjectStatusOptions(): Promise<Record<string, string>> {
+  const rows = await runSuiteQL<{ id: string; name: string }>(
+    `SELECT id, name FROM ${PROJECT_STATUS_LIST} WHERE isinactive = 'F'`
+  );
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.name.trim()] = String(r.id);
+  return out;
+}
+
 export async function fetchProjectHours(projectId: number) {
   const rows = await runSuiteQL<{
     id: string;

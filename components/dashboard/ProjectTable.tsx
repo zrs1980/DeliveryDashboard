@@ -587,7 +587,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
       onProjectsChange(
         projects.map(p =>
           p.id === projectId
-            ? { ...p, health: data.health, healthSetBy: data.healthSetBy, healthSetAt: data.healthSetAt }
+            ? { ...p, health: data.health }
             : p
         )
       );
@@ -749,9 +749,9 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                           health={p.health}
                           onChange={h => saveStatus(p.id, h)}
                           disabled={statusSaving === p.id}
-                          title={p.healthSetAt
-                            ? `Set by ${p.healthSetBy ?? "unknown"} on ${new Date(p.healthSetAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`
-                            : "Status not set yet. Pick one."}
+                          title={p.health === "unset"
+                            ? "Status not set yet. Pick one. Saves to the NetSuite project."
+                            : "Saves to the NetSuite project (Project Status field)."}
                         />
                       )}
                       <div>

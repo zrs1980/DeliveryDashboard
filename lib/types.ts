@@ -80,10 +80,8 @@ export interface Project {
   burnRate: number;
   spi: number;
   budgetGap: number;
-  /** Set by hand on the Projects tab (Supabase project_status); "unset" until a PM picks one. */
+  /** Set by hand on the Projects tab (NetSuite custentity_loop_internal_status); "unset" until a PM picks one. */
   health: ProjectHealth;
-  healthSetBy: string | null;
-  healthSetAt: string | null;
   nsUrl: string;
   clickupUrl: string | null;
   clickupListId: string | null;

@@ -802,8 +802,6 @@ function NativeOnlyProjectView({
     spi:           1,
     budgetGap:     0,
     health:        "unset",
-    healthSetBy:   null,
-    healthSetAt:   null,
     nsUrl:         "",
     clickupUrl:    null,
     clickupListId: null,
