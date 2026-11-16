@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { C } from "@/lib/constants";
 import { isDone, taskBucket } from "@/lib/clickup";
 import type { CUTask, Project } from "@/lib/types";
@@ -16,6 +16,8 @@ interface Props {
   tabLabel: string;
   projectLabel: string;   // "All Projects" or specific client name
   canvasId: string | null;
+  /** Selected project, whose channel gets the "posted to the canvas" notice. Null for All Projects. */
+  projectId: number | null;
   onClose: () => void;
 }
 
@@ -61,9 +63,32 @@ function buildMarkdown(rows: TaskRow[], tabLabel: string, projectLabel: string):
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClose }: Props) {
+export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, projectId, onClose }: Props) {
   const [posting, setPosting] = useState(false);
-  const [result,  setResult]  = useState<{ ok: boolean; error?: string } | null>(null);
+  const [result,  setResult]  = useState<{
+    ok: boolean; error?: string; noticeChannel?: string | null; noticeError?: string | null;
+  } | null>(null);
+  // The project's Slack channel (custentity_slack_channel), which Project doesn't
+  // carry — same lookup DeliverablesReportModal uses. undefined = still loading.
+  const [channel, setChannel] = useState<string | null | undefined>(projectId ? undefined : null);
+
+  // Only notify when writing to the project's own canvas. Without one the post
+  // falls back to the workspace default, and "posted in the channel's canva"
+  // would send the channel looking for something that isn't there.
+  const notifyChannel = canvasId ? channel ?? null : null;
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    fetch("/api/projects/folders")
+      .then(r => r.json())
+      // The route passes the SuiteQL id through as a string — compare as numbers.
+      .then((d: { projects?: Array<{ id: number | string; slackChannel: string | null }> }) => {
+        if (!cancelled) setChannel(d.projects?.find(p => Number(p.id) === projectId)?.slackChannel ?? null);
+      })
+      .catch(() => { if (!cancelled) setChannel(null); });
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   const markdown = useMemo(
     () => buildMarkdown(rows, tabLabel, projectLabel),
@@ -77,10 +102,14 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
       const res  = await fetch("/api/slack/canvas", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ markdown, canvasId }),
+        body:    JSON.stringify({ markdown, canvasId, channel: notifyChannel }),
       });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      setResult(data.ok ? { ok: true } : { ok: false, error: data.error ?? "Unknown error" });
+      const data = await res.json() as {
+        ok?: boolean; error?: string; noticeChannel?: string | null; noticeError?: string | null;
+      };
+      setResult(data.ok
+        ? { ok: true, noticeChannel: data.noticeChannel ?? null, noticeError: data.noticeError ?? null }
+        : { ok: false, error: data.error ?? "Unknown error" });
     } catch (e) {
       setResult({ ok: false, error: e instanceof Error ? e.message : "Network error" });
     } finally {
@@ -127,7 +156,9 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
         }}>
           <div>
             <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Post Open Deliverables to Slack</span>
-            <span style={{ marginLeft: 10, fontSize: 12, color: C.textSub }}>Weekly Deliverables · #oxide</span>
+            <span style={{ marginLeft: 10, fontSize: 12, color: C.textSub }}>
+              Weekly Deliverables{notifyChannel ? ` · ${notifyChannel}` : ""}
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -162,6 +193,17 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
           }}>
             {markdown}
           </pre>
+          <div style={{ marginTop: 8, fontSize: 11, color: C.textSub }}>
+            {channel === undefined
+              ? "Looking up the project's Slack channel…"
+              : notifyChannel
+                ? `Then notifies ${notifyChannel}: "@channel the weekly deliverables have been posted in the channel's canva"`
+                : !projectId
+                  ? "No channel notice — select a project to notify its channel."
+                  : !canvasId
+                    ? "No channel notice — this project has no Slack Canvas ID, so this goes to the default canvas."
+                    : "No channel notice — this project has no Slack channel (custentity_slack_channel)."}
+          </div>
         </div>
 
         {/* Result */}
@@ -181,9 +223,13 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
             whiteSpace:   "pre-wrap",
             lineHeight:   1.5,
           }}>
-            {result.ok
-              ? "✓ Posted to Weekly Deliverables"
-              : result.error}
+            {!result.ok
+              ? result.error
+              : result.noticeChannel
+                ? `✓ Posted to the canvas and notified ${result.noticeChannel}`
+                : result.noticeError
+                  ? `✓ Posted to the canvas — but the channel notice failed:\n${result.noticeError}`
+                  : "✓ Posted to Weekly Deliverables"}
           </div>
         )}
 
@@ -215,7 +261,7 @@ export function PostToSlackModal({ rows, tabLabel, projectLabel, canvasId, onClo
           {!result?.ok && (
             <button
               onClick={handlePost}
-              disabled={posting}
+              disabled={posting || channel === undefined}
               style={{
                 padding:      "6px 16px",
                 fontSize:     13,

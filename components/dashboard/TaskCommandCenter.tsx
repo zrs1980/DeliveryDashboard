@@ -1820,6 +1820,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
               ? (projects.find(p => p.id === selectedProject)?.slackCanvasId ?? null)
               : null
           }
+          projectId={selectedProject}
           onClose={() => setSlackModalOpen(false)}
         />
       )}
