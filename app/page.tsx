@@ -194,6 +194,10 @@ export default function DashboardPage() {
   const [taskSubTab, setTaskSubTab] = useState<"overdue" | "blocked">("overdue");
   const [splitPct, setSplitPct] = useState(42); // % width for ConsultantView panel
   const [showCalendar, setShowCalendar] = useState(false);
+  // Active Projects section filters ("" = all).
+  const [apPm, setApPm]           = useState("");
+  const [apType, setApType]       = useState("");
+  const [apProject, setApProject] = useState<number | null>(null);
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], consultantRoster: [], updatedAt: null });
@@ -488,29 +492,97 @@ export default function DashboardPage() {
         )}
 
         {/* Projects */}
-        {hasLoaded && tab === "projects" && (
+        {hasLoaded && tab === "projects" && (() => {
+          const external = projects.filter(p => !p.isInternal);
+          const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+          const pmOptions   = uniq(external.map(p => p.pm).filter(pm => pm !== "—"));
+          const typeOptions = uniq(external.map(p => p.projectType));
+          // The Project list follows the PM and Type picks.
+          const byPmType = external.filter(p => (!apPm || p.pm === apPm) && (!apType || p.projectType === apType));
+          const shown    = apProject ? byPmType.filter(p => p.id === apProject) : byPmType;
+          const filtered = !!(apPm || apType || apProject);
+          const selStyle: React.CSSProperties = {
+            fontSize: 12, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`,
+            background: C.surface, color: C.text, fontFamily: C.font, maxWidth: 260,
+          };
+          const lblStyle: React.CSSProperties = {
+            fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: "uppercase", marginRight: 6,
+          };
+          // A PM/Type change that rules out the picked project clears it.
+          const keepsProject = (pm: string, type: string) =>
+            !apProject || external.some(p => p.id === apProject && (!pm || p.pm === pm) && (!type || p.projectType === type));
+          return (
           <>
-            <KpiCards projects={projects.filter(p => !p.isInternal)} />
-            <AiInsights projects={projects.filter(p => !p.isInternal)} />
+            <KpiCards projects={external} />
+            <AiInsights projects={external} />
             <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
-              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Active Projects</div>
-                <div style={{ fontSize: 12, color: C.textSub }}>{projects.filter(p => !p.isInternal).length} projects</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label style={lblStyle}>PM</label>
+                    <select value={apPm} style={selStyle} onChange={e => {
+                      setApPm(e.target.value);
+                      if (!keepsProject(e.target.value, apType)) setApProject(null);
+                    }}>
+                      <option value="">All</option>
+                      {pmOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label style={lblStyle}>Type</label>
+                    <select value={apType} style={selStyle} onChange={e => {
+                      setApType(e.target.value);
+                      if (!keepsProject(apPm, e.target.value)) setApProject(null);
+                    }}>
+                      <option value="">All</option>
+                      {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label style={lblStyle}>Project</label>
+                    <select value={apProject ?? ""} style={selStyle}
+                      onChange={e => setApProject(e.target.value ? parseInt(e.target.value) : null)}>
+                      <option value="">All</option>
+                      {[...byPmType].sort((a, b) => a.label.localeCompare(b.label)).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {filtered && (
+                    <button
+                      onClick={() => { setApPm(""); setApType(""); setApProject(null); }}
+                      style={{ fontSize: 11, background: "none", border: "none", color: C.blue, cursor: "pointer", fontFamily: C.font, padding: 0 }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <div style={{ fontSize: 12, color: C.textSub }}>
+                    {filtered ? `${shown.length} of ${external.length} projects` : `${external.length} projects`}
+                  </div>
+                </div>
               </div>
               <ProjectTable
-                projects={projects.filter(p => !p.isInternal)}
+                projects={shown}
                 phases={phases}
-                onProjectsChange={updated => setData(d => ({ ...d, projects: updated }))}
+                // The table hands back the (filtered) list it was given, so merge it
+                // into the full list by id — replacing it would drop every project
+                // the filters (and the internal exclusion) are hiding.
+                onProjectsChange={updated => setData(d => {
+                  const byId = new Map(updated.map(u => [u.id, u]));
+                  return { ...d, projects: d.projects.map(p => byId.get(p.id) ?? p) };
+                })}
               />
             </div>
             <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
               <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Time Entries</div>
               </div>
-              <TimeEntries projects={projects.filter(p => !p.isInternal)} />
+              <TimeEntries projects={external} />
             </div>
           </>
-        )}
+          );
+        })()}
 
         {/* Tasks */}
         {hasLoaded && tab === "tasks" && (
