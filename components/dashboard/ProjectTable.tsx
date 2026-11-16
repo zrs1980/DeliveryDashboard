@@ -922,13 +922,19 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                                   day: "numeric", month: "short", year: "2-digit",
                                 })}
                               </div>
-                              <div style={{
-                                fontSize: 11,
-                                color: p.isOverdue ? C.red : C.textSub,
-                                fontWeight: p.isOverdue ? 700 : 400,
-                              }}>
-                                {fmtD(p.daysLeft)}
-                              </div>
+                              {/* In Phase 5 (Go Live) the project is live: a countdown
+                                  or "overdue" against the go-live date means nothing. */}
+                              {activePhase?.phaseName === "Phase 5" ? (
+                                <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Live</div>
+                              ) : (
+                                <div style={{
+                                  fontSize: 11,
+                                  color: p.isOverdue ? C.red : C.textSub,
+                                  fontWeight: p.isOverdue ? 700 : 400,
+                                }}>
+                                  {fmtD(p.daysLeft)}
+                                </div>
+                              )}
                             </>
                           ) : (
                             <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>⚠ No date</span>
