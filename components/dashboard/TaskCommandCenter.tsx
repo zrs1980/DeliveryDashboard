@@ -549,6 +549,15 @@ function TaskTableRow({
     if (next && next !== task.name) onFieldChange(task, { name: next });
   };
 
+  // Subtasks: the parent is on the same ClickUp list, so it's among the
+  // project's loaded tasks. If it isn't (e.g. filtered out server-side), the
+  // link still works by id — only the name is missing.
+  // Viewport position of the pop-over. Fixed, not absolute: the table sits in an
+  // overflowX:auto wrapper, which would clip it on the bottom rows.
+  const [showParent, setShowParent] = useState<{ top: number; left: number } | null>(null);
+  const parentTask = task.parent ? project.tasks.find(t => t.id === task.parent) : undefined;
+  const parentUrl  = parentTask?.url || (task.parent ? `https://app.clickup.com/t/${task.parent}` : "");
+
   const blocked    = isBlocked(task);
   const client     = isClientPending(task) && !isDone(task);
   const milestone  = isMilestone(task);
@@ -577,7 +586,7 @@ function TaskTableRow({
     <tr
       style={{ background: rowBg, transition: "background 0.1s" }}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => { setHovered(false); setShowParent(null); }}
     >
       {/* Status */}
       <td style={td}>
@@ -647,6 +656,48 @@ function TaskTableRow({
               >
                 {task.name}
               </a>
+              {task.parent && (
+                <span style={{ flexShrink: 0 }}>
+                  <button
+                    onClick={e => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setShowParent(v => (v ? null : { top: r.bottom + 2, left: r.left }));
+                    }}
+                    title={parentTask ? `Subtask of: ${parentTask.name}` : "Subtask — show the parent task"}
+                    aria-label="Show parent task"
+                    style={{
+                      background: "none", border: "none", padding: "0 2px",
+                      fontSize: 12, lineHeight: 1, cursor: "pointer",
+                      color: C.purple, fontWeight: 700, opacity: showParent || hovered ? 1 : 0.6,
+                    }}
+                  >
+                    ⤴
+                  </button>
+                  {showParent && (
+                    <div style={{
+                      position: "fixed", top: showParent.top, left: showParent.left, zIndex: 50,
+                      minWidth: 220, maxWidth: 360, padding: "8px 10px",
+                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
+                      boxShadow: C.shMd, fontSize: 12, whiteSpace: "normal",
+                    }}>
+                      <div style={{
+                        fontSize: 10, fontWeight: 700, color: C.textSub,
+                        textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3,
+                      }}>
+                        Parent task
+                      </div>
+                      <a
+                        href={parentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: C.blue, fontWeight: 600, textDecoration: "none", wordBreak: "break-word" }}
+                      >
+                        ↗ {parentTask?.name ?? `Open in ClickUp (${task.parent})`}
+                      </a>
+                    </div>
+                  )}
+                </span>
+              )}
               <button
                 onClick={startEditName}
                 disabled={saving}
