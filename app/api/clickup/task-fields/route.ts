@@ -6,13 +6,14 @@ export const revalidate = 0;
 
 /**
  * POST /api/clickup/task-fields
- * { taskId, name?, priority?, dueDate? }
+ * { taskId, name?, priority?, dueDate?, assignees? }
  *
- *   name     — new task title (non-empty)
- *   priority — 1 urgent · 2 high · 3 normal · 4 low · null to clear
- *   dueDate  — Unix ms · null to clear
+ *   name      — new task title (non-empty)
+ *   priority  — 1 urgent · 2 high · 3 normal · 4 low · null to clear
+ *   dueDate   — Unix ms · null to clear
+ *   assignees — { add: userId[], rem: userId[] }
  *
- * Omit a field to leave it unchanged. → { taskId, name, priority, due_date } as
+ * Omit a field to leave it unchanged. → { taskId, name, priority, due_date, assignees } as
  * ClickUp reports them after the write (see /api/clickup/task-status for why).
  */
 export async function POST(req: NextRequest) {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { taskId?: unknown; name?: unknown; priority?: unknown; dueDate?: unknown };
+  let body: { taskId?: unknown; name?: unknown; priority?: unknown; dueDate?: unknown; assignees?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -36,7 +37,10 @@ export async function POST(req: NextRequest) {
   const taskId = String(body?.taskId ?? "").trim();
   if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
-  const fields: { name?: string; priority?: number | null; dueDate?: number | null } = {};
+  const fields: {
+    name?: string; priority?: number | null; dueDate?: number | null;
+    assignees?: { add: number[]; rem: number[] };
+  } = {};
 
   if ("name" in body) {
     const n = typeof body.name === "string" ? body.name.trim() : "";
@@ -60,8 +64,16 @@ export async function POST(req: NextRequest) {
     fields.dueDate = d as number | null;
   }
 
-  if (fields.name === undefined && fields.priority === undefined && fields.dueDate === undefined) {
-    return NextResponse.json({ error: "Nothing to update — send name, priority and/or dueDate" }, { status: 400 });
+  if ("assignees" in body) {
+    const a = body.assignees as { add?: unknown; rem?: unknown } | null;
+    const ids = (v: unknown) => Array.isArray(v) ? v.map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
+    const add = ids(a?.add);
+    const rem = ids(a?.rem);
+    if (add.length || rem.length) fields.assignees = { add, rem };
+  }
+
+  if (fields.name === undefined && fields.priority === undefined && fields.dueDate === undefined && !fields.assignees) {
+    return NextResponse.json({ error: "Nothing to update — send name, priority, dueDate and/or assignees" }, { status: 400 });
   }
 
   try {

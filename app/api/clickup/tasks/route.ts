@@ -33,7 +33,7 @@ async function listIdFrom(listId: unknown, clickupUrl: unknown): Promise<string 
 }
 
 /**
- * GET /api/clickup/tasks?listId=&clickupUrl=
+ * GET /api/clickup/tasks?listId=&clickupUrl=[&members=only]
  * → { listId, members, section: { fieldId, isMulti, options } | null, sectionError? }
  *
  * What the Create Task form needs for one project: who can be assigned, and the
@@ -47,6 +47,16 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const listId = await listIdFrom(sp.get("listId"), sp.get("clickupUrl"));
   if (!listId) return NextResponse.json({ error: NO_LIST }, { status: 400 });
+
+  // ?members=only — the assignee editor in the grid needs no sections.
+  if (sp.get("members") === "only") {
+    try {
+      return NextResponse.json({ listId, members: await fetchListMembers(listId), section: null, sectionError: null });
+    } catch (e) {
+      console.error("[/api/clickup/tasks GET] members", e);
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't load list members" }, { status: 502 });
+    }
+  }
 
   // Independent lookups — a failure in one shouldn't hide the other.
   const [members, fields] = await Promise.allSettled([fetchListMembers(listId), fetchListFields(listId)]);

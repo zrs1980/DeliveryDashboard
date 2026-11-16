@@ -39,11 +39,13 @@ interface TaskRow {
   project: Project;
 }
 
-/** An inline priority / due-date edit. Omitted = unchanged, null = clear. */
+/** An inline title / priority / due-date / assignee edit. Omitted = unchanged, null = clear. */
 interface TaskFieldsPatch {
-  name?:     string;
-  priority?: number | null;
-  dueDate?:  number | null;
+  name?:      string;
+  priority?:  number | null;
+  dueDate?:   number | null;
+  /** The full new assignee list; changeFields turns it into ClickUp's add/rem delta. */
+  assignees?: CUTask["assignees"];
 }
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
@@ -342,6 +344,184 @@ function DueDateInput({
   );
 }
 
+// ─── AssigneeEditor ──────────────────────────────────────────────────────────
+
+type Assignee = CUTask["assignees"][number];
+
+/**
+ * Members per ClickUp list, shared by every row on that list. A failed lookup
+ * is dropped from the cache so the next open retries.
+ */
+const listMembersCache = new Map<string, Promise<Assignee[]>>();
+
+function loadListMembers(listId: string): Promise<Assignee[]> {
+  let p = listMembersCache.get(listId);
+  if (!p) {
+    p = fetch(`/api/clickup/tasks?listId=${encodeURIComponent(listId)}&members=only`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d?.error ?? `Request failed (${r.status})`);
+        return (d.members ?? []).map((m: { id: number; username: string }) => ({ id: m.id, username: m.username, color: "" }));
+      });
+    p.catch(() => listMembersCache.delete(listId));
+    listMembersCache.set(listId, p);
+  }
+  return p;
+}
+
+/**
+ * The assignees, editable in place. Clicking opens a tick list of the task's
+ * ClickUp list members; nothing is written until Save, so ticking three people
+ * is one ClickUp write rather than three.
+ */
+function AssigneeEditor({
+  task,
+  saving,
+  onChange,
+}: {
+  task: CUTask;
+  saving: boolean;
+  onChange: (next: Assignee[]) => void;
+}) {
+  const [pos, setPos]         = useState<{ top: number; left: number } | null>(null);
+  const [members, setMembers] = useState<Assignee[] | null>(null);
+  const [error, setError]     = useState<string | null>(null);
+  const [picked, setPicked]   = useState<number[]>([]);
+  const [query, setQuery]     = useState("");
+
+  const names = task.assignees.map(a => firstName(a.username)).join(", ");
+
+  const open = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    // Keep the panel on screen when the column sits near the right edge.
+    setPos({ top: r.bottom + 2, left: Math.min(r.left, window.innerWidth - 270) });
+    setPicked(task.assignees.map(a => a.id));
+    setQuery("");
+    setError(null);
+    const listId = task.list?.id;
+    if (!listId) { setError("This task has no ClickUp list id."); return; }
+    loadListMembers(listId)
+      .then(setMembers)
+      .catch(err => setError(err instanceof Error ? err.message : "Couldn't load list members"));
+  };
+
+  const save = () => {
+    setPos(null);
+    const before = task.assignees.map(a => a.id).sort().join(",");
+    if ([...picked].sort().join(",") === before) return;
+    // Current assignees who aren't list members (e.g. guests) still need a name.
+    const known = new Map([...task.assignees, ...(members ?? [])].map(a => [a.id, a]));
+    onChange(picked.map(id => known.get(id)).filter((a): a is Assignee => !!a));
+  };
+
+  // Members plus anyone already assigned who isn't on the member list, so they
+  // can still be un-ticked.
+  const options = useMemo(() => {
+    const all = [...(members ?? [])];
+    for (const a of task.assignees) if (!all.some(m => m.id === a.id)) all.push(a);
+    const q = query.trim().toLowerCase();
+    return q ? all.filter(m => m.username.toLowerCase().includes(q)) : all;
+  }, [members, task.assignees, query]);
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={open}
+        title={saving ? "Saving…" : "Change assignees in ClickUp"}
+        style={{
+          background: "none", border: "1px solid transparent", borderRadius: 3,
+          padding: "1px 4px", margin: "0 -4px", fontSize: 12, fontFamily: C.font,
+          color: names ? C.textMid : C.textSub, cursor: saving ? "wait" : "pointer",
+          opacity: saving ? 0.55 : 1, whiteSpace: "nowrap", textAlign: "left",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = C.border; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; }}
+      >
+        {names || "—"}
+      </button>
+
+      {pos && (
+        <>
+          {/* Click outside = cancel. */}
+          <div onClick={() => setPos(null)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div
+            onKeyDown={e => { if (e.key === "Escape") setPos(null); }}
+            style={{
+              position: "fixed", top: pos.top, left: pos.left, zIndex: 61, width: 260,
+              background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
+              boxShadow: C.shMd, fontFamily: C.font, fontSize: 12, color: C.text,
+            }}
+          >
+            <div style={{ padding: 6, borderBottom: `1px solid ${C.border}` }}>
+              <input
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }}
+                placeholder="Search people…"
+                style={{
+                  width: "100%", boxSizing: "border-box", padding: "4px 6px", fontSize: 12,
+                  fontFamily: C.font, border: `1px solid ${C.border}`, borderRadius: 4,
+                }}
+              />
+            </div>
+            <div style={{ maxHeight: 220, overflowY: "auto" }}>
+              {error && <div style={{ padding: "6px 8px", color: C.red }}>{error}</div>}
+              {!error && !members && <div style={{ padding: "6px 8px", color: C.textSub }}>Loading members…</div>}
+              {members && options.length === 0 && (
+                <div style={{ padding: "6px 8px", color: C.textSub }}>No matching members.</div>
+              )}
+              {members && options.map(m => (
+                <label
+                  key={m.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer",
+                    background: picked.includes(m.id) ? C.blueBg : "transparent",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(m.id)}
+                    onChange={() => setPicked(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])}
+                  />
+                  {m.username}
+                </label>
+              ))}
+            </div>
+            <div style={{
+              display: "flex", justifyContent: "flex-end", gap: 6,
+              padding: 6, borderTop: `1px solid ${C.border}`,
+            }}>
+              <button
+                onClick={() => setPos(null)}
+                style={{
+                  padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer", fontFamily: C.font,
+                  border: `1px solid ${C.border}`, background: C.surface, color: C.textMid,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={!members}
+                style={{
+                  padding: "3px 10px", fontSize: 12, fontWeight: 700, borderRadius: 4, fontFamily: C.font,
+                  border: "none", background: members ? C.blue : C.textSub, color: "#fff",
+                  cursor: members ? "pointer" : "not-allowed",
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
 
 /** Badge colours, falling back to neutral for a status STATUS_STYLES doesn't know. */
@@ -578,10 +758,6 @@ function TaskTableRow({
     color: done ? C.textSub : C.text,
   };
 
-  const assigneeNames = task.assignees
-    .map(a => firstName(a.username))
-    .join(", ") || "—";
-
   return (
     <tr
       style={{ background: rowBg, transition: "background 0.1s" }}
@@ -746,7 +922,11 @@ function TaskTableRow({
 
       {/* Assignees */}
       <td style={{ ...td, color: C.textMid }}>
-        <span style={{ whiteSpace: "nowrap" }}>{assigneeNames}</span>
+        <AssigneeEditor
+          task={task}
+          saving={saving}
+          onChange={assignees => onFieldChange(task, { assignees })}
+        />
       </td>
 
       {/* Due date */}
@@ -1131,11 +1311,24 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
    * date re-buckets the row immediately (it may move to another sub-tab).
    */
   const changeFields = useCallback(async (task: CUTask, fields: TaskFieldsPatch) => {
-    const previous = { name: task.name, priority: task.priority ?? null, due_date: task.due_date };
+    const previous = { name: task.name, priority: task.priority ?? null, due_date: task.due_date, assignees: task.assignees };
     const optimistic: Partial<CUTask> = {};
-    if (fields.name     !== undefined) optimistic.name = fields.name;
-    if (fields.priority !== undefined) optimistic.priority = fields.priority ? CU_PRIORITIES[fields.priority] : null;
-    if (fields.dueDate  !== undefined) optimistic.due_date = fields.dueDate != null ? String(fields.dueDate) : null;
+    if (fields.name      !== undefined) optimistic.name = fields.name;
+    if (fields.priority  !== undefined) optimistic.priority = fields.priority ? CU_PRIORITIES[fields.priority] : null;
+    if (fields.dueDate   !== undefined) optimistic.due_date = fields.dueDate != null ? String(fields.dueDate) : null;
+    if (fields.assignees !== undefined) optimistic.assignees = fields.assignees;
+
+    // ClickUp takes assignee changes as a delta, not the whole list.
+    const { assignees: nextAssignees, ...rest } = fields;
+    const payload: Record<string, unknown> = { taskId: task.id, ...rest };
+    if (nextAssignees !== undefined) {
+      const before = new Set(task.assignees.map(a => a.id));
+      const after  = new Set(nextAssignees.map(a => a.id));
+      payload.assignees = {
+        add: [...after].filter(id => !before.has(id)),
+        rem: [...before].filter(id => !after.has(id)),
+      };
+    }
 
     setSavingTaskId(task.id);
     setActionError(null);
@@ -1145,20 +1338,22 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
       const res = await fetch("/api/clickup/task-fields", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ taskId: task.id, ...fields }),
+        body:    JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
 
       const landed: Partial<CUTask> = {};
-      if (fields.name     !== undefined && data.name) landed.name = data.name;
-      if (fields.priority !== undefined) landed.priority = data.priority ?? null;
-      if (fields.dueDate  !== undefined) landed.due_date = data.due_date ?? null;
+      if (fields.name      !== undefined && data.name) landed.name = data.name;
+      if (fields.priority  !== undefined) landed.priority = data.priority ?? null;
+      if (fields.dueDate   !== undefined) landed.due_date = data.due_date ?? null;
+      if (fields.assignees !== undefined && Array.isArray(data.assignees)) landed.assignees = data.assignees;
       applyTask(task.id, t => ({ ...t, ...landed }));
     } catch (e) {
       applyTask(task.id, t => ({ ...t, ...previous }));
       const what = fields.name !== undefined ? "title"
-        : fields.priority !== undefined ? "priority" : "due date";
+        : fields.priority !== undefined ? "priority"
+        : fields.assignees !== undefined ? "assignees" : "due date";
       setActionError(
         `Could not change the ${what} of "${task.name}": ${e instanceof Error ? e.message : "unknown error"}`,
       );

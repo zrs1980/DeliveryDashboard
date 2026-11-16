@@ -456,8 +456,15 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
  */
 export async function updateTaskFields(
   taskId: string,
-  fields: { name?: string; priority?: number | null; dueDate?: number | null },
-): Promise<{ name: string | null; priority: CUTask["priority"]; due_date: string | null }> {
+  fields: {
+    name?: string; priority?: number | null; dueDate?: number | null;
+    /** ClickUp user ids to add / remove — ClickUp's PUT takes a delta, not the full list. */
+    assignees?: { add: number[]; rem: number[] };
+  },
+): Promise<{
+  name: string | null; priority: CUTask["priority"]; due_date: string | null;
+  assignees: CUTask["assignees"] | null;
+}> {
   const body: Record<string, unknown> = {};
   if (fields.name !== undefined) body.name = fields.name;
   if (fields.priority !== undefined) body.priority = fields.priority;
@@ -465,11 +472,19 @@ export async function updateTaskFields(
     body.due_date      = fields.dueDate;
     body.due_date_time = false;
   }
+  if (fields.assignees) body.assignees = fields.assignees;
   const data = await cuPut(`/task/${taskId}`, body);
   return {
     name:     typeof data?.name === "string" ? data.name : null,
     priority: data?.priority ?? null,
     due_date: data?.due_date != null ? String(data.due_date) : null,
+    assignees: Array.isArray(data?.assignees)
+      ? (data.assignees as Array<{ id?: unknown; username?: unknown; email?: unknown; color?: unknown }>).map(a => ({
+          id:       Number(a.id),
+          username: String(a.username ?? a.email ?? ""),
+          color:    String(a.color ?? ""),
+        }))
+      : null,
   };
 }
 
