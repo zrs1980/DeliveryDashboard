@@ -46,21 +46,18 @@ const healthRank = (h: ProjectHealth) =>
 // Billable column (actual + rem = budget_hours), so the two cells reconcile.
 const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
 
+/**
+ * The Phase column: the latest phase whose NetSuite status is In Progress
+ * (projecttask.status reads "PROGRESS"). "Latest" = highest task id, i.e. the
+ * phase created furthest down the plan. No In Progress phase → no phase shown;
+ * hours are deliberately not used to guess one.
+ */
 function getActivePhase(phases: ProjectPhase[], projectId: number): ProjectPhase | null {
-  const projectPhases = phases.filter(ph => ph.projectId === projectId);
-  if (projectPhases.length === 0) return null;
-
-  const inProgress = projectPhases.filter(ph => ph.actualHours > 0 && ph.remainingHours > 0);
-  if (inProgress.length > 0) {
-    return inProgress.reduce((a, b) => b.phaseId > a.phaseId ? b : a);
-  }
-
-  const notStarted = projectPhases.filter(ph => ph.remainingHours > 0);
-  if (notStarted.length > 0) {
-    return notStarted.reduce((a, b) => a.phaseId < b.phaseId ? a : b);
-  }
-
-  return null;
+  const inProgress = phases.filter(ph =>
+    ph.projectId === projectId && (ph.phaseStatus ?? "").toUpperCase().includes("PROGRESS"),
+  );
+  if (inProgress.length === 0) return null;
+  return inProgress.reduce((a, b) => b.phaseId > a.phaseId ? b : a);
 }
 
 function getBudgetFit(
@@ -914,9 +911,10 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                     ) : (
                       <div
                         style={{ display: "flex", alignItems: "flex-start", gap: 4 }}
-                        title="Click ✏ to edit go-live date"
+                        title="Click to edit the go-live date (saves to NetSuite)"
                       >
-                        <div>
+                        {/* The date itself opens the editor too — the ✏ alone was easy to miss. */}
+                        <div onClick={() => startEditGoLive(p)} style={{ cursor: "pointer" }}>
                           {p.goliveDate ? (
                             <>
                               <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
@@ -941,11 +939,11 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                           title="Edit go-live date"
                           style={{
                             background: "none", border: "none", cursor: "pointer",
-                            color: C.textSub, fontSize: 11, padding: "1px 2px",
-                            lineHeight: 1, marginTop: 1, opacity: 0.6,
+                            color: C.blue, fontSize: 12, padding: "1px 2px",
+                            lineHeight: 1, marginTop: 1, opacity: 0.8,
                           }}
                           onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
-                          onMouseLeave={e => (e.currentTarget.style.opacity = "0.6")}
+                          onMouseLeave={e => (e.currentTarget.style.opacity = "0.8")}
                         >
                           ✏
                         </button>
