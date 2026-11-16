@@ -197,7 +197,7 @@ export const PHASE_FIELD_NAME = "Phase (v4)";
 /** The option the wizard files action items under. */
 export const INTERNAL_ACTION_POINTS = "8. Internal Action Points";
 
-export interface CUFieldOption { id: string; name?: string; label?: string }
+export interface CUFieldOption { id: string; name?: string; label?: string; orderindex?: number | string }
 export interface CUField {
   id: string;
   name: string;
@@ -260,9 +260,61 @@ export interface CreateTaskInput {
   name:        string;
   description: string;
   phase?:      PhaseFieldTarget | null;
+  /** 1 urgent · 2 high · 3 normal · 4 low. Omit for no priority. */
+  priority?:   number | null;
+  /** ClickUp user ids. */
+  assignees?:  number[];
+  /** Unix ms, sent date-only like the grid's inline edit. */
+  dueDate?:    number | null;
+  /** Task id — creates the task as a subtask of it (must be on the same list). */
+  parent?:     string | null;
 }
 
-export interface CreatedTask { id: string; url: string; name: string }
+/**
+ * The "Phase (v4)" field with ALL its options — the sections a new task can be
+ * filed under from the Tasks tab's Create Task form. Null when the list has no
+ * such field (see findPhaseTarget).
+ */
+export function phaseFieldOptions(fields: CUField[]): {
+  fieldId: string; isMulti: boolean; options: { id: string; label: string; orderindex: number | null }[];
+} | null {
+  const field = fields.find(f => f.name?.trim() === PHASE_FIELD_NAME);
+  if (!field) return null;
+  return {
+    fieldId: field.id,
+    isMulti: field.type === "labels",
+    // orderindex is kept because a drop_down field's value ON A TASK is the
+    // option's orderindex, not its id (a labels field holds ids).
+    options: (field.type_config?.options ?? [])
+      .map(o => ({
+        id:         o.id,
+        label:      String(o.label ?? o.name ?? "").trim(),
+        orderindex: o.orderindex != null && Number.isFinite(Number(o.orderindex)) ? Number(o.orderindex) : null,
+      }))
+      .filter(o => o.label),
+  };
+}
+
+export interface CUMember { id: number; username: string; email: string | null }
+
+/** People who can be assigned on a list — its members, as ClickUp reports them. */
+export async function fetchListMembers(listId: string): Promise<CUMember[]> {
+  const data = await cuGet(`/list/${listId}/member`);
+  return ((data.members ?? []) as Array<{ id?: unknown; username?: unknown; email?: unknown }>)
+    .map(m => ({
+      id:       Number(m.id),
+      username: String(m.username ?? m.email ?? ""),
+      email:    m.email ? String(m.email) : null,
+    }))
+    .filter(m => Number.isFinite(m.id) && m.username)
+    .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+export interface CreatedTask {
+  id: string; url: string; name: string;
+  /** The task object exactly as ClickUp's create call returned it. */
+  task: CUTask;
+}
 
 /** Current value of one custom field on a task, always as a list of option ids. */
 export async function fetchTaskFieldValue(taskId: string, fieldId: string): Promise<string[]> {
@@ -304,6 +356,13 @@ export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
     name:        input.name,
     description: input.description,
   };
+  if (input.priority)          body.priority  = input.priority;
+  if (input.assignees?.length) body.assignees = input.assignees;
+  if (input.parent)            body.parent    = input.parent;
+  if (input.dueDate) {
+    body.due_date      = input.dueDate;
+    body.due_date_time = false;
+  }
 
   if (input.phase) {
     body.custom_fields = [{
@@ -318,6 +377,7 @@ export async function createTask(input: CreateTaskInput): Promise<CreatedTask> {
     id:   String(data.id ?? ""),
     url:  String(data.url ?? (data.id ? `https://app.clickup.com/t/${data.id}` : "")),
     name: String(data.name ?? input.name),
+    task: data as CUTask,
   };
 }
 

@@ -7,6 +7,7 @@ import { NotesPanel } from "@/components/dashboard/NotesPanel";
 import { isBlocked, isClientPending, isMilestone, isDone, taskBucket, startOfToday, deriveTaskRollup, type CUStatus } from "@/lib/clickup";
 import { PostToSlackModal } from "@/components/dashboard/PostToSlackModal";
 import { DeliverablesReportModal } from "@/components/dashboard/DeliverablesReportModal";
+import { CreateTaskModal } from "@/components/dashboard/CreateTaskModal";
 import { TaskCommentsModal } from "@/components/dashboard/TaskCommentsModal";
 import { TaskDescriptionModal, taskDescription } from "@/components/dashboard/TaskDescriptionModal";
 import { TaskCasesTable, isOpenCase, samePerson, caseMatchesProject, casePriorityRank, type TaskCase } from "@/components/dashboard/TaskCases";
@@ -957,6 +958,7 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
   const [scheduledMap, setScheduledMap]       = useState<Map<string, string>>(new Map());
   const [slackModalOpen, setSlackModalOpen]   = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // ── ClickUp write state ──
   const [statusesByList, setStatusesByList] = useState<Record<string, CUStatus[]>>({});
@@ -1384,6 +1386,27 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
               : `${totalDone} / ${allRows.length} done`}
           </span>
           {!onCasesTab && <button
+            onClick={() => setCreateModalOpen(true)}
+            title="Create a new task in the project's ClickUp list"
+            style={{
+              display:      "flex",
+              alignItems:   "center",
+              gap:          5,
+              padding:      "4px 11px",
+              fontSize:     12,
+              fontWeight:   700,
+              borderRadius: 5,
+              border:       `1px solid ${C.blueBd}`,
+              background:   C.blueBg,
+              color:        C.blue,
+              cursor:       "pointer",
+              fontFamily:   C.font,
+              whiteSpace:   "nowrap",
+            }}
+          >
+            + Create Task
+          </button>}
+          {!onCasesTab && <button
             onClick={() => setSlackModalOpen(true)}
             title="Prepend current view to Weekly Deliverables canvas in #oxide"
             style={{
@@ -1552,6 +1575,22 @@ export function TaskCommandCenter({ projects, onProjectsChange, initialTab, case
               : null
           }
           onClose={() => setSlackModalOpen(false)}
+        />
+      )}
+
+      {/* ── Create task modal ── */}
+      {createModalOpen && (
+        <CreateTaskModal
+          projects={projectOptions}
+          defaultProjectId={selectedProject}
+          onClose={() => setCreateModalOpen(false)}
+          // Add the new task to its project straight away, so it shows in the
+          // list without a Refresh Data.
+          onCreated={(projectId, task) => onProjectsChange(prev => prev.map(p => {
+            if (p.id !== projectId || p.tasks.some(t => t.id === task.id)) return p;
+            const tasks = [...p.tasks, task];
+            return { ...p, tasks, ...deriveTaskRollup(tasks) };
+          }))}
         />
       )}
 
