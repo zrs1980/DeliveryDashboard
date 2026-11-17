@@ -6,9 +6,11 @@ interface Props {
   burn: number;  // 0–1 burn rate marker
   color: string;
   h?: number;
+  /** Tooltip on the marker. Defaults to "Burn rate: N%". */
+  markerTitle?: string;
 }
 
-export function ProgressBar({ val, burn, color, h = 6 }: Props) {
+export function ProgressBar({ val, burn, color, h = 6, markerTitle }: Props) {
   const pct   = Math.min(Math.max(val,  0), 1) * 100;
   const bPct  = Math.min(Math.max(burn, 0), 1) * 100;
 
@@ -48,7 +50,7 @@ export function ProgressBar({ val, burn, color, h = 6 }: Props) {
           borderRadius: 1,
           transform: "translateX(-50%)",
         }}
-        title={`Burn rate: ${Math.round(bPct)}%`}
+        title={markerTitle ?? `Burn rate: ${Math.round(bPct)}%`}
       />
     </div>
   );

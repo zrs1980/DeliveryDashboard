@@ -118,9 +118,13 @@ export async function GET(req: NextRequest) {
       billableByProject[pid] = (billableByProject[pid] ?? 0) + (parseFloat(row.billable_hours) || 0);
     }
 
+    // Support projects skip ClickUp entirely: the Support tab doesn't use it, and
+    // the per-project task fetches were most of that tab's load time.
+    const withClickUp = scope !== "support";
+
     // Pre-fetch workspace lists for name-based fallback matching (cached 1h)
     const TEAM_ID = process.env.CLICKUP_TEAM_ID!;
-    const workspaceLists = await getWorkspaceLists(TEAM_ID).catch(() => []);
+    const workspaceLists = withClickUp ? await getWorkspaceLists(TEAM_ID).catch(() => []) : [];
 
     // Fetch ClickUp tasks for each project (with ClickUp URL)
     const projects: Project[] = await Promise.all(
@@ -136,7 +140,9 @@ export async function GET(req: NextRequest) {
         let clickupError: string | null = null;
         try {
           const overrideListId = CLICKUP_LIST_OVERRIDES[id];
-          if (overrideListId) {
+          if (!withClickUp) {
+            // Not fetched — see withClickUp. No error: nothing is missing.
+          } else if (overrideListId) {
             tasks = await fetchListTasks(overrideListId);
           } else if (p.clickup_url) {
             const resolvedListId = await resolveClickUpListId(p.clickup_url);

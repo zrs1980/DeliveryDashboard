@@ -65,6 +65,27 @@ const monthLeft = (p: Project): number | null =>
     ? p.support!.monthlyHours - p.support!.monthActual
     : null;
 
+/**
+ * Support Progress: share of the hours to consume that have been used — this
+ * month's actual / custentity9, or for General Consulting the whole-project
+ * actual / budget. Null when there is nothing to measure against.
+ */
+const consumedShare = (p: Project): number | null => {
+  if (usesMonthlyHours(p)) {
+    const m = p.support!.monthlyHours;
+    return m && m > 0 ? p.support!.monthActual / m : null;
+  }
+  const total = p.actual + p.rem;
+  return total > 0 ? p.actual / total : null;
+};
+
+/** Share of the current month elapsed, for the Support Progress marker. */
+const monthElapsed = () => {
+  const now  = new Date();
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return now.getDate() / days;
+};
+
 /** Sort order on the Support tab: MSA, then the support tiers, then General Consulting. */
 const supportTypeRank = (t: string) => {
   const s = t.toLowerCase();
@@ -156,6 +177,7 @@ function sortProjects(
           : a.projectType.localeCompare(b.projectType);
         break;
       case "pct":
+        if (support) return nullsLast(consumedShare(a), consumedShare(b), multiplier);
         cmp = a.pct - b.pct;
         break;
       case "actual":
@@ -657,8 +679,8 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
   }
 
   const sorted = sortProjects(projects, phases, sortKey, sortDir, variant);
-  // Expansion rows span the whole table: expand + Project + Type + Progress +
-  // Hours + Hours Left + Notes + Links, plus the variant's own columns.
+  // Expansion rows span the whole table. Support: expand, Project, Type,
+  // Progress, Hours, Hours Left, Renewal Date, Notes, Links.
   const colCount = support ? 9 : 13;
 
   const thProps = { sortKey, sortDir, onSort: handleSort };
@@ -844,8 +866,41 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                     </span>
                   </td>
 
-                  {/* Progress */}
-                  <td style={cellStyle({ minWidth: 130 })}>
+                  {/* Progress — Support: hours consumed (see consumedShare), not ClickUp */}
+                  {support && (
+                    <td style={cellStyle({ minWidth: 130 })}>
+                      {(() => {
+                        const share = consumedShare(p);
+                        if (share === null) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
+                        const monthly = usesMonthlyHours(p);
+                        // Same bands as Hours Left: yellow under 20% left, red once over.
+                        const color = share > 1 ? C.red : share >= 0.8 ? C.yellow : C.green;
+                        const elapsed = monthElapsed();
+                        return (
+                          <div
+                            style={{ display: "flex", alignItems: "center", gap: 8 }}
+                            title={monthly ? "Hours consumed this month / monthly hours" : "Hours consumed / project budget"}
+                          >
+                            <div style={{ flex: 1 }}>
+                              <ProgressBar
+                                val={share}
+                                // Monthly: marker at how much of the month has passed, so a
+                                // fill past it is consuming ahead of pace. GC has no month.
+                                burn={monthly ? elapsed : share}
+                                markerTitle={monthly ? `${Math.round(elapsed * 100)}% of the month elapsed` : `${fmtPct(share)} consumed`}
+                                color={color}
+                                h={6}
+                              />
+                            </div>
+                            <span style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color, minWidth: 36 }}>
+                              {fmtPct(share)}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                  )}
+                  {!support && <td style={cellStyle({ minWidth: 130 })}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1 }}>
                         <ProgressBar val={p.pct} burn={p.burnRate} color={hColor(p.health)} h={6} />
@@ -857,7 +912,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                         {fmtPct(p.pct)}
                       </span>
                     </div>
-                  </td>
+                  </td>}
 
                   {/* Hours — support: this month's actual time / custentity9 monthly hours */}
                   {usesMonthlyHours(p) ? (
