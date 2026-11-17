@@ -323,10 +323,12 @@ const SCOPE_FILTER: Record<ProjectScope, string> = {
 // account can't break the delivery list every other feature reads:
 //   custentity9            — contracted hours per month
 //   custentity_renewal_date — when the agreement renews
+// custentity9 is a List field: the raw value is the option's internal id (the
+// "20" option reads back as 2), so take the display text and parse that.
 const SCOPE_EXTRA_COLUMNS: Record<ProjectScope, string> = {
   delivery: "",
   support: `,
-      custentity9                          AS monthly_hours,
+      BUILTIN.DF(custentity9)              AS monthly_hours,
       custentity_renewal_date              AS renewal_date`,
 };
 

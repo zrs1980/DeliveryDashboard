@@ -35,7 +35,8 @@ function supportFields(
   p: { monthly_hours?: string | null; renewal_date?: string | null },
   monthActual: number,
 ): SupportFields {
-  const monthly     = parseFloat(p.monthly_hours ?? "");
+  // The list option's label, e.g. "20" — or "20 hours", so take the first number in it.
+  const monthly     = parseFloat((p.monthly_hours ?? "").replace(/,/g, "").match(/\d+(\.\d+)?/)?.[0] ?? "");
   const renewalDate = normalizeNSDate(p.renewal_date ?? null);
   return {
     monthlyHours:    Number.isFinite(monthly) ? monthly : null,
