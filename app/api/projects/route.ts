@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES, type ProjectScope } from "@/lib/netsuite";
+import { fetchActiveProjects, fetchActualHoursBetween, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES, type ProjectScope } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
-import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
+import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS, HIDDEN_SUPPORT_PROJECT_IDS } from "@/lib/constants";
 import { getPmRoster, getStaffRoster, nameFor } from "@/lib/roster";
-import type { Project, ProjectHealth, ProjectNote } from "@/lib/types";
+import type { Project, ProjectHealth, ProjectNote, SupportFields } from "@/lib/types";
 
 // List value name (custentity_loop_internal_status) → status. Anything else,
 // including "Not set" and an empty field, reads as "unset".
@@ -22,6 +22,27 @@ function normalizeNSDate(raw: string | null): string | null {
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
   return raw; // already ISO or unknown — pass through
+}
+
+function daysUntil(isoDate: string): number {
+  const d = new Date(isoDate.slice(0, 10) + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+
+function supportFields(
+  p: { monthly_hours?: string | null; renewal_date?: string | null },
+  monthActual: number,
+): SupportFields {
+  const monthly     = parseFloat(p.monthly_hours ?? "");
+  const renewalDate = normalizeNSDate(p.renewal_date ?? null);
+  return {
+    monthlyHours:    Number.isFinite(monthly) ? monthly : null,
+    monthActual,
+    renewalDate,
+    renewalDaysLeft: renewalDate ? daysUntil(renewalDate) : null,
+  };
 }
 
 function parseNotes(raw: string | null): ProjectNote[] {
@@ -45,8 +66,21 @@ function parseNotes(raw: string | null): ProjectNote[] {
 export async function GET(req: NextRequest) {
   try {
     const scope: ProjectScope = req.nextUrl.searchParams.get("scope") === "support" ? "support" : "delivery";
-    const rawProjects = await fetchActiveProjects(scope);
+    const rawProjects = (await fetchActiveProjects(scope))
+      .filter(p => scope !== "support" || !HIDDEN_SUPPORT_PROJECT_IDS.has(parseInt(p.id)));
     const projectIds  = rawProjects.map(p => parseInt(p.id));
+
+    // Support: actual time this calendar month, measured against custentity9.
+    const monthHours: Record<number, number> = {};
+    if (scope === "support") {
+      const now = new Date();
+      const rows = await fetchActualHoursBetween(
+        projectIds,
+        new Date(now.getFullYear(), now.getMonth(), 1),
+        new Date(now.getFullYear(), now.getMonth() + 1, 0),
+      );
+      for (const r of rows) monthHours[parseInt(r.project_id)] = parseFloat(r.actual_hours) || 0;
+    }
 
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
     // The rosters come along: staff resolves the projectmanager field to a name,
@@ -210,6 +244,7 @@ export async function GET(req: NextRequest) {
           clickupError,
           slackCanvasId: p.slack_canvas_id ?? null,
           projectFolderUrl: p.project_folder ?? null,
+          support: scope === "support" ? supportFields(p, monthHours[id] ?? 0) : undefined,
         } satisfies Project;
       })
     );

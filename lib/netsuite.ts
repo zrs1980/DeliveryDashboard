@@ -319,6 +319,17 @@ const SCOPE_FILTER: Record<ProjectScope, string> = {
     )`,
 };
 
+// Support-only fields, selected only for that scope so a field missing on the
+// account can't break the delivery list every other feature reads:
+//   custentity9            — contracted hours per month
+//   custentity_renewal_date — when the agreement renews
+const SCOPE_EXTRA_COLUMNS: Record<ProjectScope, string> = {
+  delivery: "",
+  support: `,
+      custentity9                          AS monthly_hours,
+      custentity_renewal_date              AS renewal_date`,
+};
+
 export async function fetchActiveProjects(scope: ProjectScope = "delivery") {
   return runSuiteQL<{
     id: string;
@@ -339,6 +350,9 @@ export async function fetchActiveProjects(scope: ProjectScope = "delivery") {
     slack_canvas_id: string | null;
     slack_channel: string | null;
     project_folder: string | null;
+    /** Support scope only. */
+    monthly_hours?: string | null;
+    renewal_date?: string | null;
   }>(`
     SELECT
       id,
@@ -361,7 +375,7 @@ export async function fetchActiveProjects(scope: ProjectScope = "delivery") {
       custentity_user_notes                AS user_notes,
       custentity_slack_canvas_id           AS slack_canvas_id,
       custentity_slack_channel             AS slack_channel,
-      custentity_project_folder            AS project_folder
+      custentity_project_folder            AS project_folder${SCOPE_EXTRA_COLUMNS[scope]}
     FROM job
     WHERE entitystatus = 2
       AND ${SCOPE_FILTER[scope]}
@@ -485,6 +499,26 @@ export async function fetchActualHours(projectIds: number[]) {
     FROM timebill tb
     WHERE tb.customer IN (${placeholders})
       AND tb.timetype = 'A'
+    GROUP BY tb.customer
+  `, projectIds);
+}
+
+/**
+ * Actual hours (timetype 'A') per project between two dates, inclusive — the
+ * Support projects tab's "this month" figure against custentity9.
+ */
+export async function fetchActualHoursBetween(projectIds: number[], from: Date, to: Date) {
+  if (projectIds.length === 0) return [];
+  const placeholders = projectIds.map(() => "?").join(", ");
+  const ns = (d: Date) =>
+    `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  return runSuiteQL<{ project_id: string; actual_hours: string }>(`
+    SELECT tb.customer AS project_id, SUM(tb.hours) AS actual_hours
+    FROM timebill tb
+    WHERE tb.customer IN (${placeholders})
+      AND tb.timetype = 'A'
+      AND tb.trandate >= TO_DATE('${ns(from)}', 'MM/DD/YYYY')
+      AND tb.trandate <= TO_DATE('${ns(to)}', 'MM/DD/YYYY')
     GROUP BY tb.customer
   `, projectIds);
 }

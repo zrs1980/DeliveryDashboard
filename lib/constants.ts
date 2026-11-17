@@ -108,6 +108,12 @@ export const CLICKUP_LIST_OVERRIDES: Record<number, string> = {
   18403: "901317326846", // NS Implementation                → Salt & Stone
 };
 
+// ─── Support projects hidden from the Projects tab ───────────────────────────
+// Jobs that match a support type but aren't a customer agreement to track.
+export const HIDDEN_SUPPORT_PROJECT_IDS: ReadonlySet<number> = new Set([
+  18641, // Support Operations — internal
+]);
+
 // ─── Standalone internal ClickUp lists ───────────────────────────────────────
 // Lists that have no corresponding NetSuite project (internal team tasks).
 // These are fetched and shown in the Task Command Center only — excluded from

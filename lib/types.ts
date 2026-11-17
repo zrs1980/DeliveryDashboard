@@ -55,6 +55,18 @@ export interface CUTask {
 
 export type ProjectHealth = "green" | "yellow" | "red" | "unset";
 
+/** What the Support projects tab shows beyond the shared Project fields. */
+export interface SupportFields {
+  /** custentity9 — contracted hours per month. Null when the field is empty. */
+  monthlyHours: number | null;
+  /** Actual time (timetype 'A') logged against the project in the current month. */
+  monthActual: number;
+  /** custentity_renewal_date, as YYYY-MM-DD. */
+  renewalDate: string | null;
+  /** Days from today to renewalDate; negative once it has passed. */
+  renewalDaysLeft: number | null;
+}
+
 export interface Project {
   id: number;
   entityid: string;
@@ -73,6 +85,8 @@ export interface Project {
    * "Managed Services Agreement".
    */
   projectType: string;
+  /** Support projects only (/api/projects?scope=support). */
+  support?: SupportFields;
   pm: string;
   goliveDate: string | null;
   daysLeft: number | null;

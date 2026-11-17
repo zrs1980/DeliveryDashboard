@@ -570,16 +570,19 @@ export default function DashboardPage() {
                   {tabBtn("support", "Support projects")}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label style={lblStyle}>PM</label>
-                    <select value={apPm} style={selStyle} onChange={e => {
-                      setApPm(e.target.value);
-                      if (!keepsProject(e.target.value, apType)) setApProject(null);
-                    }}>
-                      <option value="">All</option>
-                      {pmOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
-                    </select>
-                  </div>
+                  {/* No PM filter on Support — that list has no PM column. */}
+                  {apScope === "delivery" && (
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label style={lblStyle}>PM</label>
+                      <select value={apPm} style={selStyle} onChange={e => {
+                        setApPm(e.target.value);
+                        if (!keepsProject(e.target.value, apType)) setApProject(null);
+                      }}>
+                        <option value="">All</option>
+                        {pmOptions.map(pm => <option key={pm} value={pm}>{pm}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div style={{ display: "flex", alignItems: "center" }}>
                     <label style={lblStyle}>Type</label>
                     <select value={apType} style={selStyle} onChange={e => {
@@ -624,6 +627,9 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ProjectTable
+                  // Keyed so switching tabs remounts it with that variant's default sort.
+                  key={apScope}
+                  variant={apScope}
                   projects={shown}
                   phases={phases}
                   // The table hands back the (filtered) list it was given, so merge it

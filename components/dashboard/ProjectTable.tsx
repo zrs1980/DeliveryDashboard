@@ -16,6 +16,12 @@ interface Props {
   projects: Project[];
   phases: ProjectPhase[];
   onProjectsChange: (updated: Project[]) => void;
+  /**
+   * "support" — the Projects tab's Support projects list: no PM, Billable, Phase,
+   * Budget Fit or Go-Live columns; Hours / Hours Left measure this month against
+   * custentity9 (except General Consulting); adds Renewal; sorts by type first.
+   */
+  variant?: "delivery" | "support";
 }
 
 type SortKey =
@@ -30,6 +36,7 @@ type SortKey =
   | "phase"
   | "budgetFit"
   | "golive"
+  | "renewal"
   | "notes";
 
 type SortDir = "asc" | "desc";
@@ -45,6 +52,31 @@ const healthRank = (h: ProjectHealth) =>
 // Hours Left column: total budget − billable hours logged. Same total as the
 // Billable column (actual + rem = budget_hours), so the two cells reconcile.
 const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
+
+// ── Support projects ──
+// General Consulting has no monthly allowance, so it keeps the delivery
+// list's whole-project hours; every other support type is measured per month.
+const isGeneralConsulting = (p: Project) => /general consulting/i.test(p.projectType);
+const usesMonthlyHours    = (p: Project) => !!p.support && !isGeneralConsulting(p);
+
+/** custentity9 − actual time this month; null without a monthly allowance. */
+const monthLeft = (p: Project): number | null =>
+  usesMonthlyHours(p) && p.support!.monthlyHours != null
+    ? p.support!.monthlyHours - p.support!.monthActual
+    : null;
+
+/** Sort order on the Support tab: MSA, then the support tiers, then General Consulting. */
+const supportTypeRank = (t: string) => {
+  const s = t.toLowerCase();
+  return s.includes("managed service") ? 0
+    : s.includes("support") ? 1
+    : s.includes("general consulting") ? 2
+    : 3;
+};
+
+/** A missing value sorts last whichever way the column is sorted. */
+const nullsLast = (a: number | null, b: number | null, mult: number) =>
+  a === null && b === null ? 0 : a === null ? 1 : b === null ? -1 : (a - b) * mult;
 
 // Type chip label. Support projects carry NetSuite's jobtype name, so anything
 // else is abbreviated to its initials ("Managed Services Agreement" → "MSA");
@@ -94,9 +126,14 @@ function sortProjects(
   projects: Project[],
   phases: ProjectPhase[],
   key: SortKey,
-  dir: SortDir
+  dir: SortDir,
+  variant: "delivery" | "support",
 ): Project[] {
   const multiplier = dir === "asc" ? 1 : -1;
+  const support    = variant === "support";
+  // The Hours / Hours Left figures each row actually shows.
+  const hoursShown = (p: Project) => usesMonthlyHours(p) ? p.support!.monthActual : p.actual;
+  const leftShown  = (p: Project) => usesMonthlyHours(p) ? monthLeft(p) : billableLeft(p);
 
   return [...projects].sort((a, b) => {
     let cmp = 0;
@@ -112,20 +149,25 @@ function sortProjects(
         cmp = a.pm.localeCompare(b.pm);
         break;
       case "type":
-        cmp = a.projectType.localeCompare(b.projectType);
+        cmp = support
+          ? supportTypeRank(a.projectType) - supportTypeRank(b.projectType)
+            || a.projectType.localeCompare(b.projectType)
+            || a.client.localeCompare(b.client)
+          : a.projectType.localeCompare(b.projectType);
         break;
       case "pct":
         cmp = a.pct - b.pct;
         break;
       case "actual":
-        cmp = a.actual - b.actual;
+        cmp = hoursShown(a) - hoursShown(b);
         break;
       case "billable":
         cmp = a.billableHours - b.billableHours;
         break;
       case "rem":
-        cmp = billableLeft(a) - billableLeft(b);
-        break;
+        return nullsLast(leftShown(a), leftShown(b), multiplier);
+      case "renewal":
+        return nullsLast(a.support?.renewalDaysLeft ?? null, b.support?.renewalDaysLeft ?? null, multiplier);
       case "phase": {
         const phA = getActivePhase(phases, a.id)?.phaseName ?? "";
         const phB = getActivePhase(phases, b.id)?.phaseName ?? "";
@@ -486,8 +528,10 @@ function SortTh({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
-  const [sortKey, setSortKey]       = useState<SortKey>("health");
+export function ProjectTable({ projects, phases, onProjectsChange, variant = "delivery" }: Props) {
+  const support = variant === "support";
+  // Support opens sorted by type: MSA → support tiers → General Consulting.
+  const [sortKey, setSortKey]       = useState<SortKey>(support ? "type" : "health");
   const [sortDir, setSortDir]       = useState<SortDir>("asc");
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [expandedMetrics, setExpandedMetrics] = useState<Set<number>>(new Set());
@@ -612,7 +656,10 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
     );
   }
 
-  const sorted = sortProjects(projects, phases, sortKey, sortDir);
+  const sorted = sortProjects(projects, phases, sortKey, sortDir, variant);
+  // Expansion rows span the whole table: expand + Project + Type + Progress +
+  // Hours + Hours Left + Notes + Links, plus the variant's own columns.
+  const colCount = support ? 9 : 13;
 
   const thProps = { sortKey, sortDir, onSort: handleSort };
 
@@ -642,15 +689,16 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
             <SortTh col="health" {...thProps}>
               Project
             </SortTh>
-            <SortTh col="pm" {...thProps}>PM</SortTh>
+            {!support && <SortTh col="pm" {...thProps}>PM</SortTh>}
             <SortTh col="type" {...thProps}>Type</SortTh>
             <SortTh col="pct" {...thProps} style={{ minWidth: 130 }}>Progress</SortTh>
             <SortTh col="actual" {...thProps}>Hours</SortTh>
-            <SortTh col="billable" {...thProps}>Billable</SortTh>
+            {!support && <SortTh col="billable" {...thProps}>Billable</SortTh>}
             <SortTh col="rem" {...thProps}>Hours Left</SortTh>
-            <SortTh col="phase" {...thProps}>Phase</SortTh>
-            <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>
-            <SortTh col="golive" {...thProps}>Go-Live</SortTh>
+            {!support && <SortTh col="phase" {...thProps}>Phase</SortTh>}
+            {!support && <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>}
+            {!support && <SortTh col="golive" {...thProps}>Go-Live</SortTh>}
+            {support && <SortTh col="renewal" {...thProps}>Renewal Date</SortTh>}
             <SortTh col="notes" {...thProps}>Notes</SortTh>
             {/* Links — no sort */}
             <th style={{
@@ -778,9 +826,11 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                   </td>
 
                   {/* PM */}
-                  <td style={cellStyle({ fontSize: 12, color: C.textMid, whiteSpace: "nowrap" })}>
-                    {p.pm}
-                  </td>
+                  {!support && (
+                    <td style={cellStyle({ fontSize: 12, color: C.textMid, whiteSpace: "nowrap" })}>
+                      {p.pm}
+                    </td>
+                  )}
 
                   {/* Type */}
                   <td style={cellStyle()}>
@@ -809,18 +859,32 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                     </div>
                   </td>
 
-                  {/* Hours */}
-                  <td style={cellStyle()}>
-                    <div style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}>
-                      {fmtH(p.actual)} / {fmtH(p.actual + p.rem)}
-                    </div>
-                    <div style={{ fontFamily: C.mono, fontSize: 11, color: p.rem < 15 ? C.red : C.textSub }}>
-                      {fmtH(p.rem)} left
-                    </div>
-                  </td>
+                  {/* Hours — support: this month's actual time / custentity9 monthly hours */}
+                  {usesMonthlyHours(p) ? (
+                    <td style={cellStyle()}>
+                      <div
+                        style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}
+                        title="Actual time logged this month / monthly hours (NetSuite custentity9)"
+                      >
+                        {fmtH(p.support!.monthActual)} / {p.support!.monthlyHours != null ? fmtH(p.support!.monthlyHours) : "—"}
+                      </div>
+                      <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+                        {p.support!.monthlyHours != null ? "this month" : "no monthly hours set"}
+                      </div>
+                    </td>
+                  ) : (
+                    <td style={cellStyle()}>
+                      <div style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}>
+                        {fmtH(p.actual)} / {fmtH(p.actual + p.rem)}
+                      </div>
+                      <div style={{ fontFamily: C.mono, fontSize: 11, color: p.rem < 15 ? C.red : C.textSub }}>
+                        {fmtH(p.rem)} left
+                      </div>
+                    </td>
+                  )}
 
                   {/* Billable (billable hours / total project hours) */}
-                  <td style={cellStyle()}>
+                  {!support && <td style={cellStyle()}>
                     {(() => {
                       const totalH = p.actual + p.rem;
                       const billPct = totalH > 0 ? p.billableHours / totalH : 0;
@@ -835,20 +899,64 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                         </>
                       );
                     })()}
+                  </td>}
+
+                  {/* Hours Left — support: custentity9 − this month's actual time */}
+                  <td style={cellStyle()}>
+                    {usesMonthlyHours(p) ? (() => {
+                      const left = monthLeft(p);
+                      if (left === null) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
+                      const monthly = p.support!.monthlyHours!;
+                      // Same thresholds as the delivery column would be far too
+                      // coarse for a monthly allowance — colour by share left.
+                      const color = left < 0 ? C.red : left < monthly * 0.2 ? C.yellow : C.green;
+                      return (
+                        <span
+                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color }}
+                          title={`${fmtH(monthly)} monthly − ${fmtH(p.support!.monthActual)} logged this month`}
+                        >
+                          {left.toFixed(1)}h
+                        </span>
+                      );
+                    })() : (
+                      <span
+                        style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}
+                        title={`${fmtH(p.actual + p.rem)} budget − ${fmtH(p.billableHours)} billable logged`}
+                      >
+                        {hoursLeft.toFixed(1)}h
+                      </span>
+                    )}
                   </td>
 
-                  {/* Hours Left */}
-                  <td style={cellStyle()}>
-                    <span
-                      style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: remColor }}
-                      title={`${fmtH(p.actual + p.rem)} budget − ${fmtH(p.billableHours)} billable logged`}
-                    >
-                      {hoursLeft.toFixed(1)}h
-                    </span>
-                  </td>
+                  {/* Renewal Date — support only */}
+                  {support && (
+                    <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                      {p.support?.renewalDate ? (
+                        <>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                            {new Date(p.support.renewalDate + "T00:00:00").toLocaleDateString("en-AU", {
+                              day: "numeric", month: "short", year: "2-digit",
+                            })}
+                          </div>
+                          <div style={{
+                            fontSize: 11,
+                            color: (p.support.renewalDaysLeft ?? 0) < 0 ? C.red : C.textSub,
+                            fontWeight: (p.support.renewalDaysLeft ?? 0) < 0 ? 700 : 400,
+                          }}>
+                            {/* "overdue" (fmtD) reads wrong for a renewal — it has passed. */}
+                            {(p.support.renewalDaysLeft ?? 0) < 0
+                              ? `${Math.abs(p.support.renewalDaysLeft!)}d ago`
+                              : fmtD(p.support.renewalDaysLeft)}
+                          </div>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 12, color: C.textSub }}>—</span>
+                      )}
+                    </td>
+                  )}
 
                   {/* Phase */}
-                  <td style={cellStyle()}>
+                  {!support && <td style={cellStyle()}>
                     {phaseName ? (
                       <span
                         style={{ fontSize: 12, color: C.text, fontWeight: 500 }}
@@ -859,17 +967,17 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                     ) : (
                       <span style={{ fontSize: 12, color: C.textSub }}>—</span>
                     )}
-                  </td>
+                  </td>}
 
                   {/* Budget Fit */}
-                  <td style={cellStyle()}>
+                  {!support && <td style={cellStyle()}>
                     <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: budgetFit.color }}>
                       {budgetFit.label}
                     </span>
-                  </td>
+                  </td>}
 
                   {/* Go-Live */}
-                  <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                  {!support && <td style={cellStyle({ whiteSpace: "nowrap" })}>
                     {editingGoLive === p.id ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <input
@@ -963,7 +1071,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                         </button>
                       </div>
                     )}
-                  </td>
+                  </td>}
 
                   {/* Notes */}
                   <td style={cellStyle({ whiteSpace: "nowrap" })}>
@@ -997,7 +1105,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {metricsOpen && (
                   <tr key={`metrics-${p.id}`}>
                     <td
-                      colSpan={13}
+                      colSpan={colCount}
                       style={{
                         borderBottom: notesOpen ? "none" : `1px solid ${C.border}`,
                         padding: 0,
@@ -1012,7 +1120,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {notesOpen && (
                   <tr key={`notes-${p.id}`}>
                     <td
-                      colSpan={13}
+                      colSpan={colCount}
                       style={{ borderBottom: tasksOpen ? "none" : `1px solid ${C.border}`, padding: 0 }}
                     >
                       <NotesPanel
@@ -1028,7 +1136,7 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                 {tasksOpen && (
                   <tr key={`tasks-${p.id}`}>
                     <td
-                      colSpan={13}
+                      colSpan={colCount}
                       style={{ borderBottom: `1px solid ${C.border}`, padding: 0 }}
                     >
                       <ProjectTaskPanel projectId={p.id} />
