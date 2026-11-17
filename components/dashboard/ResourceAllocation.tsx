@@ -283,6 +283,11 @@ function compareProjectTypes(a: string, b: string): number {
  * the whole Internal band, plus the consulting types, matched by substring on the
  * NetSuite jobtype name. Section 1 still shows them.
  */
+/** Managed Services Agreement — budgeted per month rather than over the project's life. */
+function isMsaType(t: string | null | undefined): boolean {
+  return /managed service/i.test(t ?? "");
+}
+
 function isBudgetExcludedType(t: string | null | undefined): boolean {
   if (projectGroupOf(t) === "Internal") return true;
   const s = (t ?? "").toLowerCase();
@@ -776,6 +781,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
       actualHours: number;
       billableHours: number;
       isFixedFee: boolean;
+      monthlyCapHours: number | null;
+      monthActualHours: number;
       rows: NSAllocation[];
     }>();
     for (const a of localAllocs) {
@@ -791,6 +798,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           actualHours:    a.actualHours   ?? 0,
           billableHours:  a.billableHours ?? 0,
           isFixedFee:     a.isFixedFee    ?? false,
+          monthlyCapHours:  a.monthlyCapHours  ?? null,
+          monthActualHours: a.monthActualHours ?? 0,
           rows:           [],
         });
       }
@@ -798,6 +807,30 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [localAllocs]);
+
+  // Budget / Remaining / Allocated for a Budget vs Allocation row. MSA projects with
+  // a monthly cap (custentity9) read the current calendar month: cap, cap − this
+  // month's actual time, and every resource's allocation within the month. Every
+  // other project keeps the lifetime budget and allocation from today onward.
+  const budgetView = (p: typeof byProject[number]) => {
+    if (isMsaType(p.projectType) && p.monthlyCapHours != null) {
+      const now        = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      return {
+        monthly:   true,
+        budget:    p.monthlyCapHours as number | null,
+        remaining: (p.monthlyCapHours - p.monthActualHours) as number | null,
+        allocated: p.rows.reduce((s, a) => s + hoursInRange(a, monthStart, monthEnd), 0),
+      };
+    }
+    return {
+      monthly:   false,
+      budget:    p.budgetHours,
+      remaining: p.remainingHours,
+      allocated: p.rows.reduce((s, a) => s + estimatedFutureHours(a, today), 0),
+    };
+  };
 
   // KPIs (current week)
   const kpis = useMemo(() => {
@@ -1289,6 +1322,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           actualHours:    sibling?.actualHours   ?? 0,
           consumedHours:  sibling?.consumedHours ?? 0,
           isFixedFee:     sibling?.isFixedFee    ?? false,
+          monthlyCapHours:  sibling?.monthlyCapHours  ?? null,
+          monthActualHours: sibling?.monthActualHours ?? 0,
           classifyAsBillable:   cell.classifyAsBillable,
           classifyAsUtilized:   cell.classifyAsUtilized,
           classifyAsProductive: cell.classifyAsProductive,
@@ -1923,9 +1958,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               return GROUP_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
                 const style = GROUP_STYLE[t];
                 // Pre-compute group totals for the summary row
-                const grpBudget     = grouped[t]!.some(p => p.budgetHours != null)    ? grouped[t]!.reduce((s, p) => s + (p.budgetHours    ?? 0), 0) : null;
-                const grpRemaining  = grouped[t]!.some(p => p.remainingHours != null) ? grouped[t]!.reduce((s, p) => s + (p.remainingHours ?? 0), 0) : null;
-                const grpAllocated  = grouped[t]!.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
+                const grpViews      = grouped[t]!.map(budgetView);
+                const grpBudget     = grpViews.some(v => v.budget != null)    ? grpViews.reduce((s, v) => s + (v.budget    ?? 0), 0) : null;
+                const grpRemaining  = grpViews.some(v => v.remaining != null) ? grpViews.reduce((s, v) => s + (v.remaining ?? 0), 0) : null;
+                const grpAllocated  = grpViews.reduce((s, v) => s + v.allocated, 0);
                 const grpGap        = grpRemaining != null ? grpRemaining - grpAllocated : null;
                 const grpWeekTotals = weeks.map(w => grouped[t]!.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + hoursForWeek(a, w), 0), 0));
 
@@ -1978,7 +2014,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                   </tr>,
                   ...subGroups.flatMap(sub => {
                     const subTint = projectTypeTint(sub.rows[0]?.projectType);
-                    const subHrs  = sub.rows.reduce((s, p) => s + p.rows.reduce((rs, a) => rs + estimatedFutureHours(a, today), 0), 0);
+                    const subHrs  = sub.rows.reduce((s, p) => s + budgetView(p).allocated, 0);
                     return [
                       ...(showSubHeaders ? [(
                         <tr key={`subtype-hdr-${t}-${sub.label}`}>
@@ -1994,8 +2030,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                       ...sub.rows.map((proj, pi) => {
               const isExp          = expandedProjects.has(String(proj.projectId));
               const rowBg          = pi % 2 === 0 ? C.surface : C.alt;
-              const totalAllocated = proj.rows.reduce((s, a) => s + estimatedFutureHours(a, today), 0);
-              const gap            = proj.remainingHours != null ? proj.remainingHours - totalAllocated : null;
+              const bv             = budgetView(proj);
+              const totalAllocated = bv.allocated;
+              const gap            = bv.remaining != null ? bv.remaining - totalAllocated : null;
               const weekTotals     = weeks.map(w => proj.rows.reduce((s, a) => s + hoursForWeek(a, w), 0));
 
               // Project-level classification — identical across a project's allocations,
@@ -2035,9 +2072,13 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
                     {/* Orig. Budget */}
                     <td style={{ padding: "8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                      {proj.budgetHours != null ? (
-                        <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}>
-                          {proj.budgetHours.toFixed(1)}h
+                      {bv.budget != null ? (
+                        <span
+                          title={bv.monthly ? "Monthly cap (custentity9)" : undefined}
+                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}
+                        >
+                          {bv.budget.toFixed(1)}h
+                          {bv.monthly && <span style={{ fontFamily: C.font, fontSize: 9, fontWeight: 500, color: C.textSub }}> /mo</span>}
                         </span>
                       ) : (
                         <span style={{ color: C.mid, fontSize: 11 }}>—</span>
@@ -2046,7 +2087,15 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
                     {/* Rem. Budget */}
                     <td style={{ padding: "8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                      {proj.remainingHours != null ? (
+                      {bv.monthly && bv.remaining != null ? (
+                        <span
+                          title={`${bv.budget?.toFixed(1)}h monthly cap − ${proj.monthActualHours.toFixed(1)}h actual time logged this month.`}
+                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid, cursor: "help" }}
+                        >
+                          {bv.remaining.toFixed(1)}h
+                          <span style={{ fontFamily: C.font, fontSize: 9, fontWeight: 500, color: C.textSub }}> this month</span>
+                        </span>
+                      ) : proj.remainingHours != null ? (
                         <span
                           title={proj.isFixedFee
                             ? `Fixed fee — all actual time counts against budget.
@@ -2068,8 +2117,12 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
 
                     {/* Allocated */}
                     <td style={{ padding: "8px", textAlign: "center", borderBottom: isExp ? "none" : `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
-                      <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}>
+                      <span
+                        title={bv.monthly ? "Every resource's allocated hours within the current calendar month" : undefined}
+                        style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 600, color: C.textMid }}
+                      >
                         {totalAllocated.toFixed(1)}h
+                        {bv.monthly && <span style={{ fontFamily: C.font, fontSize: 9, fontWeight: 500, color: C.textSub }}> this month</span>}
                       </span>
                     </td>
 
@@ -2301,7 +2354,7 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: C.textSub }}>
-        Allocated = estimated future hours (today → end date) at current weekly rate. Gap = Remaining Budget − Allocated. Edits write back to NetSuite immediately.
+        Allocated = estimated future hours (today → end date) at current weekly rate. Gap = Remaining Budget − Allocated. MSA projects show the current month: monthly cap, cap − this month&apos;s actual time, and this month&apos;s allocation. Edits write back to NetSuite immediately.
       </div>
 
       </>)}

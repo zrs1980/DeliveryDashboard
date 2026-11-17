@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runSuiteQL, postRecord, getActiveJobResources, fetchBillableHours, fetchActualHours } from "@/lib/netsuite";
+import { runSuiteQL, postRecord, getActiveJobResources, fetchBillableHours, fetchActualHours, fetchActualHoursBetween } from "@/lib/netsuite";
 import { isFixedFeeProject } from "@/lib/constants";
 import { getStaffRoster, getConsultantRoster, nameMap } from "@/lib/roster";
 import type { NSAllocation } from "@/lib/types";
@@ -23,6 +23,7 @@ export async function GET() {
       is_productive_time: string | null;
       is_billable: string | null;
       job_billing_type: string | null;
+      monthly_hours: string | null;
       startdate: string;
       enddate: string;
       allocationunit: string;
@@ -45,6 +46,7 @@ export async function GET() {
         j.isproductivetime                             AS is_productive_time,
         j.custentity_ceba_is_billable                  AS is_billable,
         j.jobbillingtype                               AS job_billing_type,
+        BUILTIN.DF(j.custentity9)                      AS monthly_hours,
         ra.startDate,
         ra.endDate,
         ra.allocationUnit,
@@ -100,6 +102,27 @@ export async function GET() {
       for (const a of act)  actualByProject[String(a.project_id)]   = parseFloat(a.actual_hours)   || 0;
     } catch {
       // leave empty
+    }
+
+    // MSA projects are budgeted per month (custentity9), so Budget vs Allocation
+    // compares the cap with this calendar month's actual time. Server time, like
+    // the Support tab on Projects. Non-fatal: a failure reads as 0h used.
+    const msaProjectIds = [...new Set(
+      rows.filter(r => /managed service/i.test(r.jobtype_name ?? "")).map(r => parseInt(r.project_id)).filter(Boolean)
+    )];
+    const monthActualByProject: Record<string, number> = {};
+    if (msaProjectIds.length > 0) {
+      try {
+        const now = new Date();
+        const monthRows = await fetchActualHoursBetween(
+          msaProjectIds,
+          new Date(now.getFullYear(), now.getMonth(), 1),
+          new Date(now.getFullYear(), now.getMonth() + 1, 0),
+        );
+        for (const m of monthRows) monthActualByProject[String(m.project_id)] = parseFloat(m.actual_hours) || 0;
+      } catch {
+        // leave empty
+      }
     }
 
     // The PM's allocation commentary, kept as a User Note on the NetSuite project
@@ -262,6 +285,13 @@ export async function GET() {
         actualHours,
         consumedHours,
         isFixedFee,
+        // custentity9 is a List field, so BUILTIN.DF gives the label ("20"); parse
+        // the first number out of it, as the Projects tab does.
+        monthlyCapHours:  (() => {
+          const n = parseFloat((r.monthly_hours ?? "").replace(/,/g, "").match(/\d+(\.\d+)?/)?.[0] ?? "");
+          return Number.isFinite(n) ? n : null;
+        })(),
+        monthActualHours: monthActualByProject[String(r.project_id)] ?? 0,
         targetUtilization:   jobResources[empId]?.targetUtilization ?? 0.75,
         // Time classification comes straight off the NetSuite project record — never
         // inferred from jobtype. A project's type says nothing about whether its time

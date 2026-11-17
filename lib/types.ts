@@ -223,6 +223,10 @@ export interface NSAllocation {
   actualHours: number;
   /** What was actually subtracted from budget — actualHours if fixed fee, else billableHours. */
   consumedHours: number;
+  /** Monthly hour cap from job.custentity9 (MSA projects). Null when unset or unparseable. */
+  monthlyCapHours?: number | null;
+  /** Actual time (timetype='A') logged on the project in the current calendar month. */
+  monthActualHours?: number;
   /**
    * Fixed fee, so time is logged non-billable by design and ALL actual time
    * counts against budget. From job.jobbillingtype, or the override list in
