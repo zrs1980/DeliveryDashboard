@@ -11,6 +11,7 @@ import { isDone, isBlocked } from "@/lib/clickup";
 import { STATUS_STYLES } from "@/lib/constants";
 import type { Project, ProjectHealth, ProjectNote, ProjectPhase, CUTask } from "@/lib/types";
 import { ProjectTaskPanel } from "@/components/dashboard/ProjectTaskPanel";
+import { isOpenCase, caseMatchesProject, casePriorityRank, type TaskCase } from "@/components/dashboard/TaskCases";
 
 interface Props {
   projects: Project[];
@@ -18,10 +19,13 @@ interface Props {
   onProjectsChange: (updated: Project[]) => void;
   /**
    * "support" — the Projects tab's Support projects list: no PM, Billable, Phase,
-   * Budget Fit or Go-Live columns; Hours / Hours Left measure this month against
-   * custentity9 (except General Consulting); adds Renewal; sorts by type first.
+   * Budget Fit or Go-Live columns; Progress is hours consumed; Hours shows
+   * consumed / total for MSAs only and Hours Left is MSA-only; adds Open Cases
+   * and Renewal Date; sorts by type first.
    */
   variant?: "delivery" | "support";
+  /** NetSuite support cases, for the Support list's Open Cases column. */
+  cases?: TaskCase[];
 }
 
 type SortKey =
@@ -37,6 +41,7 @@ type SortKey =
   | "budgetFit"
   | "golive"
   | "renewal"
+  | "cases"
   | "notes";
 
 type SortDir = "asc" | "desc";
@@ -58,12 +63,33 @@ const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
 // list's whole-project hours; every other support type is measured per month.
 const isGeneralConsulting = (p: Project) => /general consulting/i.test(p.projectType);
 const usesMonthlyHours    = (p: Project) => !!p.support && !isGeneralConsulting(p);
+/** Only MSAs show hours against an allowance (consumed / total, hours left). */
+const isMsa = (p: Project) => !!p.support && /managed service/i.test(p.projectType);
 
-/** custentity9 − actual time this month; null without a monthly allowance. */
+/** Hours Left at or below this is flagged. */
+const LOW_HOURS_LEFT = 5;
+
+/** custentity9 − actual time this month, MSAs only; null otherwise. */
 const monthLeft = (p: Project): number | null =>
-  usesMonthlyHours(p) && p.support!.monthlyHours != null
+  isMsa(p) && p.support!.monthlyHours != null
     ? p.support!.monthlyHours - p.support!.monthActual
     : null;
+
+/** Hours consumed as the Support Hours column shows them. */
+const supportConsumed = (p: Project) => usesMonthlyHours(p) ? p.support!.monthActual : p.actual;
+
+/**
+ * Open cases for one project. A case's company is either the project's job or
+ * its customer — the same rule the Tasks tab uses — so a customer-level case
+ * counts against each of that customer's projects listed here.
+ */
+const openCasesFor = (p: Project, cases: TaskCase[]) =>
+  cases.filter(c => isOpenCase(c) && caseMatchesProject(c, p))
+    .sort((a, b) => (casePriorityRank(a.priority) ?? 9) - (casePriorityRank(b.priority) ?? 9)
+      || Number(b.caseNumber) - Number(a.caseNumber));
+
+const NS_CASE_URL = (id: string) =>
+  `https://3550424.app.netsuite.com/app/crm/support/supportcase.nl?id=${id}&whence=`;
 
 /**
  * Support Progress: share of the hours to consume that have been used — this
@@ -149,12 +175,13 @@ function sortProjects(
   key: SortKey,
   dir: SortDir,
   variant: "delivery" | "support",
+  cases: TaskCase[],
 ): Project[] {
   const multiplier = dir === "asc" ? 1 : -1;
   const support    = variant === "support";
   // The Hours / Hours Left figures each row actually shows.
-  const hoursShown = (p: Project) => usesMonthlyHours(p) ? p.support!.monthActual : p.actual;
-  const leftShown  = (p: Project) => usesMonthlyHours(p) ? monthLeft(p) : billableLeft(p);
+  const hoursShown = (p: Project) => support ? supportConsumed(p) : p.actual;
+  const leftShown  = (p: Project) => support ? monthLeft(p) : billableLeft(p);
 
   return [...projects].sort((a, b) => {
     let cmp = 0;
@@ -190,6 +217,9 @@ function sortProjects(
         return nullsLast(leftShown(a), leftShown(b), multiplier);
       case "renewal":
         return nullsLast(a.support?.renewalDaysLeft ?? null, b.support?.renewalDaysLeft ?? null, multiplier);
+      case "cases":
+        cmp = openCasesFor(a, cases).length - openCasesFor(b, cases).length;
+        break;
       case "phase": {
         const phA = getActivePhase(phases, a.id)?.phaseName ?? "";
         const phB = getActivePhase(phases, b.id)?.phaseName ?? "";
@@ -550,7 +580,7 @@ function SortTh({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProjectTable({ projects, phases, onProjectsChange, variant = "delivery" }: Props) {
+export function ProjectTable({ projects, phases, onProjectsChange, variant = "delivery", cases = [] }: Props) {
   const support = variant === "support";
   // Support opens sorted by type: MSA → support tiers → General Consulting.
   const [sortKey, setSortKey]       = useState<SortKey>(support ? "type" : "health");
@@ -564,6 +594,9 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
   const [goLiveDraft, setGoLiveDraft]     = useState<string>("");
   const [goLiveSaving, setGoLiveSaving]   = useState<number | null>(null);
   const [statusSaving, setStatusSaving]   = useState<number | null>(null);
+  // Open Cases list for one project, positioned fixed beside its button (the
+  // table wrapper scrolls horizontally, so an absolute pop-over would clip).
+  const [casesPop, setCasesPop] = useState<{ projectId: number; top: number; left: number } | null>(null);
 
   function handleSort(col: SortKey) {
     if (col === sortKey) {
@@ -678,15 +711,50 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
     );
   }
 
-  const sorted = sortProjects(projects, phases, sortKey, sortDir, variant);
+  const sorted = sortProjects(projects, phases, sortKey, sortDir, variant, cases);
   // Expansion rows span the whole table. Support: expand, Project, Type,
-  // Progress, Hours, Hours Left, Renewal Date, Notes, Links.
-  const colCount = support ? 9 : 13;
+  // Progress, Hours, Hours Left, Open Cases, Renewal Date, Notes, Links.
+  const colCount = support ? 10 : 13;
 
   const thProps = { sortKey, sortDir, onSort: handleSort };
 
+  const popProject = casesPop ? projects.find(p => p.id === casesPop.projectId) ?? null : null;
+  const popCases   = popProject ? openCasesFor(popProject, cases) : [];
+
   return (
     <div style={{ position: "relative" }}>
+      {casesPop && popProject && (
+        <>
+          {/* Click-away backdrop */}
+          <div onClick={() => setCasesPop(null)} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+          <div style={{
+            position: "fixed", top: casesPop.top, left: casesPop.left, zIndex: 999,
+            width: 380, maxHeight: 320, overflowY: "auto",
+            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+            boxShadow: C.shMd, padding: "10px 12px", fontFamily: C.font,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+              Open cases · {popProject.client}
+            </div>
+            {popCases.map(c => (
+              <a
+                key={c.id}
+                href={NS_CASE_URL(c.id)}
+                target="_blank"
+                rel="noreferrer"
+                style={{ display: "block", padding: "6px 0", borderTop: `1px solid ${C.border}`, textDecoration: "none" }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.blue }}>
+                  #{c.caseNumber} {c.title} ↗
+                </div>
+                <div style={{ fontSize: 11, color: C.textSub }}>
+                  {c.status} · {c.priority} · {c.assigned}
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
       {taskModal && (
         <TaskModal
           title={taskModal.title}
@@ -720,6 +788,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
             {!support && <SortTh col="phase" {...thProps}>Phase</SortTh>}
             {!support && <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>}
             {!support && <SortTh col="golive" {...thProps}>Go-Live</SortTh>}
+            {support && <SortTh col="cases" {...thProps}>Open Cases</SortTh>}
             {support && <SortTh col="renewal" {...thProps}>Renewal Date</SortTh>}
             <SortTh col="notes" {...thProps}>Notes</SortTh>
             {/* Links — no sort */}
@@ -836,7 +905,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                         <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.client}</div>
                         <div style={{ fontSize: 11, color: C.textSub }}>{p.projectName || `# ${p.entityid}`}</div>
                       </div>
-                      {p.timebillWarning && (
+                      {!support && p.timebillWarning && (
                         <span
                           title="Timebill total exceeds remaining hours by >20h"
                           style={{ fontSize: 13 }}
@@ -873,7 +942,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                         const share = consumedShare(p);
                         if (share === null) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
                         const monthly = usesMonthlyHours(p);
-                        // Same bands as Hours Left: yellow under 20% left, red once over.
+                        // Yellow from 80% consumed, red once over 100%.
                         const color = share > 1 ? C.red : share >= 0.8 ? C.yellow : C.green;
                         const elapsed = monthElapsed();
                         return (
@@ -914,18 +983,32 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                     </div>
                   </td>}
 
-                  {/* Hours — support: this month's actual time / custentity9 monthly hours */}
-                  {usesMonthlyHours(p) ? (
+                  {/* Hours — support: consumed / total for MSAs (this month vs
+                      custentity9); consumed only for everything else */}
+                  {support ? (
                     <td style={cellStyle()}>
-                      <div
-                        style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}
-                        title="Actual time logged this month / monthly hours (NetSuite custentity9)"
-                      >
-                        {fmtH(p.support!.monthActual)} / {p.support!.monthlyHours != null ? fmtH(p.support!.monthlyHours) : "—"}
-                      </div>
-                      <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
-                        {p.support!.monthlyHours != null ? "this month" : "no monthly hours set"}
-                      </div>
+                      {isMsa(p) ? (
+                        <>
+                          <div
+                            style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}
+                            title="Actual time logged this month / monthly hours (NetSuite custentity9)"
+                          >
+                            {fmtH(p.support!.monthActual)} / {p.support!.monthlyHours != null ? fmtH(p.support!.monthlyHours) : "—"}
+                          </div>
+                          <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+                            {p.support!.monthlyHours != null ? "this month" : "no monthly hours set"}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontFamily: C.mono, fontSize: 12, color: C.text, fontWeight: 600 }}>
+                            {fmtH(supportConsumed(p))}
+                          </div>
+                          <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
+                            {usesMonthlyHours(p) ? "this month" : "logged"}
+                          </div>
+                        </>
+                      )}
                     </td>
                   ) : (
                     <td style={cellStyle()}>
@@ -956,21 +1039,20 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                     })()}
                   </td>}
 
-                  {/* Hours Left — support: custentity9 − this month's actual time */}
+                  {/* Hours Left — support: MSAs only, custentity9 − this month's
+                      actual time, flagged at LOW_HOURS_LEFT or under */}
                   <td style={cellStyle()}>
-                    {usesMonthlyHours(p) ? (() => {
+                    {support ? (() => {
                       const left = monthLeft(p);
                       if (left === null) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
-                      const monthly = p.support!.monthlyHours!;
-                      // Same thresholds as the delivery column would be far too
-                      // coarse for a monthly allowance — colour by share left.
-                      const color = left < 0 ? C.red : left < monthly * 0.2 ? C.yellow : C.green;
+                      const low = left <= LOW_HOURS_LEFT;
                       return (
                         <span
-                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color }}
-                          title={`${fmtH(monthly)} monthly − ${fmtH(p.support!.monthActual)} logged this month`}
+                          style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: low ? C.red : C.text }}
+                          title={`${fmtH(p.support!.monthlyHours!)} monthly − ${fmtH(p.support!.monthActual)} logged this month`
+                            + (low ? ` · ${LOW_HOURS_LEFT}h or less left` : "")}
                         >
-                          {left.toFixed(1)}h
+                          {low && "⚠ "}{left.toFixed(1)}h
                         </span>
                       );
                     })() : (
@@ -982,6 +1064,37 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                       </span>
                     )}
                   </td>
+
+                  {/* Open Cases — support only; the count opens the list with links */}
+                  {support && (
+                    <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                      {(() => {
+                        const n = openCasesFor(p, cases).length;
+                        if (n === 0) return <span style={{ fontSize: 12, color: C.textSub }}>0</span>;
+                        return (
+                          <button
+                            onClick={e => {
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setCasesPop(casesPop?.projectId === p.id ? null : {
+                                projectId: p.id,
+                                top:  r.bottom + 4,
+                                // Keep the 380px panel on screen near the right edge.
+                                left: Math.min(r.left, window.innerWidth - 396),
+                              });
+                            }}
+                            title="Show open cases"
+                            style={{
+                              fontSize: 12, fontWeight: 700, fontFamily: C.mono,
+                              padding: "2px 9px", borderRadius: 5, cursor: "pointer",
+                              background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBd}`,
+                            }}
+                          >
+                            {n} ▾
+                          </button>
+                        );
+                      })()}
+                    </td>
+                  )}
 
                   {/* Renewal Date — support only */}
                   {support && (

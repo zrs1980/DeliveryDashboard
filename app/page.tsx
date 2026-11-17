@@ -630,6 +630,9 @@ export default function DashboardPage() {
                   // Keyed so switching tabs remounts it with that variant's default sort.
                   key={apScope}
                   variant={apScope}
+                  // Already loaded by Refresh Data for the Cases/Tasks tabs; the
+                  // Support list counts each project's open ones from it.
+                  cases={cases}
                   projects={shown}
                   phases={phases}
                   // The table hands back the (filtered) list it was given, so merge it
