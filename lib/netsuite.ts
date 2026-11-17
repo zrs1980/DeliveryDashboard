@@ -300,7 +300,26 @@ export async function deleteRecord(recordType: string, id: number): Promise<void
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-export async function fetchActiveProjects() {
+/**
+ * "delivery" — Implementation/Service jobs (jobtype 1, 2), the Projects tab's
+ * main list and every other caller.
+ * "support" — Managed Services Agreement, General Consulting and the
+ * Standard/Premium/Platinum Support types, for the Support projects tab.
+ * Matched on the jobtype NAME, like /api/msa and /api/consulting-projects, so a
+ * renumbered or newly added type still resolves.
+ */
+export type ProjectScope = "delivery" | "support";
+
+const SCOPE_FILTER: Record<ProjectScope, string> = {
+  delivery: "jobtype IN (1, 2)",
+  support: `(
+         LOWER(BUILTIN.DF(jobtype)) LIKE '%managed service%'
+      OR LOWER(BUILTIN.DF(jobtype)) LIKE '%general consulting%'
+      OR LOWER(BUILTIN.DF(jobtype)) LIKE '%support%'
+    )`,
+};
+
+export async function fetchActiveProjects(scope: ProjectScope = "delivery") {
   return runSuiteQL<{
     id: string;
     entityid: string;
@@ -311,6 +330,7 @@ export async function fetchActiveProjects() {
     golive_date: string | null;
     entitystatus: string;
     jobtype: string;
+    jobtype_name: string | null;
     project_manager_id: string | null;
     clickup_url: string | null;
     budget_hours: string;
@@ -333,6 +353,7 @@ export async function fetchActiveProjects() {
       custentity_project_golive_date       AS golive_date,
       entitystatus,
       jobtype,
+      BUILTIN.DF(jobtype)                  AS jobtype_name,
       projectmanager                       AS project_manager_id,
       custentity20                         AS clickup_url,
       custentity_ceba_project_budget_hours AS budget_hours,
@@ -343,7 +364,7 @@ export async function fetchActiveProjects() {
       custentity_project_folder            AS project_folder
     FROM job
     WHERE entitystatus = 2
-      AND jobtype IN (1, 2)
+      AND ${SCOPE_FILTER[scope]}
     ORDER BY custentity_project_golive_date ASC
   `);
 }

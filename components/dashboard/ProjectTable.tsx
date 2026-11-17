@@ -46,6 +46,14 @@ const healthRank = (h: ProjectHealth) =>
 // Billable column (actual + rem = budget_hours), so the two cells reconcile.
 const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
 
+// Type chip label. Support projects carry NetSuite's jobtype name, so anything
+// else is abbreviated to its initials ("Managed Services Agreement" → "MSA");
+// the full name is the chip's tooltip.
+const typeShort = (t: string) =>
+  t === "Implementation" ? "Impl"
+  : t === "Service" ? "Svc"
+  : t.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join("") || "—";
+
 /**
  * The Phase column: the latest phase whose NetSuite status is In Progress
  * (projecttask.status reads "PROGRESS"). "Latest" = highest task id, i.e. the
@@ -781,8 +789,8 @@ export function ProjectTable({ projects, phases, onProjectsChange }: Props) {
                       background: p.projectType === "Implementation" ? C.purpleBg : C.blueBg,
                       color:      p.projectType === "Implementation" ? C.purple   : C.blue,
                       border:    `1px solid ${p.projectType === "Implementation" ? C.purpleBd : C.blueBd}`,
-                    }}>
-                      {p.projectType === "Implementation" ? "Impl" : "Svc"}
+                    }} title={p.projectType}>
+                      {typeShort(p.projectType)}
                     </span>
                   </td>
 

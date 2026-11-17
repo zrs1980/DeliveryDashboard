@@ -198,6 +198,15 @@ export default function DashboardPage() {
   const [apPm, setApPm]           = useState("");
   const [apType, setApType]       = useState("");
   const [apProject, setApProject] = useState<number | null>(null);
+  // Active Projects tabs. Support projects (MSA, General Consulting,
+  // Standard/Premium/Platinum Support) come from /api/projects?scope=support,
+  // loaded the first time the tab is opened — the route fans out to ClickUp per
+  // project, too heavy to add to every Refresh Data. A refresh clears them, so
+  // they reload next time the tab is shown.
+  const [apScope, setApScope] = useState<"delivery" | "support">("delivery");
+  const [support, setSupport] = useState<{
+    projects: Project[]; loading: boolean; error: string | null; loaded: boolean;
+  }>({ projects: [], loading: false, error: null, loaded: false });
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], consultantRoster: [], updatedAt: null });
@@ -206,10 +215,29 @@ export default function DashboardPage() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [casesError, setCasesError] = useState<string | null>(null);
 
+  const loadSupport = useCallback(async () => {
+    setSupport(s => ({ ...s, loading: true, error: null }));
+    try {
+      const res  = await fetch("/api/projects?scope=support");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load support projects");
+      setSupport({ projects: json.projects ?? [], loading: false, error: null, loaded: true });
+    } catch (e) {
+      setSupport(s => ({ ...s, loading: false, error: e instanceof Error ? e.message : "Unknown error", loaded: true }));
+    }
+  }, []);
+
+  // First visit to the Support tab (or the first after a refresh) loads it.
+  useEffect(() => {
+    if (tab === "projects" && apScope === "support" && !support.loaded && !support.loading) loadSupport();
+  }, [tab, apScope, support.loaded, support.loading, loadSupport]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     setCasesError(null);
+    // Stale after a refresh; reloads when the Support tab is next shown.
+    setSupport({ projects: [], loading: false, error: null, loaded: false });
     try {
       const [projRes, phaseRes, casesRes, resRes] = await Promise.all([
         fetch("/api/projects"),
@@ -494,13 +522,33 @@ export default function DashboardPage() {
         {/* Projects */}
         {hasLoaded && tab === "projects" && (() => {
           const external = projects.filter(p => !p.isInternal);
+          // The list the Active Projects table and its filters work on.
+          const listed   = apScope === "support" ? support.projects : external;
           const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-          const pmOptions   = uniq(external.map(p => p.pm).filter(pm => pm !== "—"));
-          const typeOptions = uniq(external.map(p => p.projectType));
+          const pmOptions   = uniq(listed.map(p => p.pm).filter(pm => pm !== "—"));
+          const typeOptions = uniq(listed.map(p => p.projectType));
           // The Project list follows the PM and Type picks.
-          const byPmType = external.filter(p => (!apPm || p.pm === apPm) && (!apType || p.projectType === apType));
+          const byPmType = listed.filter(p => (!apPm || p.pm === apPm) && (!apType || p.projectType === apType));
           const shown    = apProject ? byPmType.filter(p => p.id === apProject) : byPmType;
           const filtered = !!(apPm || apType || apProject);
+          const tabBtn = (scope: "delivery" | "support", label: string) => (
+            <button
+              key={scope}
+              onClick={() => {
+                if (scope === apScope) return;
+                // Filter values belong to one list; carrying them over would
+                // leave a PM or project picked that the other list doesn't have.
+                setApScope(scope); setApPm(""); setApType(""); setApProject(null);
+              }}
+              style={{
+                fontSize: 14, fontWeight: 700, padding: "6px 2px", background: "none", border: "none",
+                borderBottom: `2px solid ${apScope === scope ? C.blue : "transparent"}`,
+                color: apScope === scope ? C.blue : C.textSub, cursor: "pointer", fontFamily: C.font,
+              }}
+            >
+              {label}
+            </button>
+          );
           const selStyle: React.CSSProperties = {
             fontSize: 12, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`,
             background: C.surface, color: C.text, fontFamily: C.font, maxWidth: 260,
@@ -510,14 +558,17 @@ export default function DashboardPage() {
           };
           // A PM/Type change that rules out the picked project clears it.
           const keepsProject = (pm: string, type: string) =>
-            !apProject || external.some(p => p.id === apProject && (!pm || p.pm === pm) && (!type || p.projectType === type));
+            !apProject || listed.some(p => p.id === apProject && (!pm || p.pm === pm) && (!type || p.projectType === type));
           return (
           <>
             <KpiCards projects={external} />
             <AiInsights projects={external} />
             <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
               <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: C.text }}>Active Projects</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                  {tabBtn("delivery", "Implementation/Service projects")}
+                  {tabBtn("support", "Support projects")}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center" }}>
                     <label style={lblStyle}>PM</label>
@@ -558,21 +609,34 @@ export default function DashboardPage() {
                     </button>
                   )}
                   <div style={{ fontSize: 12, color: C.textSub }}>
-                    {filtered ? `${shown.length} of ${external.length} projects` : `${external.length} projects`}
+                    {filtered ? `${shown.length} of ${listed.length} projects` : `${listed.length} projects`}
                   </div>
                 </div>
               </div>
-              <ProjectTable
-                projects={shown}
-                phases={phases}
-                // The table hands back the (filtered) list it was given, so merge it
-                // into the full list by id — replacing it would drop every project
-                // the filters (and the internal exclusion) are hiding.
-                onProjectsChange={updated => setData(d => {
-                  const byId = new Map(updated.map(u => [u.id, u]));
-                  return { ...d, projects: d.projects.map(p => byId.get(p.id) ?? p) };
-                })}
-              />
+              {apScope === "support" && support.loading ? (
+                <div style={{ padding: "28px 22px", fontSize: 13, color: C.textSub }}>Loading support projects…</div>
+              ) : apScope === "support" && support.error ? (
+                <div style={{ padding: "16px 22px", fontSize: 13, color: C.red, display: "flex", alignItems: "center", gap: 12 }}>
+                  {support.error}
+                  <button onClick={loadSupport} style={{ fontSize: 12, background: "none", border: "none", color: C.blue, cursor: "pointer", fontFamily: C.font, padding: 0 }}>
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <ProjectTable
+                  projects={shown}
+                  phases={phases}
+                  // The table hands back the (filtered) list it was given, so merge it
+                  // into the full list by id — replacing it would drop every project
+                  // the filters (and the internal exclusion) are hiding.
+                  onProjectsChange={updated => {
+                    const byId  = new Map(updated.map(u => [u.id, u]));
+                    const merge = (ps: Project[]) => ps.map(p => byId.get(p.id) ?? p);
+                    if (apScope === "support") setSupport(s => ({ ...s, projects: merge(s.projects) }));
+                    else setData(d => ({ ...d, projects: merge(d.projects) }));
+                  }}
+                />
+              )}
             </div>
             <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", marginBottom: 24, overflow: "hidden" }}>
               <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}` }}>

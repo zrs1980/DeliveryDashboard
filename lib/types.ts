@@ -67,7 +67,12 @@ export interface Project {
    * display name; this is the identity.
    */
   customerNsId: string | null;
-  projectType: "Implementation" | "Service";
+  /**
+   * "Implementation" | "Service" for the delivery list. Support projects
+   * (/api/projects?scope=support) carry NetSuite's jobtype name instead, e.g.
+   * "Managed Services Agreement".
+   */
+  projectType: string;
   pm: string;
   goliveDate: string | null;
   daysLeft: number | null;

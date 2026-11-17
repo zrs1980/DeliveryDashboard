@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES } from "@/lib/netsuite";
+import { NextRequest, NextResponse } from "next/server";
+import { fetchActiveProjects, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES, type ProjectScope } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS } from "@/lib/constants";
 import { getPmRoster, getStaffRoster, nameFor } from "@/lib/roster";
@@ -34,9 +34,18 @@ function parseNotes(raw: string | null): ProjectNote[] {
   }
 }
 
-export async function GET() {
+/**
+ * GET /api/projects[?scope=support]
+ *
+ * Default: Implementation/Service projects plus the standalone internal ClickUp
+ * lists. scope=support: the Projects tab's Support projects (MSA, General
+ * Consulting, Standard/Premium/Platinum Support), built the same way so the
+ * same table renders them; no standalone lists.
+ */
+export async function GET(req: NextRequest) {
   try {
-    const rawProjects = await fetchActiveProjects();
+    const scope: ProjectScope = req.nextUrl.searchParams.get("scope") === "support" ? "support" : "delivery";
+    const rawProjects = await fetchActiveProjects(scope);
     const projectIds  = rawProjects.map(p => parseInt(p.id));
 
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
@@ -173,7 +182,9 @@ export async function GET() {
           label:         `${clientName} — ${projectName}`,
           client:        clientName,
           customerNsId:  p.customer_ns_id ? String(p.customer_ns_id) : null,
-          projectType:   parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
+          projectType:   scope === "support"
+            ? (p.jobtype_name ?? "").trim() || "Support"
+            : parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
           goliveDate,
           daysLeft,
@@ -204,7 +215,7 @@ export async function GET() {
     );
 
     // Fetch standalone internal ClickUp lists (no NS project backing)
-    const standaloneProjects: Project[] = await Promise.all(
+    const standaloneProjects: Project[] = scope === "support" ? [] : await Promise.all(
       STANDALONE_CLICKUP_LISTS.map(async ({ listId, label }, idx) => {
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
         let clickupError: string | null = null;
