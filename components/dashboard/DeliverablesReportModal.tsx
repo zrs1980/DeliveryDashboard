@@ -8,7 +8,8 @@ import type { CUTask, Project } from "@/lib/types";
  * "Post Deliverables Week End Report" — posts a status report of the tasks in
  * the Tasks tab's selected section (Overdue, This Week, …) for the selected
  * project to the project's Slack channel: done ones first with a ✅, then the
- * rest with a ❌, each group followed by its count.
+ * rest with a ❌, then those waiting on the customer with a ⚠️, each group
+ * followed by its count.
  *
  * The channel is custentity_slack_channel on the NetSuite job, read through
  * /api/projects/folders (Project doesn't carry it). The text is built here so the
@@ -43,13 +44,25 @@ function taskLine(task: CUTask, icon: string): string {
   return `${icon} ${name}  ·  Priority: ${priorityLabel(task)}  ·  ${esc(assignees)}`;
 }
 
+/**
+ * Open tasks the customer has to act on next ("awaiting confirmation",
+ * "input required", …). Reported apart from Not completed, so the pending count
+ * is only what's on our side.
+ */
+function isWaitingOnCustomer(task: CUTask): boolean {
+  const s = task.status.status.toLowerCase();
+  return s.includes("awaiting") || s.includes("input required");
+}
+
 function buildReport(
   project: Project, tasks: CUTask[], sectionLabel: string, sentAt: Date,
-): { text: string; done: number; open: number } {
+): { text: string; done: number; open: number; waiting: number } {
   const byPriority = (a: CUTask, b: CUTask) =>
     priorityRank(a) - priorityRank(b) || a.name.localeCompare(b.name);
-  const done = tasks.filter(isDone).sort(byPriority);
-  const open = tasks.filter(t => !isDone(t)).sort(byPriority);
+  const done    = tasks.filter(isDone).sort(byPriority);
+  const notDone = tasks.filter(t => !isDone(t));
+  const open    = notDone.filter(t => !isWaitingOnCustomer(t)).sort(byPriority);
+  const waiting = notDone.filter(isWaitingOnCustomer).sort(byPriority);
 
   const sentLabel = sentAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
@@ -64,8 +77,12 @@ function buildReport(
     "*Not completed*",
     ...(open.length ? open.map(t => taskLine(t, "❌")) : ["_None_"]),
     `*Pending deliverables: ${open.length}*`,
+    "",
+    "*Waiting on customer*",
+    ...(waiting.length ? waiting.map(t => taskLine(t, "⚠️")) : ["_None_"]),
+    `*Waiting on customer: ${waiting.length}*`,
   ];
-  return { text: lines.join("\n"), done: done.length, open: open.length };
+  return { text: lines.join("\n"), done: done.length, open: open.length, waiting: waiting.length };
 }
 
 export function DeliverablesReportModal({ project, tasks, sectionLabel, onClose }: Props) {
@@ -157,7 +174,7 @@ export function DeliverablesReportModal({ project, tasks, sectionLabel, onClose 
             fontSize: 11, fontWeight: 700, color: C.textSub,
             textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8,
           }}>
-            Preview — {sectionLabel} · {report.done} done · {report.open} pending
+            Preview — {sectionLabel} · {report.done} done · {report.open} pending · {report.waiting} waiting on customer
           </div>
           <pre style={{
             fontFamily: C.mono, fontSize: 11, lineHeight: 1.6,
