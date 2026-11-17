@@ -46,7 +46,9 @@ function buildMarkdown(rows: TaskRow[], tabLabel: string, projectLabel: string):
     lines.push("_No tasks in this view._");
   } else {
     for (const { task, project } of rows) {
-      const assignees = task.assignees.map(a => a.username.split(" ")[0]).join(", ") || "Unassigned";
+      // Plain "@Name" text, not a real Slack mention: tagging needs the person's
+      // Slack user id, and the bot token lacks the users:read scopes to look it up.
+      const assignees = task.assignees.map(a => `@${a.username.split(" ")[0]}`).join(", ") || "Unassigned";
       const due       = task.due_date ? ` · Due ${formatDueDate(task.due_date)}` : "";
       const done      = isDone(task);
       const overdue   = taskBucket(task) === "overdue" && !done;
