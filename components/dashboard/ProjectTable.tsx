@@ -59,11 +59,8 @@ const healthRank = (h: ProjectHealth) =>
 const billableLeft = (p: Project) => p.actual + p.rem - p.billableHours;
 
 // ── Support projects ──
-// General Consulting has no monthly allowance, so it keeps the delivery
-// list's whole-project hours; every other support type is measured per month.
-const isGeneralConsulting = (p: Project) => /general consulting/i.test(p.projectType);
-const usesMonthlyHours    = (p: Project) => !!p.support && !isGeneralConsulting(p);
-/** Only MSAs show hours against an allowance (consumed / total, hours left). */
+// Every type shows this month's logged time; only MSAs are measured against
+// their monthly allowance (custentity9) — Progress, consumed / total, Hours Left.
 const isMsa = (p: Project) => !!p.support && /managed service/i.test(p.projectType);
 
 /** Hours Left at or below this is flagged. */
@@ -75,8 +72,8 @@ const monthLeft = (p: Project): number | null =>
     ? p.support!.monthlyHours - p.support!.monthActual
     : null;
 
-/** Hours consumed as the Support Hours column shows them. */
-const supportConsumed = (p: Project) => usesMonthlyHours(p) ? p.support!.monthActual : p.actual;
+/** Hours consumed as the Support Hours column shows them: this month's actual time, every type. */
+const supportConsumed = (p: Project) => p.support?.monthActual ?? 0;
 
 /**
  * Open cases for one project. A case's company is either the project's job or
@@ -92,17 +89,13 @@ const NS_CASE_URL = (id: string) =>
   `https://3550424.app.netsuite.com/app/crm/support/supportcase.nl?id=${id}&whence=`;
 
 /**
- * Support Progress: share of the hours to consume that have been used — this
- * month's actual / custentity9, or for General Consulting the whole-project
- * actual / budget. Null when there is nothing to measure against.
+ * Support Progress, MSAs only: this month's actual / custentity9. Null (shown
+ * as "—") for every other type, or with no monthly hours set.
  */
 const consumedShare = (p: Project): number | null => {
-  if (usesMonthlyHours(p)) {
-    const m = p.support!.monthlyHours;
-    return m && m > 0 ? p.support!.monthActual / m : null;
-  }
-  const total = p.actual + p.rem;
-  return total > 0 ? p.actual / total : null;
+  if (!isMsa(p)) return null;
+  const m = p.support!.monthlyHours;
+  return m && m > 0 ? p.support!.monthActual / m : null;
 };
 
 /** Share of the current month elapsed, for the Support Progress marker. */
@@ -941,22 +934,21 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                       {(() => {
                         const share = consumedShare(p);
                         if (share === null) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
-                        const monthly = usesMonthlyHours(p);
                         // Yellow from 80% consumed, red once over 100%.
                         const color = share > 1 ? C.red : share >= 0.8 ? C.yellow : C.green;
                         const elapsed = monthElapsed();
                         return (
                           <div
                             style={{ display: "flex", alignItems: "center", gap: 8 }}
-                            title={monthly ? "Hours consumed this month / monthly hours" : "Hours consumed / project budget"}
+                            title="Hours consumed this month / monthly hours"
                           >
                             <div style={{ flex: 1 }}>
                               <ProgressBar
                                 val={share}
-                                // Monthly: marker at how much of the month has passed, so a
-                                // fill past it is consuming ahead of pace. GC has no month.
-                                burn={monthly ? elapsed : share}
-                                markerTitle={monthly ? `${Math.round(elapsed * 100)}% of the month elapsed` : `${fmtPct(share)} consumed`}
+                                // Marker at how much of the month has passed, so a fill
+                                // past it is consuming ahead of pace.
+                                burn={elapsed}
+                                markerTitle={`${Math.round(elapsed * 100)}% of the month elapsed`}
                                 color={color}
                                 h={6}
                               />
@@ -1005,7 +997,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                             {fmtH(supportConsumed(p))}
                           </div>
                           <div style={{ fontFamily: C.mono, fontSize: 11, color: C.textSub }}>
-                            {usesMonthlyHours(p) ? "this month" : "logged"}
+                            this month
                           </div>
                         </>
                       )}
