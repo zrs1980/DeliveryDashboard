@@ -278,6 +278,15 @@ function compareProjectTypes(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+/**
+ * Project types left out of "Project Budget vs Allocation" (PM request, Nov 2026).
+ * Matched by substring on the NetSuite jobtype name. Section 1 still shows them.
+ */
+function isBudgetExcludedType(t: string | null | undefined): boolean {
+  const s = (t ?? "").toLowerCase();
+  return s.includes("general consulting") || s.includes("consulting services");
+}
+
 const TYPE_TINT: Record<string, { bg: string; color: string; bd: string }> = {
   "implementation":              { bg: C.purpleBg, color: C.purple,  bd: C.purpleBd },
   "service":                     { bg: C.blueBg,   color: C.blue,    bd: C.blueBd   },
@@ -1905,7 +1914,10 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
           </thead>
           <tbody>
             {(() => {
-              const grouped = groupByProjectGroup(byProject, p => p.projectType);
+              const grouped = groupByProjectGroup(
+                byProject.filter(p => !isBudgetExcludedType(p.projectType)),
+                p => p.projectType,
+              );
               return GROUP_ORDER.filter(t => (grouped[t]?.length ?? 0) > 0).flatMap(t => {
                 const style = GROUP_STYLE[t];
                 // Pre-compute group totals for the summary row
