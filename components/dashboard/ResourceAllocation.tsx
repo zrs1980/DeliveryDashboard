@@ -279,10 +279,12 @@ function compareProjectTypes(a: string, b: string): number {
 }
 
 /**
- * Project types left out of "Project Budget vs Allocation" (PM request, Nov 2026).
- * Matched by substring on the NetSuite jobtype name. Section 1 still shows them.
+ * Project types left out of "Project Budget vs Allocation" (PM request, Nov 2026):
+ * the whole Internal band, plus the consulting types, matched by substring on the
+ * NetSuite jobtype name. Section 1 still shows them.
  */
 function isBudgetExcludedType(t: string | null | undefined): boolean {
+  if (projectGroupOf(t) === "Internal") return true;
   const s = (t ?? "").toLowerCase();
   return s.includes("general consulting") || s.includes("consulting services");
 }
