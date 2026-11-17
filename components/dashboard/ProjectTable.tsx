@@ -884,7 +884,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                   {/* Project / Client */}
                   <td style={cellStyle()}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {p.isInternal ? null : (
+                      {p.isInternal || support ? null : (
                         <HealthSelect
                           health={p.health}
                           onChange={h => saveStatus(p.id, h)}
