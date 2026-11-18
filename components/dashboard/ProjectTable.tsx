@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { C } from "@/lib/constants";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { LinkBtn } from "@/components/ui/LinkBtn";
@@ -12,6 +12,7 @@ import { STATUS_STYLES } from "@/lib/constants";
 import type { Project, ProjectHealth, ProjectNote, ProjectPhase, CUTask } from "@/lib/types";
 import { ProjectTaskPanel } from "@/components/dashboard/ProjectTaskPanel";
 import { isOpenCase, caseMatchesProject, casePriorityRank, type TaskCase } from "@/components/dashboard/TaskCases";
+import { supportTier, scopeKey, type CaseScopeResult } from "@/lib/support-scope";
 
 interface Props {
   projects: Project[];
@@ -589,7 +590,53 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
   const [statusSaving, setStatusSaving]   = useState<number | null>(null);
   // Open Cases list for one project, positioned fixed beside its button (the
   // table wrapper scrolls horizontally, so an absolute pop-over would clip).
-  const [casesPop, setCasesPop] = useState<{ projectId: number; top: number; left: number } | null>(null);
+  const [casesPop, setCasesPop] = useState<{ projectId: number; top: number; left: number; kind: "open" | "scope" } | null>(null);
+
+  // Out of Scope column: open cases on support projects, each checked by Claude
+  // against its project's agreement (/api/support/case-scope). Keyed case|tier.
+  const [scope, setScope] = useState<{ loading: boolean; error: string | null; byKey: Record<string, CaseScopeResult> }>(
+    { loading: false, error: null, byKey: {} });
+  const scopeItems = support
+    ? [...new Map(projects.flatMap(p => {
+        const tier = supportTier(p.projectType);
+        return tier ? openCasesFor(p, cases).map(c => [scopeKey(c.id, tier), { caseId: c.id, tier }] as const) : [];
+      })).values()]
+    : [];
+  const scopeSig = scopeItems.map(i => scopeKey(i.caseId, i.tier)).sort().join(",");
+  useEffect(() => {
+    if (!support || !scopeSig) return;
+    let cancelled = false;
+    setScope(s => ({ ...s, loading: true, error: null }));
+    fetch("/api/support/case-scope", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: scopeItems }),
+    })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        return j as { results: CaseScopeResult[] };
+      })
+      .then(j => {
+        if (cancelled) return;
+        const byKey: Record<string, CaseScopeResult> = {};
+        for (const r of j.results) byKey[scopeKey(r.caseId, r.tier)] = r;
+        setScope({ loading: false, error: null, byKey });
+      })
+      .catch(e => { if (!cancelled) setScope(s => ({ ...s, loading: false, error: e instanceof Error ? e.message : String(e) })); });
+    return () => { cancelled = true; };
+    // scopeSig stands in for scopeItems, which is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [support, scopeSig]);
+
+  /** Open cases on this project that the check judged billable or needing a SOW. */
+  const outOfScopeFor = (p: Project) => {
+    const tier = supportTier(p.projectType);
+    if (!tier) return [];
+    return openCasesFor(p, cases)
+      .map(c => ({ c, r: scope.byKey[scopeKey(c.id, tier)] }))
+      .filter((x): x is { c: TaskCase; r: CaseScopeResult } => !!x.r && x.r.verdict !== "in_scope");
+  };
 
   function handleSort(col: SortKey) {
     if (col === sortKey) {
@@ -706,13 +753,17 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
 
   const sorted = sortProjects(projects, phases, sortKey, sortDir, variant, cases);
   // Expansion rows span the whole table. Support: expand, Project, Type,
-  // Progress, Hours, Hours Left, Open Cases, Renewal Date, Notes, Links.
-  const colCount = support ? 10 : 13;
+  // Progress, Hours, Hours Left, Open Cases, Out of Scope, Renewal Date, Notes, Links.
+  const colCount = support ? 11 : 13;
 
   const thProps = { sortKey, sortDir, onSort: handleSort };
 
   const popProject = casesPop ? projects.find(p => p.id === casesPop.projectId) ?? null : null;
-  const popCases   = popProject ? openCasesFor(popProject, cases) : [];
+  const popCases   = popProject
+    ? casesPop!.kind === "scope"
+      ? outOfScopeFor(popProject)
+      : openCasesFor(popProject, cases).map(c => ({ c, r: undefined as CaseScopeResult | undefined }))
+    : [];
 
   return (
     <div style={{ position: "relative" }}>
@@ -727,9 +778,9 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
             boxShadow: C.shMd, padding: "10px 12px", fontFamily: C.font,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-              Open cases · {popProject.client}
+              {casesPop.kind === "scope" ? "Out of scope" : "Open cases"} · {popProject.client}
             </div>
-            {popCases.map(c => (
+            {popCases.map(({ c, r }) => (
               <a
                 key={c.id}
                 href={NS_CASE_URL(c.id)}
@@ -743,8 +794,24 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                 <div style={{ fontSize: 11, color: C.textSub }}>
                   {c.status} · {c.priority} · {c.assigned}
                 </div>
+                {r && (
+                  <div style={{ fontSize: 11, color: C.text, marginTop: 3 }}>
+                    <span style={{
+                      fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, marginRight: 5,
+                      background: C.yellowBg, color: C.yellow, border: `1px solid ${C.yellowBd}`,
+                    }}>
+                      ⚠ {r.verdict === "sow" ? "Needs SOW" : "Billable"}
+                    </span>
+                    {r.reason}
+                  </div>
+                )}
               </a>
             ))}
+            {casesPop.kind === "scope" && (
+              <div style={{ fontSize: 10, color: C.textSub, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+                Judged by AI from the case&apos;s opening message — check before billing.
+              </div>
+            )}
           </div>
         </>
       )}
@@ -782,6 +849,19 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
             {!support && <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>}
             {!support && <SortTh col="golive" {...thProps}>Go-Live</SortTh>}
             {support && <SortTh col="cases" {...thProps}>Open Cases</SortTh>}
+            {support && (
+              <th
+                title="Open cases that look outside the project's support agreement, judged by AI from each case's opening message"
+                style={{
+                  padding: "8px 12px", textAlign: "left",
+                  fontSize: 11, fontWeight: 700, color: C.textSub,
+                  textTransform: "uppercase", letterSpacing: "0.05em",
+                  borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
+                }}
+              >
+                Out of Scope
+              </th>
+            )}
             {support && <SortTh col="renewal" {...thProps}>Renewal Date</SortTh>}
             <SortTh col="notes" {...thProps}>Notes</SortTh>
             {/* Links — no sort */}
@@ -1067,11 +1147,12 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                           <button
                             onClick={e => {
                               const r = e.currentTarget.getBoundingClientRect();
-                              setCasesPop(casesPop?.projectId === p.id ? null : {
+                              setCasesPop(casesPop?.projectId === p.id && casesPop.kind === "open" ? null : {
                                 projectId: p.id,
                                 top:  r.bottom + 4,
                                 // Keep the 380px panel on screen near the right edge.
                                 left: Math.min(r.left, window.innerWidth - 396),
+                                kind: "open",
                               });
                             }}
                             title="Show open cases"
@@ -1082,6 +1163,44 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                             }}
                           >
                             {n} ▾
+                          </button>
+                        );
+                      })()}
+                    </td>
+                  )}
+
+                  {/* Out of Scope — support only; only cases judged billable / needing a SOW */}
+                  {support && (
+                    <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                      {(() => {
+                        if (!supportTier(p.projectType) || openCasesFor(p, cases).length === 0) {
+                          return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
+                        }
+                        if (scope.loading) return <span style={{ fontSize: 11, color: C.textSub }}>Checking…</span>;
+                        if (scope.error) {
+                          return <span title={`Scope check failed: ${scope.error}`} style={{ fontSize: 11, color: C.textSub, cursor: "help" }}>?</span>;
+                        }
+                        const out = outOfScopeFor(p);
+                        if (out.length === 0) return <span style={{ fontSize: 12, color: C.textSub }}>—</span>;
+                        return (
+                          <button
+                            onClick={e => {
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setCasesPop(casesPop?.projectId === p.id && casesPop.kind === "scope" ? null : {
+                                projectId: p.id,
+                                top:  r.bottom + 4,
+                                left: Math.min(r.left, window.innerWidth - 396),
+                                kind: "scope",
+                              });
+                            }}
+                            title="Show out-of-scope cases"
+                            style={{
+                              fontSize: 12, fontWeight: 700, fontFamily: C.mono,
+                              padding: "2px 9px", borderRadius: 5, cursor: "pointer",
+                              background: C.yellowBg, color: C.yellow, border: `1px solid ${C.yellowBd}`,
+                            }}
+                          >
+                            ⚠ {out.length} ▾
                           </button>
                         );
                       })()}
