@@ -59,7 +59,8 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   // render branch stay, so restoring it is putting this line back:
   //   { id: "consultant",  label: "My Work",         icon: "👤" },
   { id: "cases",      label: "Cases",       icon: "🎫" },
-  { id: "calendar",   label: "Calendar",    icon: "📅" },
+  // "calendar" is hidden from the nav (Nov 2026), not removed — restore with:
+  //   { id: "calendar",   label: "Calendar",    icon: "📅" },
   // "meetings" (Zoom) and "utilization" are intentionally absent from the nav.
   // Their Tab ids, routes and views are left in place so restoring either is a
   // one-line change here.
@@ -73,7 +74,10 @@ const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   // owns one bar over the same three views; the CS entries in it appear only
   // for a cs_layer holder, and only as a courtesy — every /api/cs/* route
   // enforces the boundary itself.
-  { id: "customers",        label: "Customers",        icon: "🏢" },
+  //
+  // Hidden from the nav (Nov 2026), not removed: links that navigate to a
+  // customer still open it. Restore with:
+  //   { id: "customers",        label: "Customers",        icon: "🏢" },
   { id: "projectMgmt",      label: "PM",               icon: "📋" },
   { id: "mgr-pto",          label: "Manager PTO",      icon: "🗓️" },
   // "cs" and "crm" are gone from the nav — they are entries in the Customers
