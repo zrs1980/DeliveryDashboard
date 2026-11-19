@@ -416,6 +416,20 @@ export async function fetchProjectStatuses(projectIds: number[]) {
   `, projectIds);
 }
 
+/**
+ * Kick-off date (custentity_loop_kickoff_date) for Implementation projects.
+ * Its own query, like the status, so a missing field can't fail the Projects tab.
+ */
+export async function fetchKickoffDates(projectIds: number[]) {
+  if (projectIds.length === 0) return [];
+  const placeholders = projectIds.map(() => "?").join(", ");
+  return runSuiteQL<{ id: string; kickoff_date: string | null }>(`
+    SELECT id, custentity_loop_kickoff_date AS kickoff_date
+    FROM job
+    WHERE id IN (${placeholders})
+  `, projectIds);
+}
+
 /** List value name → internal id, e.g. { "On Track": "1", ... }. */
 export async function fetchProjectStatusOptions(): Promise<Record<string, string>> {
   const rows = await runSuiteQL<{ id: string; name: string }>(

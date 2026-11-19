@@ -41,6 +41,7 @@ type SortKey =
   | "phase"
   | "budgetFit"
   | "golive"
+  | "kickoff"
   | "renewal"
   | "cases"
   | "notes";
@@ -226,6 +227,13 @@ function sortProjects(
         cmp = bfA - bfB;
         break;
       }
+      case "kickoff":
+        // Projects without a kick-off date (and Service projects) sort last.
+        if (!a.kickoffDate && !b.kickoffDate) cmp = 0;
+        else if (!a.kickoffDate) cmp = 1;
+        else if (!b.kickoffDate) cmp = -1;
+        else cmp = a.kickoffDate.localeCompare(b.kickoffDate);
+        break;
       case "golive":
         if (a.daysLeft === null && b.daysLeft === null) cmp = 0;
         else if (a.daysLeft === null) cmp = 1;
@@ -588,6 +596,9 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
   const [goLiveDraft, setGoLiveDraft]     = useState<string>("");
   const [goLiveSaving, setGoLiveSaving]   = useState<number | null>(null);
   const [statusSaving, setStatusSaving]   = useState<number | null>(null);
+  const [editingKickoff, setEditingKickoff] = useState<number | null>(null);
+  const [kickoffDraft, setKickoffDraft]     = useState<string>("");
+  const [kickoffSaving, setKickoffSaving]   = useState<number | null>(null);
   // Open Cases list for one project, positioned fixed beside its button (the
   // table wrapper scrolls horizontally, so an absolute pop-over would clip).
   const [casesPop, setCasesPop] = useState<{ projectId: number; top: number; left: number; kind: "open" | "scope" } | null>(null);
@@ -685,6 +696,26 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
     setEditingGoLive(p.id);
   }
 
+  async function saveKickoff(projectId: number) {
+    setKickoffSaving(projectId);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/kickoff`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: kickoffDraft || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert("Failed to save kick-off date: " + (data.error ?? res.statusText));
+        return;
+      }
+      onProjectsChange(projects.map(p => p.id === projectId ? { ...p, kickoffDate: kickoffDraft || null } : p));
+      setEditingKickoff(null);
+    } finally {
+      setKickoffSaving(null);
+    }
+  }
+
   async function saveGoLive(projectId: number) {
     setGoLiveSaving(projectId);
     try {
@@ -754,7 +785,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
   const sorted = sortProjects(projects, phases, sortKey, sortDir, variant, cases);
   // Expansion rows span the whole table. Support: expand, Project, Type,
   // Progress, Hours, Hours Left, Open Cases, Out of Scope, Renewal Date, Notes, Links.
-  const colCount = support ? 11 : 13;
+  const colCount = support ? 11 : 14;
 
   const thProps = { sortKey, sortDir, onSort: handleSort };
 
@@ -847,6 +878,7 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
             <SortTh col="rem" {...thProps}>Hours Left</SortTh>
             {!support && <SortTh col="phase" {...thProps}>Phase</SortTh>}
             {!support && <SortTh col="budgetFit" {...thProps}>Budget Fit</SortTh>}
+            {!support && <SortTh col="kickoff" {...thProps}>Kick-off</SortTh>}
             {!support && <SortTh col="golive" {...thProps}>Go-Live</SortTh>}
             {support && <SortTh col="cases" {...thProps}>Open Cases</SortTh>}
             {support && (
@@ -1253,6 +1285,76 @@ export function ProjectTable({ projects, phases, onProjectsChange, variant = "de
                     <span style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: budgetFit.color }}>
                       {budgetFit.label}
                     </span>
+                  </td>}
+
+                  {/* Kick-off — Implementation projects only (custentity_loop_kickoff_date) */}
+                  {!support && <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                    {p.projectType !== "Implementation" || p.entityid === "INTERNAL" ? (
+                      <span style={{ fontSize: 12, color: C.textSub }}>—</span>
+                    ) : editingKickoff === p.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <input
+                          type="date"
+                          value={kickoffDraft}
+                          onChange={e => setKickoffDraft(e.target.value)}
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === "Enter") saveKickoff(p.id);
+                            if (e.key === "Escape") setEditingKickoff(null);
+                          }}
+                          style={{
+                            fontSize: 12, fontFamily: C.font,
+                            border: `1px solid ${C.blue}`, borderRadius: 4,
+                            padding: "2px 6px", outline: "none",
+                            color: C.text, background: C.surface,
+                            width: 120,
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button
+                            onClick={() => saveKickoff(p.id)}
+                            disabled={kickoffSaving === p.id}
+                            style={{
+                              fontSize: 10, fontWeight: 700, padding: "2px 7px",
+                              borderRadius: 4, cursor: "pointer", fontFamily: C.font,
+                              background: C.blue, color: "#fff",
+                              border: `1px solid ${C.blue}`,
+                              opacity: kickoffSaving === p.id ? 0.6 : 1,
+                            }}
+                          >
+                            {kickoffSaving === p.id ? "…" : "Save"}
+                          </button>
+                          <button
+                            onClick={() => setEditingKickoff(null)}
+                            style={{
+                              fontSize: 10, fontWeight: 600, padding: "2px 7px",
+                              borderRadius: 4, cursor: "pointer", fontFamily: C.font,
+                              background: C.alt, color: C.textMid,
+                              border: `1px solid ${C.border}`,
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => { setKickoffDraft(p.kickoffDate?.slice(0, 10) ?? ""); setEditingKickoff(p.id); }}
+                        title="Click to edit the kick-off date (saves to NetSuite)"
+                        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                      >
+                        {p.kickoffDate ? (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                            {new Date(p.kickoffDate.slice(0, 10) + "T00:00:00").toLocaleDateString("en-AU", {
+                              day: "numeric", month: "short", year: "2-digit",
+                            })}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: C.textSub }}>Set date</span>
+                        )}
+                        <span style={{ fontSize: 10, color: C.textSub }}>✏</span>
+                      </div>
+                    )}
                   </td>}
 
                   {/* Go-Live */}

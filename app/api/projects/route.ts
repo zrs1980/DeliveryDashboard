@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchActiveProjects, fetchActualHoursBetween, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, PROJECT_STATUS_NAMES, type ProjectScope } from "@/lib/netsuite";
+import { fetchActiveProjects, fetchActualHoursBetween, fetchTimebillHours, fetchBillableHours, fetchProjectStatuses, fetchKickoffDates, PROJECT_STATUS_NAMES, type ProjectScope } from "@/lib/netsuite";
 import { fetchListTasks, resolveClickUpListId, extractClickUpListId, getWorkspaceLists, matchListByCompanyName, deriveTaskRollup } from "@/lib/clickup";
 import { nsProjectUrl, CLICKUP_LIST_OVERRIDES, STANDALONE_CLICKUP_LISTS, HIDDEN_SUPPORT_PROJECT_IDS } from "@/lib/constants";
 import { getPmRoster, getStaffRoster, nameFor } from "@/lib/roster";
@@ -86,7 +86,9 @@ export async function GET(req: NextRequest) {
     // Fetch timebill hours (per employee) + billable hours (per project) in parallel.
     // The rosters come along: staff resolves the projectmanager field to a name,
     // and the PM roster drives the most-hours fallback when that field is empty.
-    const [timebillRows, billableRows, pmRoster, staffRoster, statusRows] = await Promise.all([
+    // Kick-off date applies to Implementation projects (jobtype 1) only.
+    const implIds = scope === "support" ? [] : rawProjects.filter(p => parseInt(p.jobtype) === 1).map(p => parseInt(p.id));
+    const [timebillRows, billableRows, pmRoster, staffRoster, statusRows, kickoffRows] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
       getPmRoster({ includeInactive: true }),
@@ -97,7 +99,14 @@ export async function GET(req: NextRequest) {
         console.error("[/api/projects] project status:", err);
         return [] as Awaited<ReturnType<typeof fetchProjectStatuses>>;
       }),
+      fetchKickoffDates(implIds).catch(err => {
+        console.error("[/api/projects] kick-off date:", err);
+        return [] as Awaited<ReturnType<typeof fetchKickoffDates>>;
+      }),
     ]);
+
+    const kickoffByProject: Record<number, string | null> = {};
+    for (const r of kickoffRows) kickoffByProject[parseInt(r.id)] = normalizeNSDate(r.kickoff_date);
 
     const healthByProject: Record<number, ProjectHealth> = {};
     for (const r of statusRows) {
@@ -228,6 +237,7 @@ export async function GET(req: NextRequest) {
             : parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
           goliveDate,
+          kickoffDate:   kickoffByProject[id] ?? null,
           daysLeft,
           isOverdue,
           budget_hours,

@@ -89,6 +89,8 @@ export interface Project {
   support?: SupportFields;
   pm: string;
   goliveDate: string | null;
+  /** custentity_loop_kickoff_date, YYYY-MM-DD. Implementation projects only. */
+  kickoffDate?: string | null;
   daysLeft: number | null;
   isOverdue: boolean;
   budget_hours: number;
