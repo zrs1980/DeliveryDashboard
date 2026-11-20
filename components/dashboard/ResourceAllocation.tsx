@@ -15,6 +15,8 @@ interface Props {
 
 interface CellEdit {
   allocationId:  string | null;   // null = creating a new allocation
+  /** Other allocations covering the same week on this row; the week is cut out of them on save. */
+  otherAllocationIds?: string[];
   employeeId:    number;
   employeeName:  string;
   projectId:     number;
@@ -1331,106 +1333,120 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
         setLocalAllocs(prev => [...prev, newAlloc]);
 
       } else {
-        // ── EDIT existing allocation — split to preserve other weeks ─────
-        const orig       = localAllocs.find(x => x.id === cell.allocationId)!;
-        const allocStart = parseNSDate(orig.startDate)!;
-        const allocEnd   = parseNSDate(orig.endDate)!;
+        // ── EDIT existing allocation(s) — split to preserve other weeks ──
+        // A week can be covered by more than one allocation for the same person
+        // and project (overlapping NetSuite records). The cell shows their sum, so
+        // the entered figure goes on the first and the week is cut out of the rest —
+        // editing only one left the total unchanged or landing on a different number.
+        async function editOne(allocId: string, hrs: number, start: NSAllocation[]): Promise<NSAllocation[]> {
+          const orig       = start.find(x => x.id === allocId)!;
+          const allocStart = parseNSDate(orig.startDate)!;
+          const allocEnd   = parseNSDate(orig.endDate)!;
 
-        const weekStart = new Date(cell.weekMs);
-        const weekEnd   = new Date(cell.weekMs);
-        weekEnd.setDate(weekEnd.getDate() + 6);
+          const weekStart = new Date(cell.weekMs);
+          const weekEnd   = new Date(cell.weekMs);
+          weekEnd.setDate(weekEnd.getDate() + 6);
 
-        // Clip new allocation to the actual allocation bounds (handles partial weeks)
-        const newStart = allocStart > weekStart ? allocStart : weekStart;
-        const newEnd   = allocEnd   < weekEnd   ? allocEnd   : weekEnd;
+          // Clip new allocation to the actual allocation bounds (handles partial weeks)
+          const newStart = allocStart > weekStart ? allocStart : weekStart;
+          const newEnd   = allocEnd   < weekEnd   ? allocEnd   : weekEnd;
 
-        // Convert entered hours to weekly rate (pro-rated for partial weeks)
-        const wDays      = countWorkDays(newStart, newEnd);
-        const dailyHrs   = wDays > 0 ? newHrs / wDays : newHrs / 5;
-        const newWeeklyH = dailyHrs * 5;
-        const newPct     = (newWeeklyH / 40) * 100;
+          // Convert entered hours to weekly rate (pro-rated for partial weeks)
+          const wDays      = countWorkDays(newStart, newEnd);
+          const dailyHrs   = wDays > 0 ? hrs / wDays : hrs / 5;
+          const newWeeklyH = dailyHrs * 5;
+          const newPct     = (newWeeklyH / 40) * 100;
 
-        const origWeeklyH = orig.percentOfMax / 100 * 40;
+          // weeklyHours() covers allocations kept in hours/day as well as %, where
+          // percentOfMax is 0 and the old form re-created the other weeks at 0h.
+          const origWeeklyH = weeklyHours(orig);
+          const origPct     = (origWeeklyH / 40) * 100;
 
-        const dayBefore = new Date(weekStart); dayBefore.setDate(dayBefore.getDate() - 1);
-        const dayAfter  = new Date(weekEnd);   dayAfter.setDate(dayAfter.getDate() + 1);
+          const dayBefore = new Date(weekStart); dayBefore.setDate(dayBefore.getDate() - 1);
+          const dayAfter  = new Date(weekEnd);   dayAfter.setDate(dayAfter.getDate() + 1);
 
-        const hasBefore = allocStart < weekStart;
-        const hasAfter  = allocEnd   > weekEnd;
+          const hasBefore = allocStart < weekStart;
+          const hasAfter  = allocEnd   > weekEnd;
 
-        // Accumulate state changes, apply atomically at the end
-        let nextAllocs = [...localAllocs];
+          // Accumulate state changes, apply atomically at the end
+          let nextAllocs = [...start];
 
-        if (newHrs === 0) {
-          // ── 0h: cut this week out, keep the original rate either side ───
-          // Same four shapes as below, minus the record for this week.
-          if (!hasBefore && !hasAfter) {
-            await deleteAlloc(cell.allocationId);
-            nextAllocs = nextAllocs.filter(x => x.id !== cell.allocationId);
+          if (hrs === 0) {
+            // ── 0h: cut this week out, keep the original rate either side ───
+            // Same four shapes as below, minus the record for this week.
+            if (!hasBefore && !hasAfter) {
+              await deleteAlloc(allocId);
+              nextAllocs = nextAllocs.filter(x => x.id !== allocId);
+            } else if (hasBefore && !hasAfter) {
+              await patchAlloc(allocId, { endDate: fmt(dayBefore) });
+              nextAllocs = nextAllocs.map(x =>
+                x.id === allocId ? { ...x, endDate: fmt(dayBefore) } : x,
+              );
+            } else if (!hasBefore && hasAfter) {
+              await patchAlloc(allocId, { startDate: fmt(dayAfter) });
+              nextAllocs = nextAllocs.map(x =>
+                x.id === allocId ? { ...x, startDate: fmt(dayAfter) } : x,
+              );
+            } else {
+              // Create the "after" part FIRST, so a failure leaves the original intact
+              const newId = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
+              nextAllocs.push({ ...orig, id: newId, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: origPct });
+              await patchAlloc(allocId, { endDate: fmt(dayBefore) });
+              nextAllocs = nextAllocs.map(x =>
+                x.id === allocId ? { ...x, endDate: fmt(dayBefore) } : x,
+              );
+            }
+
+          } else if (!hasBefore && !hasAfter) {
+            // ── Case 1: allocation IS this week — just update the rate ──────
+            await patchAlloc(allocId, { percentOfTime: newPct });
+            nextAllocs = nextAllocs.map(x =>
+              x.id === allocId ? { ...x, percentOfMax: newPct } : x,
+            );
+
           } else if (hasBefore && !hasAfter) {
-            await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+            // ── Case 2: allocation ends this week (or before) ───────────────
+            // POST new allocation for this week at new rate FIRST
+            const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+            nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+            // Then trim existing to end before this week
+            await patchAlloc(allocId, { endDate: fmt(dayBefore) });
             nextAllocs = nextAllocs.map(x =>
-              x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+              x.id === allocId ? { ...x, endDate: fmt(dayBefore) } : x,
             );
+
           } else if (!hasBefore && hasAfter) {
-            await patchAlloc(cell.allocationId, { startDate: fmt(dayAfter) });
+            // ── Case 3: allocation starts this week ─────────────────────────
+            // POST new for this week at new rate FIRST
+            const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+            nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+            // Then shift existing to start after this week (preserves original rate)
+            await patchAlloc(allocId, { startDate: fmt(dayAfter) });
             nextAllocs = nextAllocs.map(x =>
-              x.id === cell.allocationId ? { ...x, startDate: fmt(dayAfter) } : x,
+              x.id === allocId ? { ...x, startDate: fmt(dayAfter) } : x,
             );
+
           } else {
-            // Create the "after" part FIRST, so a failure leaves the original intact
-            const newId = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
-            nextAllocs.push({ ...orig, id: newId, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: orig.percentOfMax });
-            await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
+            // ── Case 4: week is in the middle — three-way split ─────────────
+            // POST new for this week at new rate
+            const newId1 = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
+            nextAllocs.push({ ...orig, id: newId1, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
+            // POST new for the "after" period at original rate
+            const newId2 = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
+            nextAllocs.push({ ...orig, id: newId2, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: origPct });
+            // Trim existing to end before this week
+            await patchAlloc(allocId, { endDate: fmt(dayBefore) });
             nextAllocs = nextAllocs.map(x =>
-              x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
+              x.id === allocId ? { ...x, endDate: fmt(dayBefore) } : x,
             );
           }
-
-        } else if (!hasBefore && !hasAfter) {
-          // ── Case 1: allocation IS this week — just update the rate ──────
-          await patchAlloc(cell.allocationId, { percentOfTime: newPct });
-          nextAllocs = nextAllocs.map(x =>
-            x.id === cell.allocationId ? { ...x, percentOfMax: newPct } : x,
-          );
-
-        } else if (hasBefore && !hasAfter) {
-          // ── Case 2: allocation ends this week (or before) ───────────────
-          // POST new allocation for this week at new rate FIRST
-          const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
-          nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
-          // Then trim existing to end before this week
-          await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
-          nextAllocs = nextAllocs.map(x =>
-            x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
-          );
-
-        } else if (!hasBefore && hasAfter) {
-          // ── Case 3: allocation starts this week ─────────────────────────
-          // POST new for this week at new rate FIRST
-          const newId = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
-          nextAllocs.push({ ...orig, id: newId, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
-          // Then shift existing to start after this week (preserves original rate)
-          await patchAlloc(cell.allocationId, { startDate: fmt(dayAfter) });
-          nextAllocs = nextAllocs.map(x =>
-            x.id === cell.allocationId ? { ...x, startDate: fmt(dayAfter) } : x,
-          );
-
-        } else {
-          // ── Case 4: week is in the middle — three-way split ─────────────
-          // POST new for this week at new rate
-          const newId1 = await createAlloc(fmt(newStart), fmt(newEnd), newWeeklyH);
-          nextAllocs.push({ ...orig, id: newId1, startDate: fmt(newStart), endDate: fmt(newEnd), percentOfMax: newPct });
-          // POST new for the "after" period at original rate
-          const newId2 = await createAlloc(fmt(dayAfter), fmt(allocEnd), origWeeklyH);
-          nextAllocs.push({ ...orig, id: newId2, startDate: fmt(dayAfter), endDate: fmt(allocEnd), percentOfMax: orig.percentOfMax });
-          // Trim existing to end before this week
-          await patchAlloc(cell.allocationId, { endDate: fmt(dayBefore) });
-          nextAllocs = nextAllocs.map(x =>
-            x.id === cell.allocationId ? { ...x, endDate: fmt(dayBefore) } : x,
-          );
+          return nextAllocs;
         }
 
+        let nextAllocs = await editOne(cell.allocationId, newHrs, localAllocs);
+        for (const otherId of cell.otherAllocationIds ?? []) {
+          if (nextAllocs.some(x => x.id === otherId)) nextAllocs = await editOne(otherId, 0, nextAllocs);
+        }
         setLocalAllocs(nextAllocs);
       }
     } catch (err) {
@@ -1753,7 +1769,8 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                   save path rather than growing a second one. */}
                               {weeks.map((w, wi) => {
                                 const hrs = allocs.reduce((s, a) => s + hoursForWeek(a, w), 0);
-                                const coveringAlloc = allocs.find(a => allocCoversWeek(a, w));
+                                const covering      = allocs.filter(a => allocCoversWeek(a, w));
+                                const coveringAlloc = covering[0];
                                 const rowSaving = allocs.some(a => savingId === a.id) || savingRef.current;
                                 const rowError  = cellError?.rowKey === rowKeyOf(allocs[0].employeeId, projectId, allocs[0].taskId)
                                   && cellError.weekMs === w.getTime();
@@ -1770,6 +1787,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
 
                                 const cellContext: CellEdit = {
                                   allocationId:   coveringAlloc?.id ?? null,
+                                  otherAllocationIds: covering.slice(1).map(a => a.id),
                                   employeeId:     first.employeeId,
                                   employeeName:   emp.name,
                                   taskId:         first.taskId,
@@ -2202,8 +2220,11 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                           {weeks.map((w, wi) => {
                             const wMs = w.getTime();
                             // Find which allocation (if any) covers this week for this employee
-                            const coveringAlloc = emp.allocs.find(a => allocCoversWeek(a, w));
-                            const hrs           = coveringAlloc ? hoursForWeek(coveringAlloc, w) : 0;
+                            // Several allocations can cover one week; show their sum, as the
+                            // by-resource grid does, and hand all of them to the editor.
+                            const covering      = emp.allocs.filter(a => allocCoversWeek(a, w));
+                            const coveringAlloc = covering[0];
+                            const hrs           = covering.reduce((s, a) => s + hoursForWeek(a, w), 0);
                             const isEditingThis =
                               editingCell !== null &&
                               editingCell.weekMs     === wMs &&
@@ -2215,6 +2236,7 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
 
                             const cellContext: CellEdit = {
                               allocationId:   coveringAlloc?.id ?? null,
+                              otherAllocationIds: covering.slice(1).map(a => a.id),
                               employeeId:     emp.employeeId,
                               employeeName:   emp.name,
                               taskId:         emp.taskId,
