@@ -196,7 +196,8 @@ function sortProjects(
           ? supportTypeRank(a.projectType) - supportTypeRank(b.projectType)
             || a.projectType.localeCompare(b.projectType)
             || a.client.localeCompare(b.client)
-          : a.projectType.localeCompare(b.projectType);
+          : a.projectType.localeCompare(b.projectType)
+            || a.client.localeCompare(b.client);
         break;
       case "pct":
         if (support) return nullsLast(consumedShare(a), consumedShare(b), multiplier);
@@ -585,7 +586,7 @@ function SortTh({
 export function ProjectTable({ projects, phases, onProjectsChange, variant = "delivery", cases = [] }: Props) {
   const support = variant === "support";
   // Support opens sorted by type: MSA → support tiers → General Consulting.
-  const [sortKey, setSortKey]       = useState<SortKey>(support ? "type" : "health");
+  const [sortKey, setSortKey]       = useState<SortKey>("type");
   const [sortDir, setSortDir]       = useState<SortDir>("asc");
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [expandedMetrics, setExpandedMetrics] = useState<Set<number>>(new Set());
