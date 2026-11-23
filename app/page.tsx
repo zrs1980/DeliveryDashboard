@@ -211,6 +211,12 @@ export default function DashboardPage() {
   const [support, setSupport] = useState<{
     projects: Project[]; loading: boolean; error: string | null; loaded: boolean;
   }>({ projects: [], loading: false, error: null, loaded: false });
+  // MSA projects flagged custentity_loop_msa_show_in_pm_dash_task. Shown in the
+  // Tasks tab only — kept out of data.projects so the Projects tab, KPIs and
+  // everything else reading that list are unchanged. Loaded on first visit to
+  // Tasks (it fans out to ClickUp); a refresh clears it.
+  const [msaTasks, setMsaTasks] = useState<{ projects: Project[]; loading: boolean; loaded: boolean }>(
+    { projects: [], loading: false, loaded: false });
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DataState>({ projects: [], phases: [], cases: [], allocations: [], consultantRoster: [], updatedAt: null });
@@ -231,6 +237,24 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const loadMsaTasks = useCallback(async () => {
+    setMsaTasks(s => ({ ...s, loading: true }));
+    try {
+      const res  = await fetch("/api/projects?scope=msaTasks");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load MSA projects");
+      setMsaTasks({ projects: json.projects ?? [], loading: false, loaded: true });
+    } catch (e) {
+      // Not worth blocking the tab: the delivery projects still show.
+      console.error("[tasks] MSA projects:", e);
+      setMsaTasks({ projects: [], loading: false, loaded: true });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "tasks" && !msaTasks.loaded && !msaTasks.loading) loadMsaTasks();
+  }, [tab, msaTasks.loaded, msaTasks.loading, loadMsaTasks]);
+
   // First visit to the Support tab (or the first after a refresh) loads it.
   useEffect(() => {
     if (tab === "projects" && apScope === "support" && !support.loaded && !support.loading) loadSupport();
@@ -242,6 +266,7 @@ export default function DashboardPage() {
     setCasesError(null);
     // Stale after a refresh; reloads when the Support tab is next shown.
     setSupport({ projects: [], loading: false, error: null, loaded: false });
+    setMsaTasks({ projects: [], loading: false, loaded: false });
     try {
       const [projRes, phaseRes, casesRes, resRes] = await Promise.all([
         fetch("/api/projects"),
@@ -665,15 +690,23 @@ export default function DashboardPage() {
         {hasLoaded && tab === "tasks" && (
           <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.05)", padding: "20px 22px" }}>
             <TaskCommandCenter
-              projects={projects}
+              projects={msaTasks.projects.length ? [...projects, ...msaTasks.projects] : projects}
               // Accepts the updater form as well as a plain array: the inline
               // ClickUp status dropdown writes twice per edit (optimistic, then
               // whatever ClickUp reports back), and resolving both against the
               // render-time array would make the second discard the first.
-              onProjectsChange={updated => setData(d => ({
-                ...d,
-                projects: typeof updated === "function" ? updated(d.projects) : updated,
-              }))}
+              // Applied to each list separately, so an edit to an MSA project's
+              // task lands in msaTasks and never leaks into data.projects.
+              onProjectsChange={updated => {
+                if (typeof updated === "function") {
+                  setData(d => ({ ...d, projects: updated(d.projects) }));
+                  setMsaTasks(s => ({ ...s, projects: updated(s.projects) }));
+                } else {
+                  const msaIds = new Set(msaTasks.projects.map(p => p.id));
+                  setData(d => ({ ...d, projects: updated.filter(p => !msaIds.has(p.id)) }));
+                  setMsaTasks(s => ({ ...s, projects: updated.filter(p => msaIds.has(p.id)) }));
+                }
+              }}
               initialTab={taskSubTab}
               cases={cases}
               casesError={casesError}

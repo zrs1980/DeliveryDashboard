@@ -308,7 +308,7 @@ export async function deleteRecord(recordType: string, id: number): Promise<void
  * Matched on the jobtype NAME, like /api/msa and /api/consulting-projects, so a
  * renumbered or newly added type still resolves.
  */
-export type ProjectScope = "delivery" | "support";
+export type ProjectScope = "delivery" | "support" | "msaTasks";
 
 const SCOPE_FILTER: Record<ProjectScope, string> = {
   delivery: "jobtype IN (1, 2)",
@@ -317,6 +317,11 @@ const SCOPE_FILTER: Record<ProjectScope, string> = {
       OR LOWER(BUILTIN.DF(jobtype)) LIKE '%general consulting%'
       OR LOWER(BUILTIN.DF(jobtype)) LIKE '%support%'
     )`,
+  // Tasks tab only: MSA projects a PM has opted in with the
+  // custentity_loop_msa_show_in_pm_dash_task checkbox. Tested = 'T' because
+  // SuiteQL omits a never-ticked checkbox rather than returning 'F'.
+  msaTasks: `LOWER(BUILTIN.DF(jobtype)) LIKE '%managed service%'
+      AND custentity_loop_msa_show_in_pm_dash_task = 'T'`,
 };
 
 // Support-only fields, selected only for that scope so a field missing on the
@@ -327,6 +332,7 @@ const SCOPE_FILTER: Record<ProjectScope, string> = {
 // "20" option reads back as 2), so take the display text and parse that.
 const SCOPE_EXTRA_COLUMNS: Record<ProjectScope, string> = {
   delivery: "",
+  msaTasks: "",
   support: `,
       BUILTIN.DF(custentity9)              AS monthly_hours,
       custentity_renewal_date              AS renewal_date`,

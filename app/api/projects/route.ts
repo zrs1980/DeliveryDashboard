@@ -57,16 +57,19 @@ function parseNotes(raw: string | null): ProjectNote[] {
 }
 
 /**
- * GET /api/projects[?scope=support]
+ * GET /api/projects[?scope=support|msaTasks]
  *
  * Default: Implementation/Service projects plus the standalone internal ClickUp
  * lists. scope=support: the Projects tab's Support projects (MSA, General
  * Consulting, Standard/Premium/Platinum Support), built the same way so the
- * same table renders them; no standalone lists.
+ * same table renders them; no standalone lists. scope=msaTasks: the MSA
+ * projects flagged custentity_loop_msa_show_in_pm_dash_task, with their ClickUp
+ * tasks, for the Tasks tab's project list only.
  */
 export async function GET(req: NextRequest) {
   try {
-    const scope: ProjectScope = req.nextUrl.searchParams.get("scope") === "support" ? "support" : "delivery";
+    const scopeParam = req.nextUrl.searchParams.get("scope");
+    const scope: ProjectScope = scopeParam === "support" || scopeParam === "msaTasks" ? scopeParam : "delivery";
     const rawProjects = (await fetchActiveProjects(scope))
       .filter(p => scope !== "support" || !HIDDEN_SUPPORT_PROJECT_IDS.has(parseInt(p.id)));
     const projectIds  = rawProjects.map(p => parseInt(p.id));
@@ -87,7 +90,7 @@ export async function GET(req: NextRequest) {
     // The rosters come along: staff resolves the projectmanager field to a name,
     // and the PM roster drives the most-hours fallback when that field is empty.
     // Kick-off date applies to Implementation projects (jobtype 1) only.
-    const implIds = scope === "support" ? [] : rawProjects.filter(p => parseInt(p.jobtype) === 1).map(p => parseInt(p.id));
+    const implIds = scope !== "delivery" ? [] : rawProjects.filter(p => parseInt(p.jobtype) === 1).map(p => parseInt(p.id));
     const [timebillRows, billableRows, pmRoster, staffRoster, statusRows, kickoffRows] = await Promise.all([
       fetchTimebillHours(projectIds),
       fetchBillableHours(projectIds).catch(() => [] as Awaited<ReturnType<typeof fetchBillableHours>>),
@@ -232,7 +235,7 @@ export async function GET(req: NextRequest) {
           label:         `${clientName} — ${projectName}`,
           client:        clientName,
           customerNsId:  p.customer_ns_id ? String(p.customer_ns_id) : null,
-          projectType:   scope === "support"
+          projectType:   scope !== "delivery"
             ? (p.jobtype_name ?? "").trim() || "Support"
             : parseInt(p.jobtype) === 1 ? "Implementation" : "Service",
           pm,
@@ -267,7 +270,7 @@ export async function GET(req: NextRequest) {
     );
 
     // Fetch standalone internal ClickUp lists (no NS project backing)
-    const standaloneProjects: Project[] = scope === "support" ? [] : await Promise.all(
+    const standaloneProjects: Project[] = scope !== "delivery" ? [] : await Promise.all(
       STANDALONE_CLICKUP_LISTS.map(async ({ listId, label }, idx) => {
         let tasks: Awaited<ReturnType<typeof fetchListTasks>> = [];
         let clickupError: string | null = null;
