@@ -52,6 +52,9 @@ export interface CUTask {
   // ClickUp task type. null = ordinary task; 1 = ClickUp's built-in Milestone
   // type (what "Set as Milestone" / converting a task to a milestone sets).
   custom_item_id?: number | null;
+  /** Set server-side by fetchListTasks: custom_item_id is one of the
+   *  workspace's milestone task types (built-in or custom-named). */
+  is_milestone?: boolean;
 }
 
 // ─── Derived Project (enriched with ClickUp + health) ────────────────────────

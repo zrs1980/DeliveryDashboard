@@ -163,7 +163,30 @@ export function matchListByCompanyName(companyName: string, lists: CUList[]): st
 
 // ─── Fetch tasks for a list ───────────────────────────────────────────────────
 
+/**
+ * Task-type ids that mean "milestone" in this workspace: ClickUp's built-in
+ * Milestone (1) plus any custom task type whose name contains "milestone".
+ * A workspace-defined Milestone type gets its own id (e.g. 1002), so checking
+ * for 1 alone misses it. Cached an hour; on failure falls back to just 1.
+ */
+let _milestoneTypeCache: { ids: Set<number>; ts: number } | null = null;
+async function getMilestoneTypeIds(): Promise<Set<number>> {
+  if (_milestoneTypeCache && Date.now() - _milestoneTypeCache.ts < LIST_CACHE_TTL) return _milestoneTypeCache.ids;
+  const ids = new Set<number>([1]);
+  try {
+    const data = await cuGet(`/team/${process.env.CLICKUP_TEAM_ID}/custom_item`);
+    for (const t of (data.custom_items ?? []) as { id: number; name?: string; name_plural?: string }[]) {
+      if (/milestone/i.test(`${t.name ?? ""} ${t.name_plural ?? ""}`)) ids.add(Number(t.id));
+    }
+    _milestoneTypeCache = { ids, ts: Date.now() };
+  } catch (e) {
+    console.error("[ClickUp] custom task types:", e instanceof Error ? e.message : e);
+  }
+  return ids;
+}
+
 export async function fetchListTasks(listId: string): Promise<CUTask[]> {
+  const milestoneTypes = await getMilestoneTypeIds();
   const all: CUTask[] = [];
   let page = 0;
   while (true) {
@@ -175,6 +198,9 @@ export async function fetchListTasks(listId: string): Promise<CUTask[]> {
     }
     const data = await res.json();
     const tasks = (data.tasks ?? []) as CUTask[];
+    for (const t of tasks) {
+      t.is_milestone = t.custom_item_id != null && milestoneTypes.has(Number(t.custom_item_id));
+    }
     all.push(...tasks);
     if (tasks.length < 100) break; // last page
     page++;
@@ -578,6 +604,7 @@ const CLICKUP_MILESTONE_TYPE_ID = 1;
  * milestone in ClickUp itself, so the Milestones tab came up empty.
  */
 export function isMilestone(task: CUTask): boolean {
+  if (task.is_milestone) return true;
   if (Number(task.custom_item_id) === CLICKUP_MILESTONE_TYPE_ID) return true;
   return task.tags.some(t => t.name.toLowerCase() === "milestone");
 }
