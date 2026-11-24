@@ -49,6 +49,9 @@ export interface CUTask {
   // is the cleaner of the two, description the fallback.
   description?: string | null;
   text_content?: string | null;
+  // ClickUp task type. null = ordinary task; 1 = ClickUp's built-in Milestone
+  // type (what "Set as Milestone" / converting a task to a milestone sets).
+  custom_item_id?: number | null;
 }
 
 // ─── Derived Project (enriched with ClickUp + health) ────────────────────────

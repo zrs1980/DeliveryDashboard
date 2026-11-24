@@ -569,7 +569,16 @@ export function isClientPending(task: CUTask): boolean {
   return task.tags.some(t => t.name.toLowerCase() === "client");
 }
 
+/** ClickUp's built-in Milestone task type, as returned in `custom_item_id`. */
+const CLICKUP_MILESTONE_TYPE_ID = 1;
+
+/**
+ * A ClickUp milestone task (the Milestone task type), or a task carrying the
+ * older `milestone` tag. Checking the tag alone missed every task marked as a
+ * milestone in ClickUp itself, so the Milestones tab came up empty.
+ */
 export function isMilestone(task: CUTask): boolean {
+  if (Number(task.custom_item_id) === CLICKUP_MILESTONE_TYPE_ID) return true;
   return task.tags.some(t => t.name.toLowerCase() === "milestone");
 }
 
