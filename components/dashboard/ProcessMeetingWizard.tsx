@@ -74,6 +74,13 @@ interface ActionItem {
 
 type Step = "analyse" | "actions" | "summary" | "file" | "done";
 
+/** YYYY-MM-DD from LOCAL date components; null when the date doesn't parse. */
+function localDay(date: string | null | undefined): string | null {
+  const d = new Date(date ?? "");
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const STEPS: { key: Step; label: string }[] = [
   { key: "actions", label: "Action items" },
   { key: "summary", label: "Key details" },
@@ -253,6 +260,10 @@ export function ProcessMeetingWizard({
           firefliesId:  meeting.id,
           meetingTitle: meeting.title,
           meetingDate:  meeting.date,
+          // The day for the meeting task's title, in the PM's LOCAL time (as the
+          // grid shows it): the server would read meetingDate in UTC and put
+          // evening meetings on the following day. Same rule as meetingDocName.
+          meetingDay:   localDay(meeting.date),
           meetingType,
           projectNsId:  String(project.id),
           projectLabel: project.label,

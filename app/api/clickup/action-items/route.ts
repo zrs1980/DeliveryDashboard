@@ -101,8 +101,13 @@ export async function POST(req: NextRequest) {
     // ── Parent task: the meeting ─────────────────────────────────────────────
     // Without it there is nothing to hang the action items on, so a failure
     // here creates nothing rather than scattering loose tasks across the list.
-    const meetingTitle = String(body?.meetingTitle ?? "").trim();
-    const parentName   = meetingTitle || `Meeting${body?.meetingDate ? ` — ${body.meetingDate}` : ""}`;
+    // Title is "<meeting name> - YYYY-MM-DD". The day comes from the browser
+    // (meetingDay, local time); the UTC slice of meetingDate is only a fallback.
+    const meetingTitle = String(body?.meetingTitle ?? "").trim() || "Meeting";
+    const meetingDay   = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.meetingDay ?? ""))
+      ? String(body.meetingDay)
+      : /^\d{4}-\d{2}-\d{2}/.exec(String(body?.meetingDate ?? ""))?.[0] ?? "";
+    const parentName   = meetingDay ? `${meetingTitle} - ${meetingDay}` : meetingTitle;
     let parent: { name: string; id: string; url: string };
     const reuseId = typeof body?.parentTaskId === "string" ? body.parentTaskId.trim() : "";
     if (reuseId) {
