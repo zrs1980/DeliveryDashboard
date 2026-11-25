@@ -172,8 +172,9 @@ export function TimeEntries({ projects: activeProjects }: { projects: Project[] 
       .catch(e => console.warn("[Time Entries] could not load internal projects:", e));
   }, []);
 
-  // General Consulting Agreement / Consulting Services jobs aren't in Active
-  // Projects either. External, so they fall under the "External" type filter.
+  // Consulting (General Consulting Agreement, Consulting Services) and support
+  // (Premium/Standard Support, …) jobs aren't in Active Projects either.
+  // External, so they fall under the "External" type filter.
   const [consultingProjects, setConsultingProjects] = useState<EntryProject[]>([]);
   useEffect(() => {
     fetch("/api/consulting-projects")

@@ -5,8 +5,9 @@ import { getStaffRoster, nameFor } from "@/lib/roster";
 export const revalidate = 0;
 
 /**
- * In-Progress consulting projects — "General Consulting Agreement" (jobtype 5)
- * and "Consulting Services" (jobtype 6). Not in Active Projects
+ * In-Progress consulting and support projects — "General Consulting Agreement"
+ * (jobtype 5), "Consulting Services" (jobtype 6) and any type whose name
+ * contains "support", e.g. "Premium Support". Not in Active Projects
  * (Implementation/Service only); loaded for the Projects tab's Time Entries
  * section, alongside MSAs and Internal projects.
  *
@@ -23,7 +24,10 @@ export async function GET() {
         SELECT id, entityid, companyname, BUILTIN.DF(customer) AS customer_name, projectmanager
         FROM job
         WHERE entitystatus = 2
-          AND LOWER(BUILTIN.DF(jobtype)) LIKE '%consulting%'
+          AND (
+               LOWER(BUILTIN.DF(jobtype)) LIKE '%consulting%'
+            OR LOWER(BUILTIN.DF(jobtype)) LIKE '%support%'
+          )
         ORDER BY customer_name ASC
       `),
       getStaffRoster(),
