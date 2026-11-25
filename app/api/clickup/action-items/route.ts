@@ -7,7 +7,7 @@ import {
   fetchTaskFieldValue,
   findPhaseTarget,
   resolveClickUpListId,
-  INTERNAL_ACTION_POINTS,
+  MEETINGS_PHASE,
   PHASE_FIELD_NAME,
   type PhaseFieldTarget,
 } from "@/lib/clickup";
@@ -30,10 +30,12 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
  * POST /api/clickup/action-items
- * { clickupUrl, tasks: [{ name, description }], meetingTitle?, meetingDate?, docUrl? }
+ * { clickupUrl, tasks: [{ name, description }], meetingTitle?, meetingDate?, docUrl?, parentTaskId? }
  *
- * Creates one ClickUp task per action item in the project's own list, tagged with
- * the "Phase (v4)" = "8. Internal Action Points" custom field.
+ * Creates, in the project's own list, one parent task named after the meeting and
+ * one SUBTASK of it per action item, all with "Phase (v4)" = "6. Meetings".
+ * parentTaskId reuses a parent made by an earlier, partly failed run of the same
+ * wizard, so retrying the misses doesn't create a second meeting task.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -74,9 +76,9 @@ export async function POST(req: NextRequest) {
     let phase: PhaseFieldTarget | null = null;
     let phaseWarning: string | null = null;
     try {
-      phase = findPhaseTarget(await fetchListFields(listId), INTERNAL_ACTION_POINTS);
+      phase = findPhaseTarget(await fetchListFields(listId), MEETINGS_PHASE);
       if (!phase) {
-        phaseWarning = `This ClickUp list has no "${PHASE_FIELD_NAME}" field with an "${INTERNAL_ACTION_POINTS}" option, so the tasks were created without it. Add the field in ClickUp, or set it by hand.`;
+        phaseWarning = `This ClickUp list has no "${PHASE_FIELD_NAME}" field with a "${MEETINGS_PHASE}" option, so the tasks were created without it. Add the option in ClickUp, or set it by hand.`;
       }
     } catch (e) {
       phaseWarning = `The ClickUp custom fields couldn't be read (${e instanceof Error ? e.message : "unknown error"}), so the tasks were created without the phase set.`;
@@ -96,6 +98,31 @@ export async function POST(req: NextRequest) {
     const created: { name: string; id: string; url: string }[] = [];
     const failed:  { name: string; error: string }[] = [];
 
+    // ── Parent task: the meeting ─────────────────────────────────────────────
+    // Without it there is nothing to hang the action items on, so a failure
+    // here creates nothing rather than scattering loose tasks across the list.
+    const meetingTitle = String(body?.meetingTitle ?? "").trim();
+    const parentName   = meetingTitle || `Meeting${body?.meetingDate ? ` — ${body.meetingDate}` : ""}`;
+    let parent: { name: string; id: string; url: string };
+    const reuseId = typeof body?.parentTaskId === "string" ? body.parentTaskId.trim() : "";
+    if (reuseId) {
+      parent = { name: parentName, id: reuseId, url: `https://app.clickup.com/t/${reuseId}` };
+    } else {
+      try {
+        const p = await createTask({
+          listId,
+          name:        parentName,
+          description: footerParts.length ? footerParts.join("\n") : "Action items from this meeting are its subtasks.",
+          phase,
+        });
+        parent = { name: p.name, id: p.id, url: p.url };
+      } catch (e) {
+        return NextResponse.json({
+          error: `Could not create the meeting task "${parentName}" in ClickUp: ${e instanceof Error ? e.message : "unknown error"}. No action items were created.`,
+        }, { status: 502 });
+      }
+    }
+
     for (const t of tasks) {
       try {
         const task = await createTask({
@@ -103,6 +130,7 @@ export async function POST(req: NextRequest) {
           name:        t.name,
           description: `${t.description}${footer}`,
           phase,
+          parent:      parent.id,
         });
         created.push({ name: t.name, id: task.id, url: task.url });
       } catch (e) {
@@ -115,11 +143,13 @@ export async function POST(req: NextRequest) {
     // can overwrite it seconds later. Wait for that to happen, then put it back
     // and verify — an automation that fired once does not re-fire on update.
     const phaseWrong: string[] = [];
-    if (phase && created.length > 0) {
+    // The parent too, unless it came from an earlier run (already checked then).
+    const toCheck = reuseId ? created : [parent, ...created];
+    if (phase && toCheck.length > 0) {
       await sleep(AUTOMATION_SETTLE_MS);
 
-      for (let i = 0; i < created.length; i += REAPPLY_CONCURRENCY) {
-        const batch = created.slice(i, i + REAPPLY_CONCURRENCY);
+      for (let i = 0; i < toCheck.length; i += REAPPLY_CONCURRENCY) {
+        const batch = toCheck.slice(i, i + REAPPLY_CONCURRENCY);
         await Promise.all(batch.map(async t => {
           try {
             const current = await fetchTaskFieldValue(t.id, phase.fieldId);
@@ -139,7 +169,7 @@ export async function POST(req: NextRequest) {
     if (phaseWrong.length > 0) {
       phaseWarning = [
         phaseWarning,
-        `The phase could not be confirmed as "${INTERNAL_ACTION_POINTS}" on ${phaseWrong.length} task${phaseWrong.length === 1 ? "" : "s"} (${phaseWrong.join(", ")}). A ClickUp automation on this list may be overwriting it — check the list's automations.`,
+        `The phase could not be confirmed as "${MEETINGS_PHASE}" on ${phaseWrong.length} task${phaseWrong.length === 1 ? "" : "s"} (${phaseWrong.join(", ")}). A ClickUp automation on this list may be overwriting it — check the list's automations.`,
       ].filter(Boolean).join(" ");
     }
 
@@ -156,12 +186,14 @@ export async function POST(req: NextRequest) {
         }, {
           clickup_list_id:    listId,
           clickup_task_count: created.length,
-          clickup_tasks:      created,
+          // Meeting task first, then its subtasks — what the grid links to.
+          clickup_tasks:      [parent, ...created],
           clickup_at:         new Date().toISOString(),
         })
       : null;
 
     return NextResponse.json({
+      parent,
       created,
       failed,
       listId,

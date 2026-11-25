@@ -220,8 +220,11 @@ export async function fetchListTasks(listId: string): Promise<CUTask[]> {
  */
 export const PHASE_FIELD_NAME = "Phase (v4)";
 
-/** The option the wizard files action items under. */
+/** findPhaseTarget's default option. */
 export const INTERNAL_ACTION_POINTS = "8. Internal Action Points";
+
+/** The option the meeting wizard files a meeting's parent task and action items under. */
+export const MEETINGS_PHASE = "6. Meetings";
 
 export interface CUFieldOption { id: string; name?: string; label?: string; orderindex?: number | string }
 export interface CUField {

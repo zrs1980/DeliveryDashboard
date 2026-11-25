@@ -1129,7 +1129,7 @@ The Fireflies grid's row button is **Process**, not Create. It opens a four-step
 
 | Step | Destination | NetSuite field |
 |---|---|---|
-| 1. Action items | ClickUp tasks, `Phase (v4)` = `8. Internal Action Points` | `custentity20` |
+| 1. Action items | One task named after the meeting, action items as its subtasks; all `Phase (v4)` = `6. Meetings` | `custentity20` |
 | 2. Key details | Slack `chat.postMessage` | `custentity_slack_channel` |
 | 3. File to Drive | Google Doc in the Transcripts folder | `custentity_project_folder` |
 | 4. Done | Links to everything created | — |

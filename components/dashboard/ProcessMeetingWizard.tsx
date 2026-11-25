@@ -3,7 +3,8 @@
 // Replaces the Fireflies grid's one-shot "Create" button. Four steps, each of
 // which can be skipped independently:
 //
-//   1. Action items  → ClickUp tasks under Phase (v4) = "8. Internal Action Points"
+//   1. Action items  → a ClickUp task named after the meeting, with the action
+//                      items as its subtasks, under Phase (v4) = "6. Meetings"
 //   2. Key details   → Slack post to the project's custentity_slack_channel
 //   3. File          → Google Doc in the project's Drive Transcripts folder
 //   4. Done          → links to everything that was created
@@ -122,6 +123,9 @@ export function ProcessMeetingWizard({
     existingProcessing?.clickup_tasks ?? [],
   );
   const [cuFailed, setCuFailed]   = useState<{ name: string; error: string }[]>([]);
+  // The meeting's parent task from this session's run. Sent back on a retry so
+  // the missed action items join it rather than a second meeting task.
+  const [cuParent, setCuParent]   = useState<{ id: string; name: string; url: string } | null>(null);
 
   // Step 2 — Slack
   const [slackBusy, setSlackBusy]     = useState(false);
@@ -252,6 +256,7 @@ export function ProcessMeetingWizard({
           meetingType,
           projectNsId:  String(project.id),
           projectLabel: project.label,
+          parentTaskId: cuParent?.id,
           tasks: selected.map(i => ({
             name:        i.name,
             description: i.owner ? `${i.description}\n\nRaised by: ${i.owner}` : i.description,
@@ -261,6 +266,7 @@ export function ProcessMeetingWizard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not create the ClickUp tasks");
 
+      setCuParent(data.parent ?? null);
       setCuCreated(data.created ?? []);
       setCuFailed(data.failed ?? []);
       setCuWarn(data.warning ?? null);
@@ -435,7 +441,7 @@ export function ProcessMeetingWizard({
             <>
               <StepHead
                 title="Review action items"
-                sub={`Tick the ones to create in ClickUp. Each becomes a task under Phase (v4) → 8. Internal Action Points.`}
+                sub={`Tick the ones to create in ClickUp. They become subtasks of a task named after this meeting, under Phase (v4) → 6. Meetings.`}
               />
               {analysisNote && <Banner tone="yellow">{analysisNote}</Banner>}
               {!project.hasClickUp && (
@@ -637,6 +643,11 @@ export function ProcessMeetingWizard({
               />
               {cuCreated.length > 0 && (
                 <Banner tone="green" title={`✓ ${cuCreated.length} ClickUp task${cuCreated.length === 1 ? "" : "s"} created`}>
+                  {cuParent && (
+                    <div style={{ marginBottom: 3 }}>
+                      Under <a href={cuParent.url} target="_blank" rel="noopener noreferrer" style={{ color: C.blue, fontWeight: 600 }}>{cuParent.name}</a>:
+                    </div>
+                  )}
                   {cuCreated.map((t, i) => (
                     <div key={i}>· <a href={t.url} target="_blank" rel="noopener noreferrer" style={{ color: C.blue }}>{t.name}</a></div>
                   ))}
@@ -687,6 +698,11 @@ export function ProcessMeetingWizard({
             <>
               <StepHead title="All done" sub="Everything that was created for this meeting." />
               <Summary label="ClickUp tasks">
+                {cuParent && cuCreated.length > 0 && (
+                  <div style={{ marginBottom: 3 }}>
+                    Meeting task: <a href={cuParent.url} target="_blank" rel="noopener noreferrer" style={{ color: C.blue, fontWeight: 600 }}>{cuParent.name}</a>
+                  </div>
+                )}
                 {cuCreated.length === 0
                   ? <Muted>Skipped — no tasks created.</Muted>
                   : cuCreated.map((t, i) => (
