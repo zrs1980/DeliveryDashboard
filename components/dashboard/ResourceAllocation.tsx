@@ -280,20 +280,22 @@ function compareProjectTypes(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-/**
- * Project types left out of "Project Budget vs Allocation" (PM request, Nov 2026):
- * the whole Internal band, plus the consulting types, matched by substring on the
- * NetSuite jobtype name. Section 1 still shows them.
- */
 /** Managed Services Agreement — budgeted per month rather than over the project's life. */
 function isMsaType(t: string | null | undefined): boolean {
   return /managed service/i.test(t ?? "");
 }
 
+/**
+ * Project types left out of "Project Budget vs Allocation" (PM requests, Nov 2026):
+ * the whole Internal band, plus the consulting and Standard/Premium/Platinum
+ * Support types, matched by substring on the NetSuite jobtype name. Section 1
+ * still shows them.
+ */
 function isBudgetExcludedType(t: string | null | undefined): boolean {
   if (projectGroupOf(t) === "Internal") return true;
   const s = (t ?? "").toLowerCase();
-  return s.includes("general consulting") || s.includes("consulting services");
+  return s.includes("general consulting") || s.includes("consulting services")
+    || /(standard|premium|platinum) support/.test(s);
 }
 
 const TYPE_TINT: Record<string, { bg: string; color: string; bd: string }> = {
@@ -1100,7 +1102,7 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
               return (
                 <td key={wi}
                     title={busy ? undefined : "Click to add hours"}
-                    onClick={() => { if (busy) return; setEditingCell(cellContext); setEditValue(""); }}
+                    onClick={() => { if (busy || isEditingThis) return; setEditingCell(cellContext); setEditValue(""); }}
                     style={{ ...tdBase, padding: "6px 8px", textAlign: "center", fontSize: 11, fontFamily: C.mono, color: C.mid, cursor: busy ? "default" : "pointer", background: isEditingThis ? "#EBF5FF" : nearWeekBg(wi) }}>
                   {isEditingThis ? (
                     <input
@@ -1812,7 +1814,9 @@ export function ResourceAllocation({ allocations, consultantRoster = [], error }
                                   <td key={wi}
                                       title={!rowSaving ? (coveringAlloc ? "Click to edit" : "Click to add allocation") : undefined}
                                       onClick={() => {
-                                        if (rowSaving) return;
+                                        // Clicks inside the open input (its ▲/▼ spinner
+                                        // included) bubble here; re-opening would reset the value.
+                                        if (rowSaving || isEditingThis) return;
                                         setEditingCell(cellContext);
                                         setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
                                       }}
@@ -2271,7 +2275,8 @@ ${proj.budgetHours?.toFixed(1)}h budget − ${proj.consumedHours.toFixed(1)}h ac
                                   transition:   "background 0.1s",
                                 }}
                                 onClick={() => {
-                                  if (empSaving) return;
+                                  // See the by-project grid: don't reset an open edit.
+                                  if (empSaving || isEditingThis) return;
                                   setEditingCell(cellContext);
                                   setEditValue(hrs > 0 ? hrs.toFixed(1) : "0");
                                 }}
