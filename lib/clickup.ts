@@ -646,9 +646,21 @@ export function isOverdueTask(task: CUTask): boolean {
 
 // ─── Compute % complete from task list ───────────────────────────────────────
 
+/**
+ * Statuses that count as finished for the project Progress %. Wider than
+ * isDone on purpose: a closed or cancelled task is no longer outstanding work,
+ * but it is not "done" for the overdue/accomplishment logic that reads isDone —
+ * a cancelled task must never appear in the status report as an accomplishment.
+ */
+const FINISHED_STATUSES = new Set(["done", "complete", "completed", "closed", "cancelled", "canceled"]);
+
+export function isFinishedForProgress(task: CUTask): boolean {
+  return FINISHED_STATUSES.has(task.status.status.trim().toLowerCase());
+}
+
 export function computePct(tasks: CUTask[]): number {
   if (tasks.length === 0) return 0;
-  const done = tasks.filter(isDone).length;
+  const done = tasks.filter(isFinishedForProgress).length;
   return done / tasks.length;
 }
 
