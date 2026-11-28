@@ -9,6 +9,7 @@ import { PhaseHeatmap } from "@/components/dashboard/PhaseHeatmap";
 import { TaskCommandCenter } from "@/components/dashboard/TaskCommandCenter";
 import { ResourceAllocation } from "@/components/dashboard/ResourceAllocation";
 import { TimeEntries } from "@/components/dashboard/TimeEntries";
+import { ProjectMetrics } from "@/components/dashboard/ProjectMetrics";
 import { TimeAnalysis } from "@/components/dashboard/TimeAnalysis";
 import { ConsultantView } from "@/components/dashboard/ConsultantView";
 import { CasesView } from "@/components/dashboard/CasesView";
@@ -207,7 +208,8 @@ export default function DashboardPage() {
   // loaded the first time the tab is opened — the route fans out to ClickUp per
   // project, too heavy to add to every Refresh Data. A refresh clears them, so
   // they reload next time the tab is shown.
-  const [apScope, setApScope] = useState<"delivery" | "support">("delivery");
+  // "metrics" is the Metrics/KPIs subtab — same Implementation/Service list as "delivery".
+  const [apScope, setApScope] = useState<"delivery" | "support" | "metrics">("delivery");
   const [support, setSupport] = useState<{
     projects: Project[]; loading: boolean; error: string | null; loaded: boolean;
   }>({ projects: [], loading: false, error: null, loaded: false });
@@ -560,14 +562,16 @@ export default function DashboardPage() {
           const byPmType = listed.filter(p => (!apPm || p.pm === apPm) && (!apType || p.projectType === apType));
           const shown    = apProject ? byPmType.filter(p => p.id === apProject) : byPmType;
           const filtered = !!(apPm || apType || apProject);
-          const tabBtn = (scope: "delivery" | "support", label: string) => (
+          const tabBtn = (scope: "delivery" | "support" | "metrics", label: string) => (
             <button
               key={scope}
               onClick={() => {
                 if (scope === apScope) return;
+                setApScope(scope);
                 // Filter values belong to one list; carrying them over would
                 // leave a PM or project picked that the other list doesn't have.
-                setApScope(scope); setApPm(""); setApType(""); setApProject(null);
+                // Projects and Metrics share the Implementation/Service list.
+                if (scope === "support" || apScope === "support") { setApPm(""); setApType(""); setApProject(null); }
               }}
               style={{
                 fontSize: 14, fontWeight: 700, padding: "6px 2px", background: "none", border: "none",
@@ -597,10 +601,11 @@ export default function DashboardPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
                   {tabBtn("delivery", "Implementation/Service projects")}
                   {tabBtn("support", "Support projects")}
+                  {tabBtn("metrics", "Metrics/KPIs")}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                   {/* No PM filter on Support — that list has no PM column. */}
-                  {apScope === "delivery" && (
+                  {apScope !== "support" && (
                     <div style={{ display: "flex", alignItems: "center" }}>
                       <label style={lblStyle}>PM</label>
                       <select value={apPm} style={selStyle} onChange={e => {
@@ -645,7 +650,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </div>
-              {apScope === "support" && support.loading ? (
+              {apScope === "metrics" ? (
+                <ProjectMetrics projects={shown} />
+              ) : apScope === "support" && support.loading ? (
                 <div style={{ padding: "28px 22px", fontSize: 13, color: C.textSub }}>Loading support projects…</div>
               ) : apScope === "support" && support.error ? (
                 <div style={{ padding: "16px 22px", fontSize: 13, color: C.red, display: "flex", alignItems: "center", gap: 12 }}>
